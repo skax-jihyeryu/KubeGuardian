@@ -4,11 +4,16 @@ KubeGuardian 레포의 브랜치·커밋·PR 규칙이다. 1인 8주 PoC에 맞�
 
 ## 1. 브랜치 규칙
 
-### 1.1 전략: GitHub Flow
+### 1.1 전략: develop 기본 + main 안정판
 
-- `main` 하나만 장기 브랜치로 둔다. `main`은 항상 동작하는 상태를 유지한다.
-- 모든 작업은 `main`에서 작업 브랜치를 따서 하고, PR로 `main`에 병합한다.
-- `main`에 직접 push하지 않는다.
+| 브랜치 | 역할 | 병합 |
+|---|---|---|
+| `develop` | **기본 브랜치.** 개발 통합. 작업 브랜치는 여기서 따고 여기로 PR한다 | 작업 브랜치 → `develop` (squash merge) |
+| `main` | 안정판. 주차 Exit 조건을 통과한 상태만 둔다 | `develop` → `main` (merge commit), 주차 종료 시 |
+
+- 모든 작업은 `develop`에서 작업 브랜치를 따서 하고, PR로 `develop`에 병합한다.
+- `develop`·`main`에 직접 push하지 않는다.
+- 주차 Exit 조건을 통과하면 `develop` → `main` PR을 올리고, 병합 후 `main`에 `w1`~`w8` 태그를 단다.
 - 병합한 작업 브랜치는 삭제한다.
 
 ### 1.2 이름 규칙
@@ -84,7 +89,8 @@ docs(deliverables): 시나리오 수립 문서 추가
 - **제목**은 커밋 제목과 같은 형식으로 쓴다: `feat(detectors): N·P 카테고리 감지기 추가`
 - **본문**은 [PR 템플릿](.github/pull_request_template.md)을 채운다.
 - **크기**: 한 PR은 한 주제만 담는다. 주차 작업이 크면 나눠서 올린다.
-- **병합 방식**: **Squash merge**를 쓴다. squash 커밋 메시지는 PR 제목을 그대로 쓴다.
+- **대상 브랜치**: 작업 PR은 `develop`으로 올린다. `main`으로는 주차 종료 PR만 올린다.
+- **병합 방식**: 작업 PR은 **Squash merge**를 쓰고, squash 커밋 메시지는 PR 제목을 그대로 쓴다. `develop` → `main`은 merge commit을 쓰고 제목은 `release: W<주차> 완료`로 쓴다.
 - **병합 조건**
   - 기능·시나리오 변경이면 관련 시나리오의 `make eval` 결과를 PR에 붙인다.
   - 프롬프트나 조사 지침을 바꿨으면 전체 eval로 회귀를 확인한다 (실행 계획서 §4).
