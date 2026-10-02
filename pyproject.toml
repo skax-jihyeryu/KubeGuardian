@@ -1,0 +1,33 @@
+[project]
+name = "kubeguardian"
+version = "0.1.0"
+description = "AI 기반 Kubernetes 서비스 진단 Agent"
+requires-python = ">=3.12,<3.13"
+dependencies = ["kubeguardian-agent"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+kubeguardian-agent = { workspace = true }
+
+[tool.uv.workspace]
+members = ["apps/diagnostic-agent"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.16",
+    "pre-commit>=4",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["apps/diagnostic-agent/tests"]
+addopts = "-ra"

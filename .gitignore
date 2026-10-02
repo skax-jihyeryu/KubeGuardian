@@ -1,1 +1,37 @@
+# OS·IDE
 .DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# 비밀값 — .env.example만 커밋한다
+.env
+.env.*
+!.env.example
+*.pem
+*.crt
+*.key
+
+# 로컬 실행 산출물
+*.db
+*.sqlite
+*.sqlite3
+eval/history/
+eval/runs/
+eval/blind/answers/
+
+# Node (제품 화면)
+node_modules/
