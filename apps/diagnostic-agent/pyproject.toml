@@ -1,0 +1,15 @@
+[project]
+name = "kubeguardian-agent"
+version = "0.1.0"
+description = "KubeGuardian 진단 에이전트 (점검 계층·도구·에이전트 코어·API)"
+requires-python = ">=3.12,<3.13"
+# 런타임 의존성은 기능을 붙일 때 추가한다. 에이전트 프레임워크는 W3 스파이크 후 결정.
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.8,<0.10"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "app"
+module-root = ""
