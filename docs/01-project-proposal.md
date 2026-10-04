@@ -1,184 +1,161 @@
 # KubeGuardian AI — 프로젝트 기획서
 
-> **AI 기반 Kubernetes 서비스 환경 구성·개시·변경 검증 Agent**
-> *Agentic Kubernetes Environment & Service Validator*
+> **AI 기반 Kubernetes 서비스 환경 진단 Agent**
+> *Agentic Kubernetes Service Diagnosis Agent*
 
 | 항목 | 내용 |
 |---|---|
 | 유형 | 사내 과제 / PoC |
-| **1차 목적** | **Kubernetes 이해도 향상 + AI 에이전트 개발 역량 함양** |
-| 2차 목적 | 템플릿 기반 서비스용 진단 에이전트 PoC |
-| 인원·기간 | 1인 · 8주 |
+| **1차 목적** | **Kubernetes 장애 분석 역량 + 에이전트 정량 평가 역량 함양** |
+| 2차 목적 | 템플릿 기반 AI 서비스용 진단 에이전트 PoC |
+| 인원·기간 | 1인 · 8주 · **주 10~15시간** |
 | 기준 서비스 | [agent-template-apps-lite](https://github.com/orgs/agent-template-apps-lite/repositories) 포크 (앱 6개) |
 | 실행 환경 | minikube (단일 노드) + Chaos Mesh |
 | LLM | 진단 에이전트·진단 대상 서비스 모두 Azure OpenAI (경로는 분리) |
-| 최종 형태 | 템플릿으로 새 서비스를 시작할 때 함께 설치하는 **범용 진단 애드온** |
-| 문서 버전 | v2.3 (2026-09-29) — 최신 에이전트 기술 도입: MCP 도구 서버, Code Mode + K8s Agent Sandbox, ITBench, LLM-as-judge, Skills 방식 지침, OTel 계측 (v2.2: 업무 효율 KPI / v2.1: 규칙 우선 + AI 조사 하이브리드, 에이전트 프레임워크 비한정, 학습 목적 명시) |
+| 사용 방식 | **5분 주기 자동 점검 → 이상 시 AI 조사 → Slack 알림** (주), 배포 직후 점검·증상 입력 (보조) |
+| 문서 버전 | v3.0 (2026-10-04) — 주 10~15시간 기준 범위 조정 (변경 이력은 §17) |
+| 관련 산출물 | [역량·기술 스택](산출물/01-역량및기술스택확인.md), [문제 정의·서비스 기획](산출물/02-문제정의및서비스기획.md), [시나리오](산출물/03-시나리오수립.md) |
 
 ---
 
 ## 1. 한 줄 설명
 
-템플릿 기반 AI 서비스가 올라간 Kubernetes 환경을 **규칙으로 먼저 점검**하고, 규칙이 문제를 찾았거나 **규칙은 통과했는데 실제로는 문제가 있을 때** AI 에이전트가 조사에 들어가 **무엇이 중요한지 골라내고 원인을 근거와 함께 설명하는** 진단 에이전트.
+템플릿 기반 AI 서비스가 올라간 Kubernetes 환경을 **5분마다 규칙으로 점검**하고, 규칙이 문제를 찾았거나 **규칙은 통과했는데 실제로는 서비스가 안 될 때** AI 에이전트가 조사에 들어가 **무엇이 중요한지 골라내고 원인을 근거와 함께 설명한 보고서를 Slack으로 보내는** 진단 에이전트.
 
 ### 1.1 프로젝트의 1차 목적: 학습
 
-이 프로젝트의 가장 큰 목표는 결과물 자체보다 **Kubernetes에 대한 이해도 상승**과 **AI 에이전트 개발 능력 함양**이다. 설계의 여러 선택이 이 목적을 따른다.
+실무에서 LangGraph·DeepAgents 기반 에이전트와 RAG를 이미 구축해 봤으므로, 이번 프로젝트는 **부족한 두 영역**에 집중한다.
 
 | 학습 영역 | 이 프로젝트에서 얻는 것 | 어디서 |
 |---|---|---|
-| K8s 리소스 모델 | Deployment·ReplicaSet·Pod·Service·EndpointSlice의 관계를 코드로 따라가 봄 | 수집기·토폴로지 (W2) |
-| K8s 네트워킹 | Service 라우팅, DNS, Pod 직접 호출, 포트 매핑 | 프로브, A1·A2·B1 |
-| K8s 설정 전파 | ConfigMap·Secret이 Pod에 반영되는 시점, 롤아웃 | A5, B2, 변경 검증 |
-| K8s 자원·런타임 | requests/limits, OOMKilled, CPU throttling, probe 동작 | D1, D2, 감지기 |
-| K8s 보안 | ServiceAccount, RBAC 최소 권한 설계 | 진단 에이전트 권한 (W2) |
-| K8s 확장 | CRD 기반 도구(Chaos Mesh) 운용, metrics API | 장애 주입, 메트릭 샘플러 |
-| K8s 격리 실행 | Agent Sandbox CRD로 에이전트가 쓴 코드를 격리 실행, NetworkPolicy·ServiceAccount 토큰 차단 | Code Mode (W6, §7.8) |
-| 에이전트 설계 | 도구 설계, 루프 제어, 상한, 구조화 출력, 근거 인용 | W3~W5 |
-| 에이전트 프레임워크 | 여러 구현 방식을 직접 비교하고 선택 | W3 스파이크 |
-| 에이전트 프로토콜·실행 패턴 | MCP로 도구 계층 노출, 도구를 하나씩 부르는 방식과 Code Mode 비교 | W3, W6~W7 |
-| 에이전트 운영 모델 | kagent(CNCF)의 CRD 기반 에이전트 운영 방식을 참고해 애드온 설계와 비교 | W8 ADR |
-| 에이전트 평가 | 정답 기반 평가 체계, 조건 비교, 회귀 확인, LLM-as-judge, 공개 벤치마크(ITBench) | W7 |
-| 컨텍스트 엔지니어링 | 조사 지침·환경 설명이 결과에 미치는 영향 측정, Skills 방식(필요할 때만 불러오기) 지침 | W5, 3단 비교 |
-| 에이전트 관측 | OpenTelemetry GenAI 표준으로 계측해 Phoenix로 추적 | W3 |
+| **K8s 리소스 모델** | Deployment·ReplicaSet·Pod·Service·EndpointSlice의 관계를 코드로 따라가 봄 | 수집기·토폴로지, 감지기 |
+| **K8s 네트워킹** | Service 라우팅, Pod 직접 호출, 포트 매핑, 서비스 간 통신 차단 | 감지기 S01~S04, 시나리오 B1·C2 |
+| **K8s 설정·배포** | ConfigMap·Secret 참조, 이미지, 롤아웃 | 감지기 C01·P03, 시나리오 A3·C5 |
+| **K8s 운영 기능** | CronJob(주기 실행·중복 실행 방지), PVC, RBAC 최소 권한 | 주기 점검, 진단 에이전트 권한 |
+| **K8s 장애 재현** | CRD 기반 도구(Chaos Mesh)로 장애 주입 | 평가 환경 |
+| **에이전트 정량 평가** | 정답 파일 설계, 지표 정의, 자동 채점 러너, 기준 조건 대비 비교, 실패 사례 분석 | 평가 체계 (§9) |
+| 에이전트 설계 심화 | 가설 → 도구 검증 → 판정 루프, 근거 인용 강제, 호출 상한 | 에이전트 코어 (§6) |
+| 에이전트 기술 비교 | 구현 방식, 지침 주입, MCP, Code Mode 등을 같은 지표로 비교 | 비교 실험 (§10) |
 
-**학습 산출물**: 주간 학습 노트(시나리오별로 "어떤 K8s 개념이 어떻게 장애가 되는가"), 설계 결정 기록(ADR), 프레임워크 비교 기록.
+**학습 산출물**: 주간 학습 노트(주 1건, "어떤 K8s 개념이 어떻게 장애가 되고 어떤 신호로 보이는가"), 설계 결정 기록(ADR 3건 이상).
 
 ## 2. 배경과 문제
 
-### 2.1 템플릿 기반 서비스의 운영 현실
+### 2.1 MSA 구조의 운영 부담
 
-agent-template-apps-lite는 `front-chat / front-admin → gateway → agent / admin / llm-gateway → PostgreSQL · Redis · Azure OpenAI` 구조의 AI 서비스 템플릿이다. Inc-PR 등 실제 서비스가 이 템플릿에서 출발했다. 운영에서 겪은 장애는 대부분 다음 유형이었다.
+요즘 서비스는 화면, 요청 중계, 핵심 로직, 인증, 외부 연동을 각각 독립된 서비스로 나누는 MSA 구조가 일반적이다. 서비스 하나를 운영하려면 여러 레포·이미지, 여러 Pod와 Service, 공유 설정(ConfigMap·Secret)·DB·캐시를 함께 관리해야 한다. 조각끼리 네트워크로 호출하기 때문에 **한 곳의 문제가 다른 곳의 증상으로** 나타난다.
 
-- **Kubernetes는 전부 정상인데 서비스가 안 된다.** Pod는 Running·Ready인데 채팅이 실패한다.
-- **증상이 난 곳과 원인이 있는 곳이 멀다.** gateway에서 502가 났는데 원인은 llm-gateway의 할당량, 또는 Redis다.
-- **신호는 많은데 무엇이 중요한지 모른다.** 경고·이벤트·재시작 기록이 쌓여 있지만 대부분 지금 장애와 무관하다.
+### 2.2 우리 팀의 예: AI 서비스 템플릿
 
-### 2.2 템플릿 자체에서 확인한 구조적 약점 (코드·매니페스트 확인)
+우리 팀은 MSA 구조의 템플릿 agent-template-apps-lite를 만들어 사용한다. 구조는 `front-chat / front-admin → gateway → agent / admin / llm-gateway → PostgreSQL · Redis · Azure OpenAI`이고, 앱 6개가 별도 레포, 배포 설정은 shared-infra 레포에 있다. 직접 구축·운영한 **SK Inc. PR 보도자료 자동화 서비스**도 이 템플릿에서 출발해 AWS EKS에서 운영 중이다. 운영에서 겪은 장애는 대부분 다음 유형이었다.
+
+- **보이지 않음**: Pod는 Running·Ready인데 서비스가 안 된다.
+- **멀리 있음**: gateway에서 502가 났는데 원인은 llm-gateway의 할당량, 또는 Redis다.
+- **너무 많음**: 경고·이벤트·재시작 기록이 쌓여 있지만 대부분 지금 장애와 무관하다.
+
+운영 사례: 공유 ConfigMap을 여러 레포가 덮어써서 생긴 장애, agent 메모리 512Mi에서 OOMKilled, gateway 504 타임아웃, `create_all`이 ALTER를 하지 않아 생긴 스키마 드리프트. 모두 **kubectl 한 번으로는 원인이 보이지 않았던** 사례다.
+
+### 2.3 템플릿 자체의 구조적 약점 (배경)
 
 | # | 관찰 | 결과 |
 |---|---|---|
-| T1 | `shared-infra/kubernetes` 매니페스트에 `AGENT_SERVICE_URL` 등 **서비스 주소 설정이 없음**. gateway 코드 기본값은 `http://localhost:*` (docker-compose에만 설정) | 원본 그대로 클러스터에 배포하면 gateway가 하위 서비스를 못 찾음 |
-| T2 | 확인한 Deployment의 readinessProbe가 모두 **tcpSocket(포트 연결)만** 봄. gateway·agent의 `/health`는 의존성 확인 없이 고정 응답 | 앱이 500을 내도 Ready로 표시 |
-| T3 | 이미지 tag 고정(`0.0.1`) + `imagePullPolicy: Always` | 같은 tag에 다른 이미지가 공존해도 tag로 구분 불가 |
-| T4 | 모든 앱이 `infra-config`·`common-config`·`common-secret`을 공유 (MASTER_KEY 포함) | 공용 설정 하나의 변경이 전 서비스에 파급 |
-| T5 | gateway `PROXY_TIMEOUT=60`, 재시도 2회. agent CPU limit 300m | 느린 LLM 응답·부하에서 연쇄 타임아웃 여지 |
+| T1 | `shared-infra/kubernetes` 매니페스트에 `AGENT_SERVICE_URL` 등 서비스 주소 설정이 없음. gateway 코드 기본값은 `http://localhost:*` | 원본 그대로 배포하면 gateway가 하위 서비스를 못 찾음 |
+| T2 | readinessProbe가 모두 tcpSocket(포트 연결)만 봄. `/health`는 의존성 확인 없이 고정 응답 | 앱이 500을 내도 Ready로 표시 → "보이지 않음"의 원인 |
+| T3 | 이미지 tag 고정(`0.0.1`) + `imagePullPolicy: Always` | 같은 tag에 다른 이미지가 공존 가능 |
+| T4 | 모든 앱이 공용 ConfigMap·Secret을 공유 | 공용 설정 하나의 변경이 전 서비스에 파급 |
 
-### 2.3 운영 사례 (Inc-PR, 문제의식의 출처)
-
-공유 ConfigMap을 여러 레포가 덮어써서 생긴 장애, agent 메모리 512Mi에서 OOMKilled, gateway 504 타임아웃, `create_all`이 ALTER를 하지 않아 생긴 스키마 드리프트, 스트리밍 응답 버퍼링. 모두 **kubectl 한 번으로는 원인이 보이지 않았던** 사례다. 장애 시나리오 설계에 반영했다(§9).
+T1은 템플릿을 고쳐서 해결할 문제라 **문제 정의의 중심이 아니다.** 데모 시나리오(A5)로만 쓴다. T2·T4는 "보이지 않음"·"멀리 있음"이 생기는 구조적 이유다.
 
 ### 2.4 핵심 문제
 
-상태를 보여주는 도구(kubectl, 대시보드)는 있다. 하지만 **"수많은 신호 중 지금 중요한 것이 무엇이고, 왜 그런가"를 찾아내는 일**은 숙련자가 수작업으로 한다. 이 일은 규칙만으로 자동화하기 어렵다. 증상과 원인이 다른 서비스에 있거나, 여러 신호를 연결해야 하거나, 소음 속에서 골라내야 하기 때문이다.
+상태를 보여주는 도구(kubectl, 대시보드)는 있다. 하지만 **"지금 서비스가 안 되는지, 수많은 신호 중 무엇이 원인인지"를 알아내는 일**은 사용자 문의가 온 뒤에 숙련자가 수작업으로 한다. 특히 증상과 원인이 다른 서비스에 있고 K8s 상태는 정상인 장애는 규칙만으로 자동화하기 어렵다.
 
-## 3. 핵심 방향: 규칙 우선 + AI 조사
+## 3. 핵심 방향: 주기 점검 + 규칙 우선 + AI 조사
 
 ### 3.1 원칙
 
-> **규칙으로 먼저 점검한다. AI는 (1) 규칙이 문제를 찾았을 때, (2) 규칙은 통과했는데 실제로 문제가 있을 때 들어간다.**
+> **5분마다 규칙으로 먼저 점검한다. AI는 (1) 규칙이 문제를 찾았을 때, (2) 규칙은 통과했는데 증상이 있을 때만 들어간다. 결과는 Slack으로 알린다.**
 
 ```mermaid
 flowchart TB
-    T[점검 시작<br/>수동 / 주기 / 배포 후 / 사용자 증상 입력] --> R[1. 규칙 점검<br/>감지기 N·P·W·S·C·H 26종]
-    T --> S[2. 증상 센서<br/>L7 프로브 · API 시나리오 · 재시작·메트릭 추세]
+    T[점검 시작<br/>CronJob 5분 주기 / kg check / kg investigate] --> R[1. 규칙 점검<br/>감지기 장애 신호 10종 + 개선 권고 2종]
+    T --> S[2. 증상 감지<br/>API 시나리오 실제 호출]
     R --> G{AI 게이트}
     S --> G
-    G -->|경로 A: 규칙이 장애 신호를 찾음| AI[AI 에이전트 조사<br/>선별 → 가설 → 도구 → 판정]
-    G -->|경로 B: 규칙은 통과, 증상은 있음<br/>= 규칙의 사각지대| AI
-    G -->|경로 C: 규칙 통과, 증상 없음| OK[규칙 점검 보고서만<br/>AI 호출 없음]
-    AI --> REP[근거 인용 보고서 + 대화]
+    G -->|경로 A: 규칙이 장애 신호를 찾음| D{이미 알린 문제인가}
+    G -->|경로 B: 규칙은 통과, 증상은 있음| D
+    G -->|경로 C: 둘 다 정상| OK[기록만 남김<br/>열린 문제가 있으면 복구 알림]
+    D -->|새 문제| AI[AI 조사<br/>선별 → 가설 → 도구 → 판정]
+    D -->|같은 문제 진행 중| SKIP[AI·알림 생략]
+    AI --> REP[근거 인용 보고서]
+    REP --> N[Slack 알림<br/>요약 본문 + 스레드에 전체 보고서]
 ```
 
 | 경로 | 조건 | AI가 하는 일 | 예 |
 |---|---|---|---|
-| **A. 규칙 적발** | 감지기가 **장애 신호**(critical·warning)를 냄 | 여러 신호 중 무엇이 중요한지 **선별**하고, 신호를 연결해 원인과 영향을 설명 | selector 불일치 + 그로 인한 502 |
-| **B. 규칙 사각지대** | 감지기는 통과했지만 **증상 센서가 이상**을 보거나 사용자가 증상을 입력함 | 규칙이 모르는 원인을 **가설로 탐색** | Pod는 전부 정상인데 채팅이 실패 (원인: LLM 할당량) |
+| **A. 규칙 적발** | 감지기가 장애 신호를 냄 | 여러 신호 중 무엇이 중요한지 **선별**하고, 신호를 연결해 원인과 영향을 설명 | Service selector 오타 + 그로 인한 채팅 실패 |
+| **B. 규칙 사각지대** | 감지기는 통과했지만 증상 감지가 이상을 봤거나 사용자가 증상을 입력함 | 규칙이 모르는 원인을 **가설로 탐색** | Pod는 전부 정상인데 채팅이 실패 (원인: LLM 할당량) |
 | C. 정상 | 둘 다 없음 | 호출하지 않음 | — |
 
-- **개선 권고**(tcpSocket만 쓰는 probe, limits 미설정 등)는 장애 신호가 아니므로 게이트를 열지 않는다. 규칙 보고서의 "개선 권고"로만 표시한다.
-- 경로 B가 이 프로젝트에서 AI가 가장 필요한 곳이다. 증상 센서는 결정적 코드지만, **원인을 찾는 일은 규칙으로 할 수 없다.**
+- **개선 권고**(tcpSocket만 쓰는 probe, limits 미설정 등)는 게이트를 열지 않는다. 보고서의 "개선 권고"로만 표시한다.
+- **경로 B가 AI가 가장 필요한 곳이다.** 증상 감지는 결정적 코드지만, 원인을 찾는 일은 규칙으로 할 수 없다.
 
 | 역할 | 담당 |
 |---|---|
-| 명백한 이상 확정 (규칙 점검) | 결정적 코드 (감지기) |
-| "무언가 잘못됐다" 감지 (증상) | 결정적 코드 (증상 센서) + 사용자 입력 |
-| AI 조사 여부 결정 | 결정적 코드 (게이트) |
-| 무엇이 중요한가 (선별) | **AI 에이전트** |
-| 왜 그런가 (조사) | **AI 에이전트** |
-| 설명·대화, 변경의 의미 판단 | **AI 에이전트** |
+| 주기 실행 | Kubernetes CronJob |
+| 명백한 이상 확정 | 결정적 코드 (감지기) |
+| "무언가 잘못됐다" 감지 | 결정적 코드 (증상 감지) + 사용자 입력 |
+| AI 조사 여부·중복 여부 결정 | 결정적 코드 (게이트, 알림 상태) |
+| 무엇이 중요한가, 왜 그런가 | **AI 에이전트** |
 | 사실 수집 | 결정적 코드 (에이전트 도구) |
 | 신뢰성 보장 | 결정적 코드 (근거 검증, 마스킹, 읽기 전용, 호출 상한) |
 
 ### 3.2 이렇게 나누는 이유
 
-- **비용과 예측 가능성**: 정상일 때 LLM을 부르지 않는다. 규칙으로 확정되는 것은 항상 같은 답을 낸다.
-- **AI의 역할이 분명해진다**: AI는 "규칙이 찾은 것을 정리"(경로 A)하고 "규칙이 못 찾는 것을 탐색"(경로 B)한다. 평가도 두 경로를 나눠 측정할 수 있다.
-- **학습 측면**: 규칙을 직접 써 보면서 K8s 개념을 익히고, 규칙의 한계가 드러나는 지점에서 에이전트 설계를 익힌다.
+- **비용**: 5분마다 돌아도 정상이면 LLM을 부르지 않는다. 같은 문제가 계속되는 동안에도 다시 부르지 않는다.
+- **예측 가능성**: 규칙으로 확정되는 것은 항상 같은 답을 낸다.
+- **평가**: AI의 역할이 "규칙이 찾은 것의 정리"(A)와 "사각지대 탐색"(B)으로 나뉘어 따로 측정할 수 있다.
 
 ### 3.3 AI를 믿을 수 있게 만드는 장치
 
-특히 경로 B는 규칙이 뒷받침하지 않는 영역이라 "AI가 지어낸 것 아닌가"라는 질문에 답해야 한다.
-
 1. **사실은 도구에서만 나온다.** 모든 사실은 도구 호출 결과(evidence)로 저장되고 id를 가진다.
 2. **모든 사실 문장은 근거를 인용한다.** 근거 검증기가 코드로 확인하고, 인용이 없으면 "추정"으로 강등한다.
-3. **읽기 전용.** 에이전트는 클러스터를 바꿀 수 없다 (RBAC로 강제).
-4. **정답 기반 평가.** 장애를 주입하고 정답과 비교해 정확도를 수치로 공개한다.
+3. **보고서 하나로 판단이 끝난다.** 배제한 가설과 이유, 확인한 범위와 확인하지 못한 것을 함께 쓴다.
+4. **읽기 전용.** 에이전트는 클러스터를 바꿀 수 없다 (RBAC로 강제).
+5. **정답 기반 평가.** 장애를 주입하고 정답과 비교해 정확도를 수치로 공개한다.
 
 ## 4. 목표와 비목표
 
 ### 4.1 목표
 
 **학습 목표 (1차)**
-1. K8s 리소스·네트워킹·설정 전파·자원·RBAC를 **진단 코드와 장애 재현으로** 익힌다 (§1.1).
-2. 에이전트의 도구 설계, 루프 제어, 컨텍스트 설계, 평가를 **직접 구현하고 측정**한다.
-3. 에이전트 구현 방식을 둘 이상 **직접 비교해 보고** 선택 근거를 남긴다.
-4. 2026년 에이전트 기술(MCP Code Mode + K8s Agent Sandbox, 공개 SRE 벤치마크 ITBench)을 **도입하고 효과를 eval로 검증**한다.
+1. K8s 리소스·네트워킹·설정·운영 기능(CronJob, RBAC)을 **진단 코드와 장애 재현으로** 익힌다 (§1.1).
+2. **정답 기반 평가 체계**를 설계·자동화하고, 기준 조건 대비로 효과를 숫자로 보고한다.
+3. 에이전트 기술을 **같은 시나리오·같은 지표로 비교**하고 선택 근거를 남긴다 (§10).
 
 **기능 목표 (2차)**
-1. **규칙 점검** — 감지기로 구성·상태 오류를 확정하고, 장애 신호와 개선 권고를 구분한다.
-2. **증상 감지** — L7 프로브, 핵심 API 시나리오, 추세 센서로 "규칙은 통과했지만 무언가 잘못됨"을 잡는다.
-3. **AI 조사** — 게이트가 열리면 선별 → 가설 → 도구 검증 → 근거 인용 보고서를 만든다.
-4. **대화** — 보고서에 대한 후속 질문에 근거를 인용해 답한다.
-5. **변경 검증** — 변경 전후를 비교하고 영향받는 서비스를 재검증한다. 문제가 보이면 AI 조사로 넘긴다.
-6. **범용 애드온** — 템플릿으로 시작하는 어떤 서비스에도 설정 파일 하나로 붙인다.
-7. **템플릿 개선 기여** — 포크에서 검증한 개선을 원본 템플릿에 기여한다.
+1. **주기 점검** — 5분마다 감지기와 증상 감지를 실행하고, 장애 신호와 개선 권고를 구분한다.
+2. **AI 조사·검증** — 게이트가 열리면 선별 → 가설 → 도구 검증 → 근거 인용 보고서를 만든다.
+3. **Slack 알림** — 새 문제는 한 번만 알리고, 해결되면 복구 알림을 보낸다.
+4. **수동 실행** — 배포 직후 점검(`kg check`), 증상 입력 조사(`kg investigate`).
 
 ### 4.2 비목표
 
-- **자동 조치** — 권장 조치와 재검증 방법만 제시한다. 클러스터를 변경하지 않는다.
-- 멀티 클러스터, 실제 AKS 운영 클러스터 적용
-- Prometheus·서비스 메시 등 관측 스택 구축 (자체 경량 수집으로 대체)
-- 진단 에이전트 다중 replica 운영
-- 과거 조사 학습(memory) — 후속 과제
+| 항목 | 이유 / 처리 |
+|---|---|
+| **조치 에이전트** (승인 후 실행, 자동 실행) | 진단 정확도 우선, 안전, 평가 명확성. 조사 보고서를 입력으로 받는 **다음 단계 과제** |
+| 보고서 후속 질문(대화) | 보고서 하나로 판단이 끝나도록 만드는 데 집중 |
+| 변경 검증 (배포 전후 diff, 영향 범위 재검증) | 별도 제품 수준의 범위 |
+| 제품용 웹 화면 (React) | CLI + Chainlit + Slack으로 충분 |
+| 부하·시간 의존 장애 (L4) | 메트릭 샘플러·추세 센서·부하 도구가 필요해 범위가 큼 |
+| 멀티 클러스터, 실제 AKS·EKS 적용 | PoC 범위 밖 |
+| Prometheus·서비스 메시 등 관측 스택 | 자체 경량 수집으로 대체 |
+| 범용 애드온 배포, 원본 템플릿 기여 | **비전으로만 유지** (§12) |
+| 과거 조사 기억(Memory) | 후속 과제 |
 
-## 5. 사용 방식
+## 5. 기준 환경
 
-| 모드 | 트리거 | 흐름 | 산출물 |
-|---|---|---|---|
-| **점검** | 수동 / 주기 / 배포 직후 | 규칙 + 증상 센서 → 게이트 → (열리면) AI 선별·조사 | 정상이면 규칙 보고서, 이상이면 "지금 중요한 것" 브리핑 |
-| **증상 조사** | 사용자가 "gateway에서 502가 나" 입력 | 사용자 증상 = 경로 B로 게이트가 바로 열림 → AI 조사 | 조사 보고서 (8개 섹션) |
-| **변경 검증** | "방금 배포 괜찮아?" / CLI `kg verify` | 스냅샷 diff + 영향 범위 재검증 (결정적) → 이상 시 AI 조사 | 변경 판정 + 영향 범위 |
-| **대화** | AI 결과 화면에서 후속 질문 | 기존 근거 재사용 + 필요 시 추가 도구 호출 | 근거 인용 답변 |
-
-**예시 — 점검 결과: 경로 C (정상)**
-
-> ✅ 규칙 26개 통과, 증상 센서 이상 없음. AI 조사는 수행하지 않았습니다.
-> 개선 권고 3건: readinessProbe가 포트 연결만 확인 (6개 서비스) …
-
-**예시 — 점검 결과: 경로 B (규칙 통과 + 증상), AI 브리핑**
-
-> 규칙 점검은 모두 통과했지만 채팅 API 시나리오가 실패해 AI 조사를 시작했습니다.
->
-> **지금 중요한 것 2건** (신호 47개 중)
-> 1. 🔴 **채팅이 실패하고 있습니다** (확신도 높음) — front-chat → gateway → agent → llm-gateway 경로에서 llm-gateway가 429를 반환합니다 [ev-12]. llm-gateway 할당량 API 기준 오늘 사용량이 한도의 100%입니다 [ev-15]. Pod는 모두 정상입니다 [ev-3].
-> 2. 🟠 **agent Pod 1개가 10분마다 재시작합니다** (확신도 중간) — 메모리 사용량이 계속 늘다가 OOMKilled됩니다 [ev-21, ev-22]. 현재 사용자 영향은 제한적입니다.
->
-> 참고: readinessProbe가 포트 연결만 확인하는 문제가 6개 서비스에 있습니다. 지금 장애와는 무관한 **개선 권고**로 분류했습니다.
-
-## 6. 기준 환경
-
-### 6.1 구성
+### 5.1 구성
 
 ```mermaid
 flowchart LR
@@ -197,442 +174,350 @@ flowchart LR
     end
     LG -. 서비스용 LLM .-> AOAI1[Azure OpenAI]
     subgraph ns_kg[namespace: kubeguardian]
-        UI[에이전트 UI] --> DA[diagnostic-agent ×1]
-        DA --> ST[(SQLite on PVC)]
+        CJ[CronJob 5분] --> JOB[점검 Job]
+        CLI[kg CLI / Chainlit] --> DA[diagnostic-agent]
+        JOB --> ST[(SQLite on PVC)]
+        DA --> ST
     end
-    DA -. 읽기 전용 .-> K8S[K8s API · metrics-server]
-    DA -. 프로브 · 앱 조회 API .-> ns_dev
-    DA -. 진단용 LLM (직접) .-> AOAI2[Azure OpenAI]
+    JOB -. 읽기 전용 .-> K8S[K8s API]
+    JOB -. API 시나리오 · 앱 조회 .-> ns_dev
+    JOB -. 진단용 LLM (직접) .-> AOAI2[Azure OpenAI]
+    JOB -. 알림 .-> SLACK[Slack]
     subgraph ns_chaos[namespace: chaos-mesh — 평가 전용]
         CM[Chaos Mesh]
     end
     CM -. 장애 주입 .-> ns_dev
 ```
 
-- 다중 Pod 시나리오를 위해 agent는 replicas 3, gateway는 2로 둔다.
+- 다중 Pod 시나리오(B1)를 위해 agent는 replicas 3으로 둔다.
 - 리소스 예산: `minikube start --cpus=4 --memory=10g`
-- 진단 에이전트는 Inc-PR llm-gateway를 거치지 않고 Azure OpenAI를 **직접** 호출한다. 진단 대상 llm-gateway가 고장 나도 진단할 수 있어야 하기 때문이다.
+- 진단 에이전트는 진단 대상 llm-gateway를 거치지 않고 Azure OpenAI를 **직접** 호출한다. llm-gateway가 고장 나도 진단할 수 있어야 하기 때문이다.
+- 주기 점검 Job과 수동 실행(CLI·Chainlit)은 같은 코드·같은 SQLite(PVC)를 쓴다.
 
-### 6.2 템플릿 포크와 수정 항목
+### 5.2 템플릿 포크와 수정 항목
 
-템플릿을 포크해 아래만 수정한다. 개발이 끝나면 기여할 항목은 원본 템플릿에 PR로 올린다.
+| ID | 수정 | 이유 |
+|---|---|---|
+| F1 | K8s 매니페스트에 서비스 주소 설정 추가 (`AGENT_SERVICE_URL` 등) | T1 수정. 없으면 정상 기준선을 만들 수 없음. 제거하면 A5 시나리오 |
+| F2 | agent 검색을 선택 기능으로 (검색 설정이 없으면 건너뜀) | Azure AI Search 미사용. 없으면 채팅이 동작하지 않음 |
+| F5 | 테스트 사용자 시드 | API 시나리오(로그인 → 채팅) 실행 |
+| F6 | minikube용 postgres·redis 매니페스트, 로컬 이미지 overlay | 원본은 Azure PG·Redis를 가리킴 |
+| F7 | 버전 2 이미지 (DB 컬럼 추가) | C5(스키마 드리프트) 시나리오 전용 |
 
-| ID | 수정 | 이유 | 원본 기여 |
-|---|---|---|---|
-| F1 | K8s 매니페스트에 서비스 주소 설정 추가 (`AGENT_SERVICE_URL` 등) | T1 결함 수정. 없으면 정상 기준선을 만들 수 없음 | ✅ |
-| F2 | agent 검색을 선택 기능으로 (검색 설정 없으면 건너뜀) | AI Search 미사용 결정. 현재는 RAG 호출마다 검색을 부름 | ✅ |
-| F3 | `/health/ready` 추가 (DB·Redis·하위 서비스 확인). readinessProbe 전환은 설정으로 선택 | T2 개선. 개선 전 상태도 재현 가능해야 함 | ✅ (진단 친화 규약) |
-| F4 | 버전 정보 노출 (`APP_VERSION` env + `/health` 응답에 포함) | 신·구 버전 식별 | ✅ (진단 친화 규약) |
-| F5 | 테스트 사용자 시드 | 핵심 API 시나리오(로그인 → 채팅) 실행 | 선택 |
-| F6 | minikube용 postgres·redis 매니페스트, 로컬 이미지 설정 overlay | 원본은 Azure PG·Redis를 가리킴 | ✅ (`kubernetes/local/` overlay) |
-| F7 | 버전 2 이미지 (컬럼 추가, 응답 필드 변경) | 스키마 드리프트·버전 비호환 시나리오 | ❌ 평가 전용 |
-
-### 6.3 장애 주입과 부하
+### 5.3 장애 주입
 
 | 도구 | 용도 |
 |---|---|
-| **Chaos Mesh** | Pod 단위 장애: HTTPChaos(특정 Pod HTTP 오류·지연), StressChaos(CPU·메모리 압박), TimeChaos(시계 어긋남), NetworkChaos, DNSChaos |
-| kubectl / kustomize overlay | K8s 구성 장애: selector, 포트, 이미지, ConfigMap, Secret |
-| 앱 API | 앱 설정 장애: llm-gateway 할당량 등 |
-| k6 | 부하가 있어야 나타나는 장애용 부하 발생 |
+| **Chaos Mesh** | HTTPChaos(특정 Pod HTTP 오류), NetworkChaos(서비스 간 통신 차단) |
+| kubectl / kustomize overlay | K8s 구성 장애: selector, 이미지, 서비스 주소 |
+| 앱 API | 앱 설정 장애: llm-gateway 할당량 |
 
-## 7. 에이전트 아키텍처
+## 6. 에이전트 아키텍처
 
-### 7.1 구성
+### 6.1 구성
 
 ```mermaid
 flowchart TB
     subgraph Det[결정적 점검 계층]
-        Rules[감지기 N·P·W·S·C·H]
-        Sym[증상 센서<br/>L7·API 시나리오·추세]
+        Rules[감지기 10종 + 개선 권고 2종]
+        Sym[증상 감지<br/>API 시나리오]
         Gate{AI 게이트}
+        Alert[알림 상태<br/>문제 지문·열림/해결]
         Rules --> Gate
         Sym --> Gate
+        Gate --> Alert
     end
     subgraph Agent[AI 에이전트 코어 — 구현 방식 교체 가능]
         Triage[선별기<br/>영향 순 정렬·소음 제거]
         Inv[조사 루프<br/>계획→가설→도구→판정]
-        Writer[보고서·답변 작성]
+        Writer[보고서 작성]
     end
-    subgraph Tools[에이전트 도구 계층 — 프레임워크 독립, MCP 서버로 노출]
-        Col[수집기·스냅샷]
+    subgraph Tools[에이전트 도구 계층 — 프레임워크 독립]
+        Col[수집기]
         Topo[토폴로지]
-        Probe[L4/L7 프로브]
-        Met[메트릭 샘플러]
+        Probe[프로브·API 시나리오]
         App[앱 조회 API]
-    end
-    subgraph Know[지식]
-        RB[조사 지침]
-        Env[환경 설명 문서]
     end
     subgraph Guard[가드레일]
         Mask[마스킹]
         Val[근거 검증기]
         Bud[호출·시간 상한]
     end
-    Gate -->|경로 A·B| Triage --> Inv --> Writer
+    Alert -->|새 문제| Triage --> Inv --> Writer
     Inv <--> Tools
-    Know --> Inv
+    RB[조사 지침·환경 설명] --> Inv
     Tools --> Mask
-    Writer --> Val
+    Writer --> Val --> Notify[Slack 알림기]
     Bud -.-> Agent
-    Tools --> Store[(Evidence·스냅샷·보고서<br/>SQLite)]
+    Tools --> Store[(Evidence·보고서·알림 이력<br/>SQLite)]
 ```
 
-**계층을 나누는 이유**: 감지기·증상 센서·도구·가드레일은 **어떤 에이전트 프레임워크에도 묶이지 않는 일반 Python 모듈**로 만든다(타입이 지정된 함수, 결과는 evidence). 에이전트 코어만 프레임워크에 따라 바뀐다. 이렇게 해야 여러 구현 방식을 같은 도구·같은 시나리오로 비교할 수 있다.
+**계층을 나누는 이유**: 감지기·증상 감지·도구·가드레일은 **어떤 에이전트 프레임워크에도 묶이지 않는 일반 Python 모듈**로 만든다. 에이전트 코어만 구현 방식에 따라 바뀐다. 그래야 비교 실험(§10)을 같은 도구·같은 시나리오로 할 수 있다.
 
-- 도구 계층은 **MCP 서버**로 노출한다. 우리 에이전트도 MCP로 도구를 쓰고, Claude Code 같은 외부 에이전트도 같은 진단 도구를 쓸 수 있다. Code Mode(§7.8)도 이 서버를 통해 도구를 부른다.
+- 기본 구현은 **LangGraph**(실무 숙련 도구)로 하고, 직접 구현한 도구 호출 루프와 비교한다 (§10 실험 1).
 - API·앱 구조는 템플릿 backend-agent 규약(`app/api`, `app/service`, `app/core`)을 따른다.
-- LLM은 llm-gateway를 거치지 않고 Azure OpenAI를 직접 호출한다.
-- 에이전트 실행은 **OpenTelemetry GenAI 표준 속성**으로 계측해 Phoenix로 보낸다. 추적 도구를 바꿀 때 전송 대상만 바꾸면 되게 하기 위해서다.
+- 에이전트 실행은 **Phoenix**로 추적한다 (OpenTelemetry GenAI 표준 속성).
 
-### 7.2 에이전트 구현 방식 — W3 스파이크로 결정
+### 6.2 흐름
 
-특정 프레임워크로 한정하지 않는다. W3 초반에 **같은 도구와 같은 L1 시나리오 2개(A1, A5)로** 후보를 직접 구현해 보고 선택한다. L3는 경로 B(증상 센서, W4)가 있어야 돌릴 수 있으므로 스파이크에서 제외한다. 선택 근거는 ADR로 남긴다.
+**주기 점검** (CronJob, 5분)
+1. 감지기와 증상 감지 실행 (결정적)
+2. 게이트 판정. 경로 C면 기록만 남기고, 열린 문제가 있으면 해결로 표시하고 **복구 알림**
+3. 경로 A·B면 **문제 지문**(§6.6)을 계산해, 이미 열린 문제와 같으면 AI·알림 생략
+4. 새 문제면 신호판(원시 신호를 서비스별로 묶은 것)을 만들어 AI 조사
+5. 에이전트가 사용자 영향 순으로 **선별**하고, 상위 최대 3건을 조사 (각 도구 호출 ≤ 8회). 경로 B면 증상에서 토폴로지를 따라 역추적하는 가설부터 세움
+6. 보고서 작성 → 근거 검증 → **Slack 알림**(요약 본문 + 스레드에 전체 보고서)
 
-| 후보 | 특징 | 학습 포인트 |
-|---|---|---|
-| **LangGraph** | 상태 그래프로 흐름(게이트 → 선별 → 조사 → 작성)을 명시적으로 설계. 템플릿 backend-agent와 같은 스택 | 흐름 제어, 상태 설계, 체크포인트 |
-| **DeepAgents** | 계획(todo)·하위 에이전트·파일 시스템 기반 컨텍스트를 기본 제공 | 계획형 에이전트, 하위 에이전트 분리 (예: 가설마다 하위 조사) |
-| **직접 구현한 도구 호출 루프** | SDK의 tool calling만으로 약 200줄 | 에이전트 루프의 원리, 상한·재시도·파싱을 직접 통제 |
-| (선택) OpenAI Agents SDK 등 | handoff·guardrail 내장 | 프레임워크 간 설계 철학 비교 |
+**배포 직후 점검** (`kg check`): 1~5와 같고, 결과를 터미널에 출력한다. `--notify`를 주면 Slack으로도 보낸다.
 
-**비교 기준**: 선별·원인 정확도, 토큰·시간, 상한과 근거 인용 강제의 용이성, 코드량, 디버깅·추적 용이성(Phoenix 등 연동).
+**증상 입력 조사** (`kg investigate "증상"`): 사용자 증상 = 경로 B로 게이트가 바로 열림 → **조사 계획을 먼저 출력** → 가설 최대 3개 → 도구로 검증 → 보고서.
 
-**참고 모델: kagent (CNCF Sandbox)** — 에이전트를 CRD로 정의하고 GitOps·RBAC로 운영하며, 도구 서버(kmcp)와 트래픽 관리(agentgateway)를 분리하는 구조다. 구현 후보로 도입하지는 않고, 도구 계층 분리와 애드온 배포 형태(§12)를 설계할 때 참고한다. W8에 "FastAPI Deployment 방식 vs CRD 에이전트 방식" 비교를 ADR로 남긴다.
+### 6.3 에이전트 도구 (7종)
 
-### 7.3 흐름
-
-**점검 → AI 조사** (경로 A·B)
-1. 감지기와 증상 센서 실행 (결정적)
-2. 게이트 판정: 장애 신호가 있거나(A) 증상이 있으면(B) AI 조사 시작. 경로와 트리거 신호를 에이전트에 함께 전달
-3. **신호판(signal board)** 구성: 원시 신호 수십 개를 서비스별로 묶음
-4. 에이전트가 **선별**: 사용자 영향(핵심 경로 장애 → 일부 사용자 → 잠재 위험 → 개선 권고), 신호 간 연관성, 조사 지침의 배제 조건으로 우선순위 결정
-5. 상위 최대 3건을 조사 (각 도구 호출 ≤ 8회). 경로 B이면 증상에서 역추적하는 가설부터 세움
-6. 브리핑 작성: 중요 문제 + 영향 + 근거 + 확신도
-
-**증상 조사** (사용자 입력 = 경로 B)
-1. 증상 해석 → **조사 계획을 먼저 출력** (UI에 그대로 표시)
-2. 가설 최대 3개 → 도구로 검증 → 지지 / 배제 / 판단 보류
-3. 보고서 8개 섹션 작성 → 근거 검증기 통과
-
-**변경 검증**
-1. before·after 스냅샷 diff + 토폴로지 기반 영향 범위 + 해당 범위 재검증 (결정적)
-2. 규칙·재검증이 모두 통과하면 "안전" 판정으로 종료 (AI 호출 없음)
-3. 이상이 있으면 diff와 실패 결과를 들고 AI 조사로 넘김 → 변경의 의미 해석 ("포트가 바뀌었는데 호출하는 쪽 주소는 그대로") + 판정: 주의 / 위험
-
-### 7.4 에이전트 도구
-
-모든 도구는 읽기 전용이다. 결과는 evidence로 저장되고 id를 반환한다. 도구는 MCP 서버로 노출한다 (§7.1).
+모든 도구는 읽기 전용이다. 결과는 evidence로 저장되고 id를 반환한다. 신호판은 도구가 아니라 조사 시작 시 입력으로 준다.
 
 | 도구 | 설명 |
 |---|---|
-| `get_signal_board()` | 감지기·프로브·이벤트·재시작·메트릭 추세 요약 |
-| `get_topology(service?, direction?)` | 의존 그래프, 상·하위 서비스 |
-| `get_resource(kind, name)` | 정규화된 spec·status (필드 선별 변환기 적용) |
-| `list_pods(selector)` | Pod 목록 + 요약 상태 |
-| `compare_pods(a, b)` | 노드·이미지 digest·env 해시·리소스·재시작 차이 |
+| `get_topology(service?, direction?)` | 서비스 호출 관계, 상·하위 서비스 |
+| `get_resource(kind, name? \| selector?)` | 정규화된 spec·status (필드 선별), Pod 목록 |
 | `get_pod_logs(pod, previous, tail≤200, grep?)` | 마스킹된 로그 |
 | `get_events(subject, since)` | 이벤트 (마스킹) |
-| `get_metric_series(pod, metric, window)` | 메트릭 샘플러의 시계열 (CPU·메모리) |
-| `probe(target, path, via=service\|pod)` | L4·L7 프로브 재실행 |
-| `run_api_scenario(name)` | 핵심 API 시나리오 (로그인 → 채팅 등) |
-| `query_app_api(service, endpoint)` | **허용 목록의 GET API만** (예: llm-gateway health·quota·audit log) |
-| `get_snapshot_diff(before, after, subject?)` | 변경 diff |
-| `search_runbook(query)` | 조사 지침·환경 설명 검색 |
+| `probe(target, path, via=service\|pod, times=1..10)` | HTTP 호출. Service 경유 반복 호출, Pod 직접 호출 |
+| `run_api_scenario(name)` | API 시나리오 (로그인 → 채팅 등) |
+| `query_app_api(service, endpoint)` | **허용 목록의 GET API만** (llm-gateway 상태·할당량 등) |
 
-### 7.5 Evidence 모델
+### 6.4 Evidence와 보고서 모델
 
 ```yaml
 Evidence:
   id: ev-0042
-  kind: pod_status | event | log_excerpt | probe_result | metric_series | app_api | config_diff | detector
+  kind: resource | event | log_excerpt | probe_result | app_api | detector
   subject: dev/Pod/agent-7c9f-x2k
   collected_at: 2026-10-20T10:12:03+09:00
   source: "GET /api/v1/namespaces/dev/pods/agent-7c9f-x2k"
   data: {...}   # 마스킹 후
 
-Issue (브리핑 항목):
+Issue (요약 항목):
   rank: 1
   title: "채팅 실패 — llm-gateway 할당량 소진"
   impact: core_path_broken | partial_users | latent_risk | improvement
   confidence: high | medium | low
   evidence_ids: [ev-12, ev-15, ev-3]
 
-Hypothesis (조사):
-  statement: "..."
-  status: supported | refuted | inconclusive
-  evidence_ids: [...]
+Report (조사 보고서):
+  conclusion, confidence, impact_scope
+  evidence: [...]
+  hypotheses: [{statement, status: supported|refuted|inconclusive, reason, evidence_ids}]
+  checked_scope: {checked: [...], not_checked: [...]}
+  actions: [...]          # 권장 조치 (실행할 명령 수준, 자동 실행 안 함)
+  verification: "..."     # 재검증 방법
 ```
 
-### 7.6 신뢰성 장치
+### 6.5 신뢰성 장치
 
 | 장치 | 내용 |
 |---|---|
 | 근거 검증기 | 사실 문장마다 유효한 evidence id를 1개 이상 인용해야 함. 아니면 "추정"으로 강등 또는 제거 |
 | 출력 파싱 | 구조화 출력 스키마로 파싱. 코드펜스·비정형·null 응답 방어 |
-| 상한 | 조사 1건: 도구 ≤ 20회·150초. 브리핑: 전체 ≤ 300초. 상한 도달 시 부분 결과 + "조사 미완" 표시 |
+| 상한 | 조사 1건: 도구 ≤ 20회·150초. 요약 전체: ≤ 300초. 상한 도달 시 부분 결과 + "조사 미완" 표시 |
 | 결정성 | temperature 0, 평가 시 3회 반복 |
-| 마스킹 | 로그·**이벤트 메시지**·env에서 `password|secret|token|key|Bearer|://user:pass@` 치환. Secret 값은 수집하지 않음 |
+| 마스킹 | 로그·**이벤트 메시지**·env에서 `password|secret|token|key|Bearer|://user:pass@` 치환. Secret 값은 수집하지 않음. **Slack으로 보내는 내용에도 동일하게 적용** |
 | 읽기 전용 | RBAC `get/list/watch`만. `query_app_api`는 GET·허용 목록만 |
 
-### 7.7 조사 지침과 환경 설명
+### 6.6 주기 점검과 알림
+
+| 항목 | 설계 |
+|---|---|
+| 주기 실행 | Kubernetes CronJob `*/5 * * * *`, `concurrencyPolicy: Forbid` (이전 점검이 끝나지 않았으면 다음 점검을 건너뜀), `startingDeadlineSeconds` 설정 |
+| 문제 지문 | AI 호출 전에 결정적 신호로 계산: (경로, 적발된 감지기 ID 목록, 실패한 API 시나리오 단계, 대상 서비스). 같은 지문이 열려 있으면 같은 문제로 봄 |
+| 알림 상태 | SQLite에 지문별 `open / resolved`, 최초 감지 시각, Slack 메시지 ID 저장 |
+| 새 문제 | AI 조사 → Slack 채널에 요약 메시지 → 그 메시지의 스레드에 전체 보고서 |
+| 진행 중 | 같은 지문이면 AI 조사·알림 생략 (LLM 비용·알림 피로 방지) |
+| 해결 | 경로 C로 바뀌면 `resolved`로 바꾸고 복구 알림 1회 (장애 지속 시간 포함) |
+| 발송 방식 | Slack 봇 토큰(`chat:write`)으로 `chat.postMessage` 호출. 스레드 답글에는 원 메시지 ID(`ts`)가 필요해 Incoming Webhook은 쓰지 않음 |
+
+### 6.7 조사 지침과 환경 설명
 
 AI의 일반 지식으로는 **그 환경의 사정**을 모른다. 운영자의 요령을 문서로 넘겨준다.
 
-| 층 | 제공 | 예 |
-|---|---|---|
-| 템플릿 공통 지침 | 애드온 기본 포함 | "gateway가 하위 호출에 실패하면 서비스 주소 env가 `localhost`인지 먼저 확인", "Ready인데 500이면 readinessProbe가 tcpSocket인지 확인" |
-| 템플릿 환경 설명 | 애드온 기본 포함 | 서비스 구성, 공유 ConfigMap·Secret 구조, llm-gateway 할당량·health API 위치 |
-| 프로젝트별 지침 | 도입 프로젝트가 추가 | Inc-PR이라면 "infra-config를 여러 레포가 배포함" |
-
-**Skills 방식 구성**: 조사 지침은 증상·장애 유형별 문서로 나누고, 각 문서에 한 줄 설명을 붙인다. 에이전트는 설명 목록만 먼저 보고 필요한 지침만 불러온다. 지침 전체를 프롬프트에 넣는 방식과 정확도·토큰을 eval로 비교한다 (W5).
-
-### 7.8 Code Mode 실험 (도구 호출 방식 비교)
-
-**Code Mode**는 에이전트가 도구를 한 번에 하나씩 호출하는 대신, 여러 도구를 부르는 짧은 Python 코드를 써서 샌드박스에서 실행하는 방식이다. 예를 들어 "agent Pod 3개의 로그를 각각 grep해서 오류가 있는 Pod만 추려라"를 코드 한 번으로 처리한다. 토큰과 왕복 횟수가 줄어든다는 보고가 있어, 이 프로젝트의 시나리오로 직접 검증한다.
-
-| 항목 | 내용 |
+| 층 | 예 |
 |---|---|
-| 실행 위치 | **K8s Agent Sandbox**(SIG Apps의 Sandbox CRD)로 만든 격리 Pod |
-| 도구 접근 | 샌드박스 안의 코드는 MCP 서버(§7.1)를 통해서만 도구를 부른다. 도구가 읽기 전용이므로 코드도 읽기 전용 범위를 벗어나지 못한다 |
-| 읽기 전용 보장 | ServiceAccount 토큰 미마운트, NetworkPolicy로 K8s API·외부 인터넷 차단(MCP 서버만 허용), 실행 시간·메모리 상한 |
-| 근거 모델 | 코드 안에서 부른 도구 결과도 evidence로 저장되고 id를 가진다. 근거 검증기는 그대로 적용 |
-| 상한 | 도구 호출 상한(§7.6)은 코드 안의 호출까지 합산 |
-| 비교 | 같은 에이전트에서 도구 호출 방식만 바꿔 원인 Top-1, 토큰, 시간, 도구 호출 수를 비교 (W7) |
+| 템플릿 공통 지침 | "gateway가 하위 호출에 실패하면 서비스 주소 env가 `localhost`인지 먼저 확인", "Ready인데 500이면 readinessProbe가 tcpSocket인지 확인" |
+| 템플릿 환경 설명 | 서비스 구성, 공유 ConfigMap·Secret 구조, llm-gateway 할당량·상태 API 위치 |
 
-샌드박스 권한 설계와 결과는 ADR로 남긴다. 효과가 없거나 일정이 부족하면 L1~L3 일부 시나리오 비교로 축소한다.
+지침은 장애 유형별 문서로 나눠 둔다. 전체를 프롬프트에 넣는 방식과 필요한 것만 불러오는 방식(Skills)의 비교는 §10 실험 2.
 
-## 8. 규칙 점검과 증상 센서 (결정적 코드)
+## 7. 규칙 점검과 증상 감지 (결정적 코드)
 
-규칙으로 확정되는 문제는 여기서 확정한다. 여기서 나온 신호가 AI 게이트를 열지 결정하고, 게이트가 열리면 에이전트의 입력이 된다.
-
-### 8.1 토폴로지
+### 7.1 토폴로지
 
 - env의 `*_SERVICE_URL`·`*_URL` 값을 파싱해 Service·port와 매칭 → `declared` / `unresolved`(없는 Service·`localhost`) / `inferred`(에이전트 추정)
 - Service → Deployment → ReplicaSet → Pod 계층 (selector·ownerReferences)
-- 파싱 규약은 `kubeguardian.yaml`에서 확장 가능
 
-### 8.2 감지기 목록
+### 7.2 감지기
 
-감지기는 **무엇을 보는가(카테고리)**로 나누고, ID는 카테고리 접두사 + 번호로 붙인다. 카테고리 안에서는 문제가 일어나는 순서(Pod는 기동 단계 순)로 번호를 매긴다.
+카테고리 접두사 + 번호로 ID를 붙인다. 이번 범위는 **MVP 시나리오를 잡는 데 필요한 것과 기본 상태 확인**만 둔다.
 
-| 카테고리 | 범위 | 신호 등급 |
-|---|---|---|
-| **N** 노드·클러스터 | 노드 상태, 클러스터 시스템 구성요소 | 장애 신호 |
-| **P** Pod 기동·실행 | 스케줄링 → 이미지 → 컨테이너 생성 → init → 실행 → Ready → 축출 | 장애 신호 |
-| **W** 워크로드 | Deployment·StatefulSet의 가용 수, 롤아웃 | 장애 신호 |
-| **S** 서비스 연결 | Service ↔ Pod ↔ env URL 선언의 정합성 | 장애 신호 |
-| **C** 설정·버전 일관성 | ConfigMap·Secret 참조, 이미지 버전, 설정 전파 | 장애 신호 |
-| **H** 모범 사례·보안 | probe, 자원 설정, 권한 | **개선 권고** (게이트를 열지 않음) |
+| ID | 감지 | 판정 근거 | 성격 | 관련 시나리오 |
+|---|---|---|---|---|
+| **N01** | 노드 NotReady | `Node.status.conditions` Ready ≠ True | 상태 | 기본 |
+| **P03** | 이미지 받기 실패 | `ErrImagePull`·`ImagePullBackOff`·`InvalidImageName` | 상태 | A3 |
+| **P06** | CrashLoop / 재시작 ≥3회·30분 | `CrashLoopBackOff`, `restartCount` 증가분 | 시간 | E1 (미끼) |
+| **P07** | OOMKilled | `lastState.terminated.reason = OOMKilled` | 상태 | 기본 |
+| **W01** | 가용 replicas 부족 | `spec.replicas` > `status.availableReplicas` | 상태 | A3 |
+| **S01** | selector에 맞는 Pod 0 | `Service.spec.selector` ↔ Pod 라벨 | 선언 | A1 |
+| **S02** | EndpointSlice Ready 0 / 일부 | `endpoints[].conditions.ready` | 상태 | A1 |
+| **S03** | targetPort ↔ containerPort 불일치 | Service `targetPort` ↔ 컨테이너 `ports` | 선언 | 기본 |
+| **S04** | env URL이 없는 Service·`localhost`를 가리킴 | `*_SERVICE_URL`·`*_URL` ↔ Service 목록 | 선언 | A5 |
+| **C01** | 참조한 ConfigMap·Secret 또는 키가 없음 | `envFrom`·`valueFrom`·volume 참조 ↔ 실제 객체·키 | 선언 | 기본 |
+| H01 | readinessProbe 없음·tcpSocket만 | 컨테이너 probe 설정 | 선언 | 개선 권고 (H0) |
+| H02 | requests·limits 미설정 | 컨테이너 `resources` | 선언 | 개선 권고 (H0) |
 
-**판정 성격**: 상태 = 현재 status로 판정 / 선언 = spec만 보고 판정 (리소스 간 교차 대조 포함, 트래픽이 없어도 잡힘) / 시간 = 일정 기간의 변화로 판정 (샘플링·스냅샷 필요)
+- **신호 등급**: 장애 신호(게이트를 연다) = N·P·W·S·C / 개선 권고(게이트를 열지 않음) = H
+- **성격**: 상태 = 현재 status로 판정 / 선언 = spec만 보고 판정 (트래픽이 없어도 잡힘) / 시간 = 일정 기간의 변화로 판정
+- 이전 버전(v2.3)의 나머지 감지기(N02·N03, P01·P02·P04·P05·P08·P09, W02, S05, C02~C04, H03)는 **확장 후보**로 둔다.
 
-| ID | 감지 | 판정 근거 | 성격 |
-|---|---|---|---|
-| **N01** | 노드 NotReady | `Node.status.conditions` Ready ≠ True | 상태 |
-| **N02** | 노드 자원 압박 | `MemoryPressure`·`DiskPressure`·`PIDPressure` = True | 상태 |
-| **N03** | 클러스터 DNS 비정상 | kube-system CoreDNS Pod Ready 0 / 일부 | 상태 |
-| **P01** | 스케줄 실패 (자원 부족·taint 등) | Pod `Pending` + `PodScheduled=False`, 이벤트 `FailedScheduling` | 상태 |
-| **P02** | PVC Pending | `PVC.status.phase = Pending` | 상태 |
-| **P03** | 이미지 받기 실패 | `ErrImagePull`·`ImagePullBackOff`·`InvalidImageName` | 상태 |
-| **P04** | 볼륨 마운트 실패 | 이벤트 `FailedMount`, `ContainerCreating` 정체 | 상태 |
-| **P05** | init 컨테이너 실패 | `initContainerStatuses` 종료 코드 ≠ 0, `Init:CrashLoopBackOff` | 상태 |
-| **P06** | CrashLoop / 재시작 ≥3회·30분 | `CrashLoopBackOff`, `restartCount` 증가분 | 시간 |
-| **P07** | OOMKilled | `lastState.terminated.reason = OOMKilled` | 상태 |
-| **P08** | Running인데 NotReady 지속 | Pod `Ready=False`가 `lastTransitionTime` 기준 N분 이상, 이벤트 `Unhealthy` | 시간 |
-| **P09** | 축출 (Evicted) | Pod `Failed` + reason `Evicted` | 상태 |
-| **W01** | 가용 replicas 부족 | Deployment·StatefulSet `spec.replicas` > `status.availableReplicas` | 상태 |
-| **W02** | 롤아웃 정체 | `Progressing` 조건 reason `ProgressDeadlineExceeded` | 상태 |
-| **S01** | selector에 맞는 Pod 0 | `Service.spec.selector` ↔ Pod 라벨 | 선언 |
-| **S02** | EndpointSlice Ready 0 / 일부 | `endpoints[].conditions.ready` | 상태 |
-| **S03** | targetPort ↔ containerPort 불일치 | Service `targetPort` ↔ 컨테이너 `ports` | 선언 |
-| **S04** | env URL이 없는 Service·`localhost`를 가리킴 | `*_SERVICE_URL`·`*_URL` ↔ Service 목록 (토폴로지 unresolved) | 선언 |
-| **S05** | env URL 포트 ↔ Service 포트 불일치 | URL 포트 ↔ `Service.spec.ports[].port` | 선언 |
-| **C01** | 참조한 ConfigMap·Secret 또는 키가 없음 | `envFrom`·`valueFrom`·volume 참조 ↔ 실제 객체·키 (Pod에서는 `CreateContainerConfigError`) | 선언 |
-| **C02** | 같은 워크로드의 Pod 간 이미지 digest 불일치 | `containerStatuses[].imageID` 비교 | 상태 |
-| **C03** | 설정 잠복: ConfigMap 변경 후 재시작 안 된 Pod | ConfigMap 변경 시각(스냅샷) ↔ Pod 시작 시각 | 시간 |
-| **C04** | 같은 ConfigMap을 복수 주체가 적용 | `metadata.managedFields`의 manager 등 | 선언 |
-| **H01** | readinessProbe 없음·tcpSocket만·liveness 없음 | 컨테이너 probe 설정 | 선언 |
-| **H02** | requests·limits 미설정 | 컨테이너 `resources` | 선언 |
-| **H03** | ServiceAccount가 cluster-admin에 바인딩 | (Cluster)RoleBinding ↔ SA | 선언 |
+### 7.3 증상 감지
 
-**신호 등급**: 장애 신호(게이트를 연다) = N·P·W·S·C / **개선 권고**(게이트를 열지 않음) = H
-
-### 8.3 증상 센서 — "규칙은 통과했지만 무언가 잘못됨"
-
-| 센서 | 이상 판정 (게이트 경로 B) |
+| 감지 | 이상 판정 (게이트 경로 B) |
 |---|---|
-| 핵심 API 시나리오 | 로그인 → 채팅 → 스트리밍 중 하나라도 실패하거나 제한 시간 초과 |
-| L7 프로브 | Service 경유 10회 중 오류 ≥ 1회, 또는 Pod 직접 호출 실패 |
-| 지연 | 경로별 응답 시간이 기준선의 3배 초과, 또는 `PROXY_TIMEOUT`의 80% 초과 |
-| 추세 | 메모리 30분 선형 증가, CPU가 limit에 지속 도달, 재시작 증가 |
-| 앱 자가 보고 | llm-gateway health 비정상, quota 90% 이상 |
-| 사용자 입력 | 증상 조사 요청 (항상 경로 B) |
+| API 시나리오 | 설정한 호출 순서(기본: 로그인 → 채팅) 중 하나라도 실패하거나 제한 시간 초과 |
+| 사용자 입력 | `kg investigate "증상"` (항상 경로 B) |
 
-### 8.4 기타 수집
+- 평가 시나리오 C5(특정 API만 500)를 위해 해당 API를 호출 순서에 포함한다.
+- L7 프로브 반복 호출·Pod 직접 호출은 증상 감지가 아니라 **에이전트 도구**(`probe`)로 둔다. 그래서 B1(Pod 1개만 오류)은 주기 점검이 놓칠 수 있고, 증상 입력으로 조사한다.
+
+### 7.4 수집
 
 | 수집 | 내용 |
 |---|---|
-| 메트릭 샘플러 | metrics-server를 15초 주기로 읽어 30분 링버퍼 보관 (추세 센서와 에이전트 도구가 공유) |
-| 앱 조회 | llm-gateway health·quota·audit log 등 허용 목록 GET |
-| 스냅샷 | Deployment·RS·Service·EndpointSlice·ConfigMap·PVC·Secret(메타데이터)를 정규화해 저장 |
+| 리소스 | Deployment·RS·Pod·Service·EndpointSlice·ConfigMap·Secret(메타데이터만)·Node |
+| 로그·이벤트 | 현재·이전 컨테이너 로그, 네임스페이스 이벤트 (마스킹) |
+| 앱 조회 | llm-gateway 상태·할당량 등 허용 목록 GET |
 
-## 9. 장애 시나리오
+## 8. 장애 시나리오
 
-### 9.1 난이도 체계
+### 8.1 난이도 체계
 
 | 레벨 | 정의 | 규칙만으로 |
 |---|---|---|
 | L1 | 신호 하나로 원인 확정 | 가능 |
 | L2 | 여러 신호를 연결해야 함 | 일부 가능 |
 | L3 | **증상과 원인이 다른 서비스에 있음**, K8s는 정상 | 어려움 |
-| L4 | 부하·시간에 따라 나타남 | 거의 불가 |
+| L4 | 부하·시간에 따라 나타남 | 거의 불가 — **이번 범위 제외** |
 | L5 | 복합 원인 또는 미끼 신호 | 불가 |
 
-**기준선 환경**
-- **H0 (정상 + 개선 권고)**: 포크 정상 배포. 템플릿 고유의 경고(tcpSocket probe, liveness 없음 등)는 **일부러 남겨 둔다**. 이것들이 개선 권고로만 분류되고 **AI 게이트가 열리지 않는지**(경로 C) 확인한다.
+**기준선 H0 (정상 + 개선 권고)**: 포크 정상 배포. 템플릿 고유의 경고(tcpSocket probe 등)는 **일부러 남겨 둔다.** 이것들이 개선 권고로만 분류되고 **알림이 발송되지 않는지** 확인한다.
 
-### 9.2 MVP 시나리오 (16개)
+### 8.2 MVP 시나리오 (8개 + H0)
 
-**AI 진입** 열: A = 규칙이 적발해 AI가 선별·설명 / B = 규칙은 통과, 증상 센서가 잡아 AI가 원인 탐색
-
-| ID | Lv | 층 | 사용자 증상 | 실제 원인 | 주입 | AI 진입 |
+| ID | Lv | 사용자 증상 | 실제 원인 | 주입 | AI 진입 | 사용자 시나리오 |
 |---|---|---|---|---|---|---|
-| A1 | L1 | K8s 구성 | agent API 전부 실패 | Service selector 오타 | Service 수정 | A (S01) |
-| A2 | L1 | K8s 구성 | admin 연결 거부 | targetPort 불일치 | Service 수정 | A (S03) |
-| A3 | L1 | K8s 구성 | 신규 배포 안 뜸 | 없는 이미지 tag | 이미지 변경 | A (P03) |
-| A4 | L1 | K8s 구성 | postgres 기동 안 됨 | PVC Pending (없는 storageClass) | PVC 수정 | A (P02) |
-| A5 | L1 | K8s 구성 | 모든 API 502 | **서비스 주소 설정 누락 → gateway가 `localhost` 호출 (원본 템플릿 상태 = T1)** | F1 제거 | A (S04) |
-| B1 | L2 | 런타임 | 요청의 약 1/3 실패 | agent Pod 1개만 HTTP 500 | HTTPChaos (Pod 1개) | **B** (Pod 직접 프로브) |
-| B2 | L2 | 배포 과정 | 배포 후 일부 오류, 롤아웃 멈춤 | 신규 ReplicaSet만 잘못된 env | 롤아웃 | A (W02, P06) |
-| B3 | L2 | 배포 과정 | 가끔 응답 형식이 다름 | 같은 tag에 다른 이미지 공존 | 재빌드 후 Pod 1개 교체 | A (C02) |
-| C1 | L3 | 외부 의존 | 채팅 실패 (gateway 502) | **llm-gateway 할당량 소진 → 429** | 할당량 하향 | **B** (API 시나리오, quota) |
-| C2 | L3 | 외부 의존 | 로그인 불가, Pod 전부 Ready | **admin → Redis 연결 차단 → 인증 검증 실패** | NetworkChaos (admin↔redis) | **B** (API 시나리오) |
-| C3 | L3 | 런타임 | 일부 요청만 인증 실패 | **Pod 1개 시계 어긋남 → 토큰 만료 판정** | TimeChaos (Pod 1개) | **B** (L7 간헐 오류) |
-| C4 | L3 | 앱 동작 | 일반 응답은 되는데 스트리밍만 끊김 | 짧은 `PROXY_TIMEOUT` + 긴 스트리밍 응답 | gateway env 변경 | **B** (스트리밍 시나리오) |
-| C5 | L3 | 배포 과정 | 특정 API만 500 | **스키마 드리프트** (v2가 컬럼 추가, `create_all`은 ALTER 안 함) | F7 v2 배포 | **B** (API 시나리오) |
-| D1 | L4 | 런타임 | 부하 시 느려지다 504 | agent CPU 제한 → gateway 타임아웃 연쇄 | StressChaos(CPU) + k6 | **B** (지연, CPU 추세) |
-| D2 | L4 | 런타임 | 몇 분마다 Pod 1개 재시작 | 점진적 메모리 증가 → OOMKilled | StressChaos(메모리 점증) | B → A (추세 → P07) |
-| E1 | L5 | 복합 | 로그인 불가 | C2. **이전의 무해한 재시작 기록이 미끼** | C2 + 과거 재시작 | A + B (미끼는 P06) |
+| A1 | L1 | agent 관련 기능 전부 실패 | Service selector 오타 | Service 수정 | A (S01·S02) | SC-002 |
+| A3 | L1 | 신규 배포가 뜨지 않음 | 없는 이미지 tag | 이미지 변경 | A (P03·W01) | SC-002 |
+| A5 | L1 | 모든 API 502 | 서비스 주소 설정 누락 (원본 템플릿 상태 = T1, 데모용) | F1 제거 | A (S04) | SC-002 |
+| B1 | L2 | 요청의 약 1/3 실패 | agent Pod 1개만 HTTP 500 | HTTPChaos (Pod 1개) | B (사용자 입력) | SC-003 |
+| C1 | L3 | 채팅 실패 (gateway 502) | **llm-gateway 할당량 소진 → 429** | 할당량 하향 | B (API 시나리오) | SC-001 |
+| C2 | L3 | 로그인 불가, Pod 전부 Ready | **admin → Redis 연결 차단** | NetworkChaos (admin↔redis) | B (API 시나리오) | SC-001 |
+| C5 | L3 | 특정 API만 500 | **스키마 드리프트** (v2가 컬럼 추가, `create_all`은 ALTER 안 함) | F7 v2 배포 | B (API 시나리오) | SC-001 |
+| E1 | L5 | 로그인 불가 | C2 + **이전의 무해한 재시작 기록이 미끼** | C2 + 과거 재시작 | A + B (미끼는 P06) | SC-001 |
+| H0 | — | 없음 | 정상 (개선 권고만) | — | C (알림 없음) | SC-001 |
 
-경로 A 7개, 경로 B 7개, 혼합 2개. **L3 이상은 모두 규칙이 통과하는 시나리오**라서 AI의 원인 탐색 능력을 따로 측정할 수 있다.
+- **C1·C2·C5·E1**은 K8s 상태만으로 원인이 드러나지 않는 시나리오다(`k8s_visible: false`). KPI "원인 규명 커버리지"의 측정 대상이다.
+- 각 시나리오는 `scenarios/<ID>/{inject.sh, reset.sh, verify_symptom.sh, expected.yaml, README.md}`로 구성한다. `expected.yaml`에는 정답 원인, 영향 서비스, 기대 요약 1순위, `k8s_visible`을 적는다.
 
-### 9.3 여유 시 진행
+### 8.3 확장 후보 (여유 시)
 
 | ID | Lv | 내용 |
 |---|---|---|
-| X1 | L3 | llm-gateway DB의 LLM 배포 설정 오류 → 특정 모델만 실패 (K8s 흔적 없음) |
-| X2 | L4 | gateway 재시도 폭주 (느린 agent + 재시도 2회 + 부하) |
-| X3 | L4 | DB 커넥션 풀 고갈 (`DB_POOL_SIZE=5` + 스트리밍 장기 점유) |
-| X4 | L4 | 신·구 버전 비호환 (롤아웃 중에만 간헐 오류) |
-| X5 | L4 | 간헐적 DNS 실패 (DNSChaos) |
-| X6 | L3 | 서비스 간 `MASTER_KEY` 불일치 → 복호화 실패 *(암호화 데이터의 서비스 간 공유 방식 확인 필요)* |
-| X7 | L5 | 1시간 전 ConfigMap 변경(설정 잠복) + 오늘 롤아웃이 트리거 |
+| A2 | L1 | targetPort 불일치 |
+| B2 | L2 | 신규 ReplicaSet만 잘못된 env (롤아웃 정체) |
+| C3 | L3 | Pod 1개 시계 어긋남 → 토큰 만료 판정 |
+| C4 | L3 | 짧은 `PROXY_TIMEOUT` + 긴 스트리밍 응답 |
 
-**제외**: Azure AI Search 관련 장애 (미사용 결정)
+L4 시나리오(CPU 제한 연쇄 타임아웃, 점진적 메모리 증가, 재시도 폭주, 커넥션 풀 고갈)는 메트릭 샘플러가 필요해 이번 범위에서 제외한다.
 
-각 시나리오는 `scenarios/<ID>/{inject.sh, reset.sh, expected.yaml, README.md}`로 구성한다. `expected.yaml`에는 정답 원인, 영향 서비스, 기대 브리핑 1순위, K8s 상태만으로 원인이 보이는지(`k8s_visible`, 시나리오 작성 시 kubectl로 확인)를 적는다.
+## 9. 평가
 
-## 10. 평가 — 업무 효율과 에이전트 품질
+평가 대상은 진단 대상 서비스가 아니라 **진단 에이전트 자체**다.
 
-평가 대상은 진단 대상 서비스가 아니라 **진단 에이전트 자체**다. 평가는 두 층으로 나눈다.
+### 9.1 비교 조건
 
-- **업무 효율 KPI (§10.1)**: 사람이 하는 진단 일이 얼마나 줄었는가. 결과 보고의 헤드라인이다.
-- **에이전트 품질 지표 (§10.2)**: 에이전트가 맞는 답을 내는가. 업무 효율 KPI를 믿을 수 있게 하는 전제 조건이다.
-
-### 10.1 업무 효율 KPI
-
-| KPI | 정의 | 계산 | 측정 |
-|---|---|---|---|
-| **K1 원인 도달 시간 단축률** | 증상을 받은 시점부터 정답 원인을 제시할 때까지의 시간을 수동 진단과 KubeGuardian으로 비교 | (T_수동 − T_도구) / T_수동, 레벨별 중앙값. 수동이 30분 안에 못 찾은 건은 T_수동 = 30분으로 계산하고 "최소 X%"로 표기 | 블라인드 자가 진단 약 10건 (§10.1.1) |
-| **K2 제한 시간 내 해결률** | 30분 안에 정답 원인에 도달한 비율 | 도달 건수 / 실행 건수, 수동·도구 각각 | 블라인드 자가 진단 약 10건 (§10.1.1) |
-| **K3 신호 압축률** | 사람이 봐야 할 항목이 줄어든 정도. 원시 신호에는 사실이지만 지금 장애와 무관한 항목(소음)이 섞여 있다 | 1 − (브리핑의 중요 이슈 수 / 신호판의 원시 신호 수). 예: 47개 → 2건이면 95.7% | eval 자동, 경로 A·B 시나리오 전체 × 3회 |
-| 보조: 원인 규명 커버리지 | K8s 상태(`kubectl get`·`describe`·events)만으로 원인이 드러나지 않는 시나리오 중 KubeGuardian이 원인을 맞힌 비율. K2를 전체 시나리오로 뒷받침한다 | `expected.yaml`의 `k8s_visible: false` 시나리오 중 원인 Top-1 적중 비율 | eval 자동 |
-
-#### 10.1.1 블라인드 자가 진단 (K1·K2 수동 기준선)
-
-1인 과제이고 과거 장애의 진단 시간 기록이 없으므로, 수동 기준선은 본인이 직접 측정한다. 무엇을 주입했는지 모르게 해서 편향을 줄인다.
-
-1. `make blind`가 시나리오 풀(MVP 시나리오 + H0)에서 무작위로 하나를 골라 주입하고, 무엇을 골랐는지 숨긴다. 대상 Pod·서비스를 바꿀 수 있는 시나리오는 대상도 무작위로 고른다.
-2. 사용자 증상 문장만 보고 타이머를 시작한다. kubectl·curl만으로 진단하고, 원인을 기록하면 멈춘다. 30분이 지나면 미해결로 처리한다.
-3. KubeGuardian은 같은 주입 상태에서 같은 증상으로 백그라운드 실행해 시간과 결과만 기록한다. 결과는 본인 진단이 끝난 뒤에 연다.
-4. 레벨별 2~3건, 총 약 10건. 여러 날에 나눠 실행한다. H0가 뽑히면 K1·K2에서 제외한다.
-
-**해석**: 본인은 시나리오 설계자라서 수동 진단 시간은 실제 운영자보다 짧은 **하한**이다. 따라서 K1·K2는 KubeGuardian에 불리한 보수적 추정이며, 보고서에 "설계자 본인 기준"임을 명시한다. 표본이 작으므로 평균 대신 중앙값과 사례별 표로 보고하고, 통계적 유의성은 주장하지 않는다.
-
-### 10.2 에이전트 품질 지표 (KPI의 전제 조건)
-
-| 지표 | 정의 | 목표 |
-|---|---|---|
-| **게이트 정확도** | H0에서 AI 미호출 + 장애 시나리오에서 AI 호출 | H0 미호출 100%, 장애 시 호출 ≥ 95% |
-| **선별 정확도** | AI 브리핑 1순위 문제 = 주입한 장애 | L1–L2 ≥ 90%, L3 ≥ 70%, L4–L5 ≥ 50% |
-| **원인 Top-1 / Top-3** | 조사 보고서 1순위 원인 / 상위 3개 가설 안에 정답. **경로 A·B를 나눠 보고** | Top-1 ≥ 70%, Top-3 ≥ 85% |
-| 근거 인용률 | 사실 문장 중 유효 evidence 인용 비율 | 100% (검증기가 강제) |
-| 도움 정도 | 보고서 루브릭 평가 (원인 명확성·조치 실행 가능성·근거 충분성, 각 1–5). **LLM-as-judge**로 채점하고, 본인이 직접 채점한 10건과 일치도를 먼저 확인한 뒤 사용 | 평균 ≥ 4 |
-| 시간 | 규칙 점검 p50 ≤ 20s, AI 조사 p50 ≤ 120s | |
-| 비용 | AI 조사 1회 토큰 | ≤ 100k |
-
-### 10.3 비교 조건 (3단)
+같은 시나리오를 두 조건으로 실행해 비교한다. 시나리오마다 3회 반복한다.
 
 | 조건 | 설명 |
 |---|---|
-| ① 규칙 + 증상 센서만 | 감지기·증상 결과를 심각도 순으로 나열 (AI 없음) |
-| ② + AI 조사 | 조사 지침 없이 |
-| ③ + AI 조사 + 조사 지침 | 최종 형태 |
+| ① 기준 조건 | 규칙 점검 + 증상 감지만. 결과를 심각도 순으로 나열 (AI 없음) |
+| ② 비교 조건 | ① + AI 조사 (조사 지침 포함) |
 
-각 조건에서 시나리오마다 3회 반복하고, **레벨별·경로별로 보고**한다. 기대하는 그림은 다음과 같다.
-- 경로 A(L1·L2): ①도 원인을 가리키지만, ②·③은 여러 신호 중 핵심을 고르고 영향을 설명한다.
-- 경로 B(L3 이상): ①은 "API가 실패함"까지만 말하고 원인은 모른다. **②·③이 원인을 찾는 비율이 AI의 핵심 가치**다.
-- ③이 ②보다 원인 정확도와 미끼 회피(E1)에서 낫다.
+기대하는 그림:
+- 경로 A(L1): ①도 원인을 가리키지만, ②는 여러 신호 중 핵심을 고르고 영향을 설명한다.
+- 경로 B(L3 이상): ①은 "API가 실패함"까지만 말하고 원인은 모른다. **②가 원인을 찾는 비율이 AI의 핵심 가치**다.
 
-### 10.4 에이전트 구현 방식 비교 (학습 목표)
+### 9.2 KPI
 
-W3 스파이크에서 후보 2개 이상을 같은 도구·같은 시나리오(L1 2개: A1, A5)로 비교한다. §7.2의 비교 기준을 표로 남긴다. 여유가 있으면 W7에 선택하지 않은 방식으로 MVP 전체 eval을 한 번 더 돌려 비교를 보강한다.
+| KPI | 목표 | 측정 |
+|---|---|---|
+| **원인 규명 커버리지** (헤드라인) | ≥ 60% | `k8s_visible: false` 시나리오(C1·C2·C5·E1) 중 보고서 1순위 원인이 정답인 비율 |
+| 원인 정확도 | ≥ 70% | 전체 시나리오에서 보고서 1순위 원인이 정답인 비율 |
+| **장애 감지 시간** | 주기(5분) + 2분 이내 | 장애 주입 시각 → Slack 알림 발송 시각 (C1·C2·C5·E1) |
+| 확인 항목 감소율 | ≥ 90% | 1 − (요약의 중요 문제 수 / 신호판의 원시 신호 수) |
+| 잘못된 알림 | 0건 | H0에서 주기 점검 4시간(48회) 연속 실행 중 발송된 알림 수 |
+| 근거 일치율 | ≥ 90% (잠정) | 인용된 근거가 실제로 문장을 뒷받침하는 비율. 보고서 10건을 본인 검토 |
+| AI 조사 시간·비용 | 중앙값 ≤ 120초, ≤ 10만 토큰 (잠정) | 평가 러너 자동 기록 |
 
-### 10.5 학습 성과
+**목표치의 근거**
+- 장애 감지 시간: 장애가 점검 직후에 생기면 다음 점검까지 최대 5분, 그 뒤 AI 조사(잠정 120초)를 거쳐 알림이 나간다.
+- 조사 시간·비용: 도구 호출 상한 20회 × LLM 판단 1회 3~6초, 입력 2천~5천 토큰으로 역산한 상한값이다. **W3에 실측해 다시 정한다.**
+- 근거 일치율: 샘플 10건 중 1건 정도의 어긋남까지 허용. 근거 인용 자체는 검증기가 강제하므로(항상 100%) 지표로 쓰지 않는다.
 
-| 산출물 | 기준 |
+**사람의 진단 시간은 측정하지 않는다.** 시나리오를 설계한 본인이 진단하면 증상만 보고 어떤 시나리오인지 알아보게 되어 진단 능력이 아니라 기억을 재게 된다. 대신 "사람이 하던 일 중 얼마나 대신했나"를 원인 규명 커버리지와 확인 항목 감소율로 측정한다. (기존 v2.3의 블라인드 자가 진단은 폐지)
+
+### 9.3 평가 러너
+
+- `make eval S=<ID>`: 주입 → 증상 확인(`verify_symptom.sh`, 증상이 안 나면 무효) → 점검·게이트·AI → 채점 → 원복
+- `make eval`: 전체 시나리오 × 2조건 × 3회, `eval/report.md`에 레벨별·경로별 결과표 생성
+- 평가 중 Slack 알림은 평가 전용 채널로 보내고, 발송 시각은 알림 이력(SQLite)에서 읽는다.
+- 프롬프트·지침을 바꾸면 전체 eval로 회귀를 확인한다.
+
+**지침 쪽 과적합 방지**: 시나리오를 설계한 사람이 조사 지침도 쓰므로, 지침이 특정 시나리오의 정답을 그대로 담지 않도록 장애 유형 단위로 쓴다. 지침을 쓸 때 보지 않은 확장 후보 시나리오 1~2개를 마지막에 한 번 돌려 차이를 확인한다.
+
+## 10. 비교 실험
+
+에이전트 기술을 **같은 시나리오·같은 지표로 비교**해 효과를 숫자로 남긴다. 평가 러너를 그대로 쓰므로 추가 비용은 각 기술의 구현 부분이다. 일정 여유에 따라 위에서부터 진행하며, 몇 번까지 할지는 실행 계획서에서 정한다.
+
+| # | 비교 대상 | 비교 내용 | 비용 |
+|---|---|---|---|
+| 1 | 에이전트 구현 방식 | LangGraph vs 직접 구현한 도구 호출 루프 — 정확도, 토큰, 코드량, 상한 강제의 용이성 | 중 |
+| 2 | 조사 지침 주입 방식 | 지침 전체 주입 vs 필요한 지침만 불러오기(Skills 방식) — 정확도, 토큰 | 하 |
+| 3 | 도구 연결 방식 | 함수 직접 호출 vs MCP 서버 경유 — 외부 에이전트(Claude Code 등)에서 같은 도구 재사용 | 하 |
+| 4 | 보고서 채점 방식 | 본인 채점 vs LLM-as-judge — 일치도. 일치하면 근거 일치율 측정을 LLM으로 대체 | 하 |
+| 5 | 도구 호출 방식 | 도구 개별 호출 vs Code Mode(코드를 써서 K8s Agent Sandbox에서 실행) — 정확도, 토큰, 호출 수. 샌드박스는 SA 토큰 미마운트, NetworkPolicy로 도구 서버 외 통신 차단 | 상 |
+| 6 | 외부 벤치마크 | 자체 시나리오 vs ITBench(IBM 공개 SRE 벤치마크) — 실행 가능성 확인 후 일부 과제 실행, 불가하면 채점 방식만 적용 | 상 |
+| 7 | 에이전트 운영 방식 | CronJob + API 서버 배포 vs kagent(CNCF) CRD 기반 에이전트 — 설계 비교 ADR만 | 하 |
+
+## 11. 사용 화면
+
+| 화면 | 용도 |
 |---|---|
-| 주간 학습 노트 | 시나리오마다 "관련 K8s 개념 → 왜 장애가 되나 → 어떤 신호로 보이나"를 정리 (16개) |
-| ADR | 게이트 설계, 프레임워크 선택, 도구 경계, 근거 모델, Code Mode 샌드박스 권한, kagent 비교 등 주요 결정 5건 이상 |
-| 회고 | 규칙이 통하지 않은 지점, 에이전트가 틀린 사례와 원인 분석 |
+| **Slack** | 주기 점검의 이상 알림(요약 본문 + 스레드에 전체 보고서), 복구 알림 |
+| **CLI** | `kg check [--notify]` 배포 직후 점검 / `kg investigate "증상"` 증상 조사 / `kg report <ID>` 보고서 / `kg evidence <ID>` 근거 원문 |
+| **개발용 화면 (Chainlit)** | 에이전트 개발·디버깅. 조사 단계, 도구 호출, 근거 원문 확인 |
+| 실행 추적 (Phoenix) | LLM 호출·도구 호출·토큰 추적 |
 
-### 10.6 외부 벤치마크: ITBench
+제품용 웹 화면(React)은 만들지 않는다. [UI 정의서](04-ui-spec.md)는 위 범위로 축소한다.
 
-자체 시나리오는 직접 설계했기 때문에 "내가 만든 시험"이라는 한계가 있다. 이를 보완하기 위해 IBM의 공개 SRE 벤치마크 **ITBench**(Kubernetes 장애 근본 원인 분석)로도 평가한다. 2026-05 공개된 ITBench-AA 기준으로 최상위 모델도 50% 미만인, 포화되지 않은 벤치마크다.
+## 12. 비전: 범용 애드온
 
-| 단계 | 내용 |
-|---|---|
-| 실행 가능성 확인 (W1, 반나절) | 과제 환경의 자원 요구량과 minikube 호환 여부 확인 |
-| 가능하면 (W7) | ITBench SRE 과제 일부를 KubeGuardian으로 풀고 점수를 공개 리더보드 수치와 함께 보고 |
-| 불가하면 (W7) | ITBench 채점 방식(정답 원인 엔티티를 모두 맞혀야 점수, 오답을 섞으면 정밀도만큼 감점)을 자체 시나리오에 적용해 원인 Top-1과 함께 보고 |
+이번 PoC 범위는 아니지만, 최종적으로는 템플릿으로 새 서비스를 시작할 때 함께 설치하는 **진단 애드온**(`infra-kubeguardian`)을 지향한다. 이를 위해 이번에도 아래 원칙은 지킨다.
 
-## 11. UI
-
-점검 결과와 AI 조사를 한 화면에서 이어 보는 **워크스페이스**다. 상세는 [04-ui-spec.md](04-ui-spec.md).
-
-- 첫 화면 = 점검 결과 + 증상 입력창
-  - 정상(경로 C): "규칙 26개 통과, 증상 없음" + 개선 권고
-  - 이상(경로 A·B): 게이트가 열린 이유 + AI 브리핑 "지금 중요한 것"
-- AI 결과마다 근거 칩 → 원문 드로어, 조사 계획·가설 타임라인, 후속 질문 대화
-- 토폴로지·Pod 비교·변경 타임라인은 보조 뷰로 제공
-- 개발 단계에서는 Chainlit 개발용 화면(W3~), CLI, Phoenix 추적으로 에이전트 동작을 확인하고, 제품 화면은 W5부터 만든다
-- **제품 화면은 범위를 축소한다** (신기술 실험 시간 확보). 어느 화면을 남길지는 별도로 정리한다
-
-## 12. 범용 애드온 설계
-
-### 12.1 배포 형태
-
-- PoC 완료 후 템플릿 조직의 애드온 레포 **`infra-kubeguardian`**으로 정리한다. 기존 `infra-*` 레포처럼 `deploy/`, 설치 스크립트, README를 갖춘다.
-- 설치: `kubectl apply -k` 한 번 + `kubeguardian.yaml` 작성 + Azure OpenAI Secret 등록
-
-### 12.2 설정 파일
+- 진단 대상의 서비스 이름·포트·API 시나리오를 코드가 아니라 설정 파일로 받는다.
 
 ```yaml
 # kubeguardian.yaml
 target:
   namespace: dev
+schedule: "*/5 * * * *"
 llm:
   provider: azure_openai
   deployment: <진단용 배포명>
@@ -645,81 +530,74 @@ api_scenarios:
       - call:  {via: gateway, path: /api/v1/agent/invoke, expect: 200, timeout_s: 60}
 app_apis:            # query_app_api 허용 목록 (GET만)
   llm-gateway: [/api/v1/health, /api/v1/quota]
+notify:
+  slack:
+    channel: "#kubeguardian-alerts"
+    bot_token_secret: kg-slack-bot
 knowledge:
   runbooks: [builtin:template, ./runbooks/]
   environment: ./environment.md
 ```
 
-### 12.3 진단 친화 규약 (템플릿 기여 대상)
-
-템플릿이 따르면 진단 품질이 올라가는 약속이다. 규약을 따르지 않는 서비스도 기본 진단은 된다.
-
-| 규약 | 효과 |
-|---|---|
-| 서비스 주소를 K8s 매니페스트에 명시 (F1) | 토폴로지 정확도, 배포 직후 장애 방지 |
-| `/health/ready`가 의존성 확인 (F3) | Ready가 실제 서비스 가능 여부를 반영 |
-| 버전 노출 (F4) | 신·구 버전 식별 |
-| 구조화 로그 + trace_id (후속) | 서비스 간 요청 추적 |
+- 템플릿이 따르면 진단 품질이 올라가는 규약(서비스 주소 명시, 의존성을 확인하는 `/health/ready`, 버전 노출)은 PoC 결과와 함께 제안만 한다.
 
 ## 13. 보안·권한
 
 - 전용 ServiceAccount `kubeguardian` + 최소 권한 ClusterRole (`get/list/watch`만)
-  - core: pods, pods/log, events, services, endpoints, configmaps, persistentvolumeclaims, persistentvolumes, nodes, namespaces, serviceaccounts
-  - `discovery.k8s.io`: endpointslices · `apps`: deployments, replicasets, statefulsets
-  - `rbac.authorization.k8s.io`: rolebindings, clusterrolebindings · `metrics.k8s.io`: pods, nodes
-  - secrets: `list`를 metadata-only 요청으로만 사용. RBAC상 값 읽기가 가능하다는 잔여 위험은 문서화
+  - core: pods, pods/log, events, services, endpoints, configmaps, nodes, namespaces
+  - `discovery.k8s.io`: endpointslices · `apps`: deployments, replicasets
+  - secrets: metadata-only 요청으로만 사용. RBAC상 값 읽기가 가능하다는 잔여 위험은 문서화
 - `query_app_api`: GET + 허용 목록만. 테스트 계정은 Secret으로 주입
-- Code Mode 샌드박스(§7.8): ServiceAccount 토큰 미마운트, NetworkPolicy로 MCP 서버 외 통신 차단, 실행 시간·메모리 상한. 에이전트가 쓴 코드가 읽기 전용 원칙을 우회하지 못하게 한다
-- Chaos Mesh는 평가 환경 전용. 애드온 배포물에 포함하지 않음
-- 로그·이벤트·설정은 마스킹 후 Azure OpenAI로 전송. 사내 SSL 프록시 대비 CA 번들 주입
+- Slack 봇 토큰은 Secret으로 주입. 권한은 `chat:write`만
+- 외부 통신은 Azure OpenAI와 Slack API만. 로그·이벤트·설정은 마스킹 후 전송 (Slack 포함)
+- Chaos Mesh는 평가 환경 전용
+- 사내 SSL 프록시 대비 CA 번들 주입
 
 ## 14. 기술 스택
 
 | 영역 | 선택 | 이유 |
 |---|---|---|
-| 앱·API | Python 3.12, FastAPI | 템플릿 backend-agent와 같은 구조 |
-| 에이전트 코어 | **W3 스파이크로 결정** (LangGraph / DeepAgents / 직접 루프 등) | 학습 목표. 도구 계층은 프레임워크 독립 |
+| 앱·API | Python 3.12, FastAPI, Pydantic | 실무 주력 스택, 템플릿 backend-agent와 같은 구조 |
+| 패키지·테스트 | uv, pytest, ruff | 레포 셋업에서 결정 |
+| 에이전트 코어 | LangGraph (기본), 직접 구현 루프 (비교) | 실무 숙련 도구. 도구 계층은 프레임워크 독립 |
 | LLM | Azure OpenAI, 구조화 출력 | 사내 표준. 진단 대상 llm-gateway와 경로 분리 |
-| 추적 | Phoenix (템플릿 infra-phoenix) + OpenTelemetry GenAI 표준 계측 | 에이전트 실행 추적·디버깅. 프레임워크 비교에도 사용. 템플릿 표준이고 minikube 자원 부담이 작음. 표준 계측으로 추적 도구 교체 비용 최소화 |
-| 도구 프로토콜 | MCP (Python SDK) | 도구 계층을 표준으로 노출. 외부 에이전트 재사용, Code Mode의 도구 접근 경로 |
-| 코드 실행 격리 | K8s Agent Sandbox (SIG Apps Sandbox CRD) | Code Mode 코드를 클러스터 안에서 격리 실행 |
-| 평가 | 자체 eval 러너 + LLM-as-judge + ITBench | 정답 기반 평가, 루브릭 자동 채점, 외부 벤치마크 비교 |
 | K8s 접근 | `kubernetes` 공식 클라이언트 | in-cluster config |
-| 저장소 | SQLite on PVC | 단일 replica |
-| 제품 화면 | React 18 · TypeScript · Vite · Tailwind · shadcn/ui, SSE | 템플릿 frontend와 같은 스택. 별도 앱으로 배포 (진단 대상과 분리) |
-| 개발용 화면 | Chainlit | 에이전트 디버깅·스파이크 비교. 프레임워크 무관 |
+| 주기 실행 | Kubernetes CronJob | 별도 스케줄러 없이 클러스터 기능 사용, K8s 학습 범위 |
+| 알림 | Slack 봇 (`chat.postMessage`) | 팀 메신저, 스레드 답글 |
+| 저장소 | SQLite on PVC | 근거·보고서·알림 이력. 단일 노드라 CronJob Pod와 공유 가능 |
+| 추적 | Phoenix + OpenTelemetry GenAI 표준 속성 | 실무 경험, 템플릿 표준(infra-phoenix) |
+| 화면 | CLI, Chainlit | 에이전트 디버깅. 제품 화면 없음 |
 | 장애 주입 | Chaos Mesh + kustomize overlay | Pod 단위 장애를 코드 수정 없이 |
-| 부하 | k6 | 단일 바이너리, 스크립트 간단 |
+| 비교 실험용 | MCP Python SDK, K8s Agent Sandbox, ITBench | §10 |
 
 ## 15. 리스크와 대응
 
 | 리스크 | 영향 | 대응 |
 |---|---|---|
-| 에이전트 선별이 L1에서도 흔들림 | 방향 전체의 전제가 흔들림 | **W3에 조기 검증**(M2). 실패 시 신호판 구조·프롬프트를 먼저 개선 |
-| 프레임워크 비교에 시간을 과하게 씀 | 일정 지연 | 스파이크는 **2일 타임박스**, 시나리오 2개로 한정. 결론이 안 나면 직접 루프로 시작 |
-| 증상 센서 기준이 너무 민감·둔감 | 게이트 오작동 (불필요한 AI 호출 / 놓침) | H0에서 1시간 연속 실행해 오탐 0 확인 후 기준 확정 |
-| LLM 결과 편차 | 지표 흔들림 | temperature 0, 3회 반복, 구조화 출력 |
+| 주 10~15시간으로 범위 초과 | 일정 지연 | MVP 시나리오 8개 고정, 비교 실험은 우선순위순으로 여유 시에만. 확장 후보는 마지막 |
+| 에이전트 선별이 L1에서도 흔들림 | 방향 전체의 전제가 흔들림 | 에이전트 골격 완성 직후 L1으로 조기 검증. 실패 시 신호판 구조·프롬프트부터 개선 |
+| 주기 점검의 오탐 | 잘못된 알림 → 신뢰 하락 | H0에서 4시간 연속 실행해 잘못된 알림 0건 확인 후 기준 확정 |
+| 같은 문제로 5분마다 AI 호출 | LLM 비용·알림 피로 | 문제 지문으로 진행 중 문제는 AI·알림 생략 (§6.6) |
+| AI 조사가 5분을 넘김 | 점검 중복 실행 | CronJob `concurrencyPolicy: Forbid`, 조사 상한 150초·요약 300초 |
+| Slack 봇 생성 승인·사내망 통신 제한 | 알림 불가 | W1에 Azure OpenAI 연결 확인과 함께 점검. 막히면 알림은 파일·로그로 대체하고 평가는 알림 이력으로 진행 |
 | 클러스터 안에서 Azure OpenAI 연결 실패 (사내 SSL) | 환경 구축 지연 | W1 첫날 연결 스파이크, CA 주입 |
-| 템플릿 `.env`의 선택 의존성(Milvus, MinIO, Phoenix, Naver, Notion 키) 없이 앱이 기동 안 됨 | 환경 구축 지연 | W1에 의존성별 기동 확인. 필수로 묶여 있으면 포크에서 선택화 (F2와 같은 방식) |
-| minikube 자원 부족 (앱 6 + DB + Chaos Mesh) | 불안정 | 10GB 할당, 부하 시나리오는 단독 실행 |
-| 앱 층 시나리오(C1·C4 등) 재현 불안정 | 평가 신뢰도 | inject 후 증상 확인 단계를 스크립트에 포함 (증상이 안 나면 무효 처리) |
-| 1인 8주 범위 | 일정 초과 | MVP 16개 고정, X 목록은 여유 시에만. 제품 화면 범위 축소. Code Mode는 필요 시 L1~L3 일부 비교로 축소 |
-| ITBench 환경이 minikube 자원 안에서 돌지 않음 | 외부 벤치마크 비교 불가 | W1에 반나절 확인. 불가하면 채점 방식만 자체 시나리오에 적용 (§10.6) |
-| Code Mode 코드가 읽기 전용 원칙을 우회 | 클러스터 변경 위험 | 샌드박스에 K8s 자격 증명 없음, MCP 서버 외 통신 차단. W6에 우회 시도 테스트로 확인 |
-| LLM-as-judge 채점이 사람 판단과 어긋남 | 도움 정도 지표 신뢰도 하락 | 본인 채점 10건과 일치도 확인. 낮으면 루브릭 기준을 구체화하거나 본인 채점으로 대체 |
-| Agent Sandbox 추가로 minikube 자원 부족 | 불안정 | 샌드박스는 Code Mode 평가 시에만 기동, 부하 시나리오와 동시 실행하지 않음 |
-| 민감정보 외부 전송 | 보안 | 마스킹(이벤트 포함), Secret 미수집, 필드 화이트리스트 |
+| 템플릿 선택 의존성(Milvus, MinIO 등) 없이 앱이 안 뜸 | 환경 구축 지연 | W1에 의존성별 기동 확인, 필요하면 포크에서 선택화 (F2와 같은 방식) |
+| minikube 자원 부족 | 불안정 | 10GB 할당, 비교 실험용 샌드박스는 해당 실험 때만 기동 |
+| LLM 결과 편차 | 지표 흔들림 | temperature 0, 3회 반복, 구조화 출력 |
+| 앱 층 시나리오(C1 등) 재현 불안정 | 평가 신뢰도 | inject 후 증상 확인 스크립트, 증상이 안 나면 무효 처리 |
+| 지침이 평가 시나리오에 과적합 | 정확도 과대평가 | 장애 유형 단위로 지침 작성, 지침 작성 시 보지 않은 시나리오로 확인 (§9.3) |
+| 민감정보 외부 전송 | 보안 | 마스킹(이벤트·Slack 포함), Secret 값 미수집, 필드 화이트리스트 |
 
 ## 16. 외부 서비스 대비 포지션
 
 K8sGPT, HolmesGPT, Komodor(Klaudia), Azure SRE Agent, Kiali 비교는 [03-market-analysis.md](03-market-analysis.md) 참고.
 
 - **차별점**
-  1. **규칙 + 사각지대 탐색**: 규칙으로 확정되는 것은 규칙으로, 규칙이 통과하는데 증상이 있는 경우에 AI가 원인을 탐색. 결과는 "지금 중요한 것" 순으로 제시
-  2. **선언 기반 관계 검증**: 트래픽이 없어도 서비스 주소·포트 선언의 불일치를 체인 단위로 잡음
-  3. **템플릿 동반 애드온**: 템플릿 규약을 알고 들어가는 기본 지침 + 진단 친화 규약
-  4. **정답 기반 평가**: 난이도별 장애 주입 + 3단 비교
-- **Azure SRE Agent와의 관계**: 대체가 아니라 보완. 지침·시나리오 세트는 향후 Skills·평가 세트로 이식 가능
+  1. **규칙 + 사각지대 탐색**: 규칙으로 확정되는 것은 규칙으로, 규칙이 통과하는데 증상이 있을 때 AI가 원인을 탐색. 정상일 때는 LLM 비용 0
+  2. **선언 기반 관계 검증**: 트래픽이 없어도 서비스 주소·포트 선언의 불일치를 잡음
+  3. **템플릿을 아는 지침**: 운영 사례에서 나온 함정을 기본 지식으로 담음
+  4. **정답 기반 평가**: 난이도별 장애 주입 + 기준 조건 대비 비교
+- **HolmesGPT와의 관계**: HolmesGPT도 도구 호출 + runbook으로 K8s를 조사한다. 이번 프로젝트는 학습이 1차 목적이라 직접 구현하되, 위 차별점 1·2(규칙 우선 게이트, 선언 기반 검증)가 HolmesGPT에 runbook만 붙이는 방식과 다른 지점이다.
 
 ## 17. 결정 이력
 
@@ -728,21 +606,25 @@ K8sGPT, HolmesGPT, Komodor(Klaudia), Azure SRE Agent, Kiali 비교는 [03-market
 | 09-28 | 사내 PoC, 1인 8주 | — |
 | 09-28 | 진단용 LLM은 Azure OpenAI 직접 | 진단 대상 llm-gateway 장애 시에도 진단 가능해야 함 |
 | 09-28 | 자동 조치는 비목표 | 진단 정확도 우선, 안전, 평가 명확성 |
-| 09-28 | 진단 대상 = 템플릿 앱 6개 (Inc-PR은 문제의식 출처로만) | 범용성 |
-| 09-28 | 진단 대상 서비스도 실제 Azure OpenAI 사용 | 현실성, LLM 장애 시나리오 가능 |
-| 09-28 | Pod 단위 장애는 Chaos Mesh | 템플릿 코드 오염 방지, 재사용성 |
-| 09-28 | 템플릿 포크 후 개발, 완료 시 원본 기여 | 원본 안정성 유지 |
+| 09-28 | 진단 대상 = 템플릿 앱 6개 | 범용성 |
+| 09-28 | Pod 단위 장애는 Chaos Mesh | 템플릿 코드 오염 방지 |
 | 09-28 | Azure AI Search 미사용, 관련 장애 제외 | 범위 축소 |
-| 09-28 | 시나리오를 난이도 L1–L5로 재구성 (16개) | 규칙만으로 풀리는 시나리오로는 AI 가치를 증명할 수 없음 |
-| 09-28 | AI 에이전트 중심으로 방향 전환 (v2.0) | 목적은 중요한 문제를 찾아내고 도움을 받는 것 |
-| 09-28 | **규칙 우선 + AI 조사 하이브리드** (v2.1): 규칙 적발 시(경로 A)와 규칙 통과·증상 존재 시(경로 B)에 AI 진입 | 정상 시 비용·예측 가능성 확보, AI 역할을 규칙의 정리와 사각지대 탐색으로 명확화 |
-| 09-28 | **에이전트 프레임워크 비한정**, W3 스파이크로 결정 | 1차 목적이 K8s 이해와 에이전트 개발 역량 함양 |
-| 09-28 | **감지기를 카테고리 ID(N·P·W·S·C·H)로 재편**, 노드·Pod 기동 기본 규칙 추가 (18 → 26종) | 규칙을 카테고리로 이해·관리. Pod 기동 단계(스케줄·마운트·init·Ready·축출)와 노드 상태 누락 보완 |
-| 09-29 | **업무 효율 KPI 3종**(원인 도달 시간 단축률, 제한 시간 내 해결률, 신호 압축률)을 평가 헤드라인으로 추가. 수동 기준선은 **블라인드 자가 진단**으로 측정 (v2.2) | 업무 효율화 입증 필요. 1인 과제라 동료 대상 실험이 어렵고 과거 장애 진단 시간 기록이 없음 |
-| 09-29 | **최신 에이전트 기술 도입** (v2.3): MCP 도구 서버, LLM-as-judge, Skills 방식 지침, Code Mode + K8s Agent Sandbox, ITBench. kagent는 설계 참고 모델 | 50% 수준의 지식을 100%로 끌어올리는 것에 더해 2026년 기술을 직접 도입·검증. 기존 eval 자산으로 효과를 수치 비교할 수 있음 |
-| 09-29 | 추적은 **Phoenix 유지** + OpenTelemetry GenAI 표준 계측 (Langfuse 검토 후 기각) | 템플릿 표준(infra-phoenix), minikube 자원 부담. Langfuse는 구성 요소가 많음 |
-| 09-29 | 루브릭 평가를 **LLM-as-judge**로 전환 | 1인 과제라 동료 평가 인원 확보가 어려움 |
-| 09-29 | **제품 화면 범위 축소** (구체안은 별도 정리) | 신기술 실험 시간 확보 |
+| 09-28 | 규칙 우선 + AI 조사 하이브리드 (v2.1) | 정상 시 비용·예측 가능성, AI 역할 명확화 |
+| 09-28 | 감지기를 카테고리 ID(N·P·W·S·C·H)로 재편 | 규칙을 카테고리로 이해·관리 |
+| 09-29 | 업무 효율 KPI, 블라인드 자가 진단 (v2.2) | 업무 효율화 입증 |
+| 09-29 | 최신 에이전트 기술 도입 (v2.3) | 2026년 기술을 직접 도입·검증 |
+| 09-29 | 추적은 Phoenix 유지 | 템플릿 표준, minikube 자원 부담 |
+| 10-04 | **투입 시간을 주 10~15시간으로 확정, 범위 조정 (v3.0)** | 기존 계획이 풀타임 기준이라 약 3배 초과 |
+| 10-04 | 1차 목적을 K8s 장애 분석 + 정량 평가 역량으로 변경 | 에이전트 개발(LangGraph·DeepAgents·RAG)은 실무 경험 보유 |
+| 10-04 | 문제 정의의 중심을 L3(K8s로 원인이 안 보이는 장애)로 이동, 템플릿 결함은 배경·데모로 | 템플릿 결함은 고칠 문제라 진단 도구의 근거로 약함 |
+| 10-04 | **주 사용 방식을 5분 주기 점검 + Slack 알림으로 변경** | 사용자 문의 전에 운영자가 먼저 알아야 함. 정상 시 LLM 비용 0 구조와 맞음 |
+| 10-04 | 변경 검증, 보고서 후속 질문, React 제품 화면, L4 시나리오 제외 | 주 10~15시간 범위. 보고서 하나로 판단이 끝나도록 집중 |
+| 10-04 | 조치는 조치 에이전트로서 다음 단계 과제 | 조사 보고서를 입력으로 받는 구조 |
+| 10-04 | 시나리오 16 → 8개 + H0, 감지기 26 → 10종 + 개선 권고 2종, 도구 13 → 7종 | MVP 시나리오 기준으로 역산 |
+| 10-04 | 블라인드 자가 진단 폐지, KPI를 기준 조건(규칙만) 대비로 재구성 | 설계자 본인 측정은 기억을 반영, 표본·비용 문제 |
+| 10-04 | 신기술(MCP, Code Mode, ITBench, LLM-as-judge, Skills, kagent)은 비교 실험으로 분리 | 핵심 기능과 분리해 우선순위순으로 진행 |
+| 10-04 | 범용 애드온·템플릿 기여는 비전으로만 | PoC 범위 밖 |
+| 10-04 | Slack 알림은 웹훅이 아니라 봇 토큰 | 스레드 답글에 원 메시지 ID 필요 |
 
 ---
 
@@ -753,86 +635,48 @@ K8sGPT, HolmesGPT, Komodor(Klaudia), Azure SRE Agent, Kiali 비교는 [03-market
 | 용어 | 뜻 | 예시 |
 |---|---|---|
 | 진단 대상 환경 | 에이전트가 조사하는 minikube 위의 서비스 묶음 | `dev` 네임스페이스의 템플릿 앱 6개 + postgres·redis |
-| 템플릿 포크 | 원본 템플릿을 복제해 PoC용으로 수정한 사본 | F1~F7 수정 |
 | 토폴로지 | "어느 서비스가 어느 서비스를 호출하는가"를 그린 연결 지도. 설정의 URL 값과 실제 Service를 맞춰서 만든다 | `AGENT_SERVICE_URL=http://agent:8006` → gateway가 agent를 호출 |
-| 엣지 | 토폴로지에서 두 서비스를 잇는 선 하나 | gateway → agent |
-| declared 엣지 | 설정의 URL이 실제 Service·포트와 맞는 연결 | `http://agent:8006`에 대응하는 `agent` Service가 존재 |
-| unresolved 엣지 | 설정의 URL이 없는 Service나 `localhost`를 가리키는 연결. 그 자체로 문제 신호 | 원본 템플릿의 gateway → `localhost:8006` |
-| inferred 엣지 | 설정에는 없고 에이전트가 로그 등에서 추정한 연결. 단독 판정 근거로 쓰지 않는다 | — |
-| 영향 범위 | 어떤 리소스가 바뀌었을 때 다시 확인해야 할 서비스들 | agent 포트 변경 → gateway → front-chat |
+| declared / unresolved / inferred 엣지 | 설정 URL이 실제 Service와 맞는 연결 / 없는 Service·`localhost`를 가리키는 연결 / 에이전트가 로그 등에서 추정한 연결 | 원본 템플릿의 gateway → `localhost:8006`은 unresolved |
 
 ### Kubernetes 기본 용어
 
 | 용어 | 뜻 |
 |---|---|
-| Deployment | "이 컨테이너를 N개 띄워라"라는 선언. 버전 교체(롤아웃)를 관리한다 |
-| ReplicaSet | Deployment의 특정 버전에 해당하는 Pod 묶음. 롤아웃 중에는 구·신 두 개가 공존한다 |
-| Service | Pod 여러 개 앞에 붙는 고정 이름·주소. 라벨(selector)로 대상 Pod를 고른다 |
-| EndpointSlice | Service가 실제로 트래픽을 보내는 Pod 주소 목록과 각 Pod의 Ready 여부 |
+| Deployment / ReplicaSet | "이 컨테이너를 N개 띄워라"라는 선언 / Deployment의 특정 버전에 해당하는 Pod 묶음 |
+| Service / EndpointSlice | Pod 여러 개 앞에 붙는 고정 이름·주소. 라벨(selector)로 대상 Pod를 고른다 / Service가 실제로 트래픽을 보내는 Pod 주소 목록과 Ready 여부 |
 | readinessProbe | "이 Pod가 요청을 받을 준비가 됐는가"를 Kubernetes가 주기적으로 확인하는 설정 |
-| ConfigMap / Secret | 컨테이너에 주입하는 설정값 / 비밀값. 환경변수로 주입된 값은 **Pod가 재시작될 때만** 반영된다 |
-| 이미지 digest | 이미지 내용의 고유 해시. tag가 같아도 내용이 다르면 digest가 다르다 |
+| ConfigMap / Secret | 컨테이너에 주입하는 설정값 / 비밀값. 환경변수로 주입된 값은 Pod가 재시작될 때만 반영된다 |
+| CronJob | 정해진 주기마다 Job(일회성 Pod)을 만들어 실행하는 리소스 |
 | OOMKilled | 컨테이너가 메모리 limit을 넘어 강제 종료된 상태 |
 
 ### 에이전트
 
 | 용어 | 뜻 | 예시 |
 |---|---|---|
-| AI 게이트 | 규칙 점검과 증상 센서 결과를 보고 AI 조사를 시작할지 정하는 결정적 판정 | — |
-| 경로 A / B / C | A: 규칙이 장애 신호를 찾아 AI 진입 / B: 규칙은 통과했지만 증상이 있어 AI 진입 (규칙의 사각지대) / C: 둘 다 없어 AI 미호출 | C2(Redis 차단)는 경로 B |
-| 브리핑 | 게이트가 열렸을 때 AI가 "지금 중요한 것"을 영향 순으로 정리한 결과 | "지금 중요한 것 2건 (신호 47개 중)" |
-| 선별 (Triage) | 수많은 신호 중 무엇이 중요한지 우선순위를 정하고 소음을 걸러내는 일 | — |
-| 신호 / 신호판 | 감지기·프로브·이벤트·메트릭 등에서 나온 원시 관찰 하나 / 이를 서비스별로 모은 것 | "agent Pod 재시작 3회" |
-| 소음 | 사실이지만 지금 장애와 무관한 신호. 개선 권고로 분리한다 | 모든 서비스의 tcpSocket probe |
-| 조사 | 증상에서 출발해 가설을 세우고 도구로 확인해 원인을 좁히는 과정 | — |
+| AI 게이트 | 규칙 점검과 증상 감지 결과를 보고 AI 조사를 시작할지 정하는 결정적 판정 | — |
+| 경로 A / B / C | A: 규칙이 장애 신호를 찾아 AI 진입 / B: 규칙은 통과했지만 증상이 있어 AI 진입 / C: 둘 다 없어 AI 미호출 | C1(할당량)은 경로 B |
+| 문제 지문 | 같은 문제인지 판단하기 위해 결정적 신호로 만든 식별값. 같은 지문이 열려 있으면 AI·알림을 생략 | (B, [], chat 단계 실패, llm-gateway) |
+| 신호 / 신호판 | 감지기·이벤트·재시작 등에서 나온 원시 관찰 하나 / 이를 서비스별로 모은 것. 조사 시작 시 에이전트에 입력 | "agent Pod 재시작 3회" |
+| 선별 | 수많은 신호 중 무엇이 중요한지 우선순위를 정하고 소음을 걸러내는 일 | — |
 | 도구 | 에이전트가 사실을 얻기 위해 호출하는 읽기 전용 기능 | `get_pod_logs`, `probe` |
 | Evidence (근거) | 도구가 수집한 사실 한 건. 고유 id, 출처, 수집 시각을 가진다 | `ev-42`: agent-x2k lastState=OOMKilled |
-| 가설 | 에이전트가 세운 원인 후보. 지지 / 배제 / 판단 보류로 판정한다 | "llm-gateway 할당량 소진" |
-| 확신도 | 에이전트가 판정에 붙이는 높음·중간·낮음 | — |
+| 가설 | 원인 후보. 지지 / 배제 / 판단 보류로 판정한다 | "llm-gateway 할당량 소진" |
 | 근거 검증기 | 사실 문장이 실제 evidence id를 인용했는지 코드로 확인하는 장치 | — |
-| 조사 지침 (runbook) | 증상·신호별로 "무엇을 확인하고 어떤 조건이면 배제하는지" 적어 에이전트에게 주는 짧은 매뉴얼 | "Ready인데 500이면 probe 방식을 먼저 확인" |
-| 환경 설명 문서 | 진단 대상의 구성과 알려진 함정을 한 페이지로 정리한 문서 | "모든 앱이 infra-config를 공유" |
-| MCP | Model Context Protocol. 에이전트와 도구를 잇는 표준 프로토콜. 도구를 MCP 서버로 노출하면 어떤 에이전트든 같은 도구를 쓸 수 있다 | 진단 도구 MCP 서버 |
-| Code Mode | 도구를 하나씩 호출하는 대신, 에이전트가 여러 도구를 부르는 코드를 써서 샌드박스에서 실행하는 방식 | Pod 3개 로그를 한 번에 grep |
-| Agent Sandbox | 에이전트가 쓴 코드를 격리 실행하기 위한 Kubernetes Sandbox CRD (SIG Apps) | Code Mode 실행 Pod |
-| Skills 방식 지침 | 지침을 주제별 문서로 나누고 한 줄 설명만 먼저 보여준 뒤, 필요한 것만 불러오게 하는 구성 | "Ready인데 500" 지침만 로드 |
-| kagent | 에이전트를 Kubernetes CRD로 정의·운영하는 CNCF Sandbox 프로젝트. 이 프로젝트에서는 설계 참고 모델 | — |
+| 조사 지침 (runbook) | 증상·장애 유형별로 "무엇을 확인하고 어떤 조건이면 배제하는지" 적어 주는 짧은 매뉴얼 | "Ready인데 500이면 probe 방식을 먼저 확인" |
 
-### 감지와 검증
-
-| 용어 | 뜻 | 예시 |
-|---|---|---|
-| 감지기 (규칙) | 정해진 조건을 코드로 검사하는 부분 (N·P·W·S·C·H 카테고리, §8.2). 규칙으로 확정되는 문제는 여기서 확정한다 | "selector에 맞는 Pod 0개" |
-| 장애 신호 / 개선 권고 | 감지기 결과의 두 등급. 장애 신호만 AI 게이트를 연다 | S01은 장애 신호, H01(tcpSocket probe)은 개선 권고 |
-| 증상 센서 | "규칙은 통과했지만 무언가 잘못됨"을 잡는 결정적 검사. 원인은 모르고 이상만 감지한다 | 채팅 API 시나리오 실패, 메모리 선형 증가 |
-| L4 프로브 | 포트에 연결만 되는지 확인 (TCP) | 8006 포트가 열려 있음 |
-| L7 프로브 | 실제 HTTP 요청으로 응답 코드·시간까지 확인 | `GET /health/ready` → 200, 45ms |
-| 핵심 API 시나리오 | 사용자 흐름을 흉내 낸 연속 호출 | 로그인 → 채팅 → 스트리밍 |
-| Service 경유 / Pod 직접 호출 | Service 이름으로 부르면 여러 Pod 중 하나로 분산되고, Pod IP로 부르면 그 Pod만 확인된다 | Service 경유 성공 + Pod C 직접 실패 → 부분 장애 |
-| 부분 장애 | 서비스 전체는 응답하지만 일부 Pod만 실패하는 상태 | — |
-| 설정 잠복 | ConfigMap은 바뀌었는데 Pod가 재시작되지 않아 옛 값으로 동작하는 상태. 재시작 순간 장애가 드러난다 | C03 |
-| 스냅샷 | 특정 시점의 리소스 설정 사본. 변경 전후 비교의 기준 | 배포 전 10:02 스냅샷 |
-| 메트릭 샘플러 | CPU·메모리 값을 짧은 주기로 모아 추세를 보게 하는 경량 수집기 | 15초 주기, 30분 보관 |
-
-### 평가
+### 감지와 평가
 
 | 용어 | 뜻 |
 |---|---|
-| 평가 | 진단 대상 서비스가 아니라 **진단 에이전트 자체**가 문제를 찾고 원인을 맞히는지 채점하는 것 |
-| 장애 시나리오 / 장애 주입 | 원인을 미리 아는 장애를 일부러 만들어 넣는 것 |
-| 정답 파일 (`expected.yaml`) | 시나리오마다 미리 적어 둔 정답 원인·영향 서비스·기대 브리핑 1순위 |
-| 난이도 L1~L5 | 원인을 찾기 위해 필요한 추론의 깊이. L3부터 증상과 원인이 다른 곳에 있다 |
-| 선별 정확도 | 브리핑 1순위 문제가 주입한 장애와 일치하는 비율 (핵심 지표) |
-| 원인 Top-1 / Top-3 | 보고서 1순위 원인 / 상위 3개 가설 안에 정답이 있는 비율 |
-| 소음 억제 | 정상 환경(H0)에서 장애가 아닌 것을 장애로 올리지 않는 능력 |
-| 3단 비교 | 규칙+증상 센서만 / +AI 조사 / +AI 조사+조사 지침 조건을 같은 시나리오로 비교하는 것 |
-| 업무 효율 KPI | 사람의 진단 일이 얼마나 줄었는지 보는 헤드라인 지표. 원인 도달 시간 단축률, 제한 시간 내 해결률, 신호 압축률 (§10.1) |
-| 신호 압축률 | 사람이 봐야 할 항목이 줄어든 정도. 원시 신호 47개를 중요 이슈 2건으로 줄였다면 95.7% |
-| 블라인드 자가 진단 | 스크립트가 무작위로 고른 장애를 무엇인지 모르는 상태에서 본인이 kubectl로 진단하고 시간을 재는 것. 수동 기준선의 하한으로 쓴다 |
-| 원인 규명 커버리지 | K8s 상태만으로 원인이 드러나지 않는 시나리오 중 KubeGuardian이 원인을 맞힌 비율 |
-| LLM-as-judge | 사람 대신 LLM이 루브릭에 따라 보고서를 채점하는 것. 사람 채점과 일치도를 먼저 확인하고 쓴다 |
-| ITBench | IBM의 공개 SRE 에이전트 벤치마크. Kubernetes 장애의 근본 원인을 맞히는 과제로 구성된다 |
-| 게이트 정확도 | 정상일 때 AI를 부르지 않고, 장애일 때 AI를 부르는 비율 |
-| 스파이크 | 결정을 위해 짧게 시간을 정해 두고 해 보는 실험 구현 (W3 프레임워크 비교) |
+| 감지기 (규칙) | 정해진 조건을 코드로 검사하는 부분. 장애 신호(N·P·W·S·C)와 개선 권고(H)로 나뉜다 |
+| 증상 감지 | "규칙은 통과했지만 서비스가 안 됨"을 잡는 결정적 검사. API 시나리오를 실제로 호출한다 |
+| API 시나리오 | 사용자 흐름을 흉내 낸 연속 호출 (로그인 → 채팅) |
+| 장애 주입 / 정답 파일 | 원인을 미리 아는 장애를 일부러 만들어 넣는 것 / 시나리오마다 적어 둔 정답 원인·영향 서비스·기대 1순위 (`expected.yaml`) |
+| 난이도 L1~L5 | 원인을 찾기 위해 필요한 추론의 깊이 (§8.1) |
+| 기준 조건 / 비교 조건 | 규칙 점검 + 증상 감지만 / 여기에 AI 조사를 더한 것 |
+| 원인 규명 커버리지 | K8s 상태만으로 원인이 드러나지 않는 시나리오 중 원인을 맞힌 비율 |
+| 확인 항목 감소율 | 사람이 직접 봐야 할 원시 신호가 요약의 중요 문제 몇 건으로 줄었는지 |
+| 장애 감지 시간 | 장애 주입부터 Slack 알림 발송까지의 시간 |
+| 근거 일치율 | 인용된 근거가 실제로 그 문장을 뒷받침하는 비율 |
+| LLM-as-judge | LLM이 루브릭에 따라 보고서를 채점하는 것. 사람 채점과 일치도를 먼저 확인하고 쓴다 |
 | ADR | Architecture Decision Record. 설계 결정과 그 이유를 짧게 남기는 문서 |
-| Chaos Mesh | Kubernetes에서 Pod 단위 장애(HTTP 오류, CPU·메모리 압박, 시계 어긋남 등)를 선언으로 주입하는 오픈소스 도구 |
