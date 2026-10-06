@@ -108,5 +108,6 @@ docs(deliverables): 시나리오 수립 문서 추가
 |---|---|---|
 | 기획·계획 | `docs/` | `NN-<영문-kebab>.md` (예: `05-evaluation-report.md`) |
 | 과제 산출물 | `docs/산출물/` | `NN-<한글제목>.md` |
+| 과제 산출물 (제출 양식 그대로 요약한 버전) | `docs/산출물/양식/` | 위와 같은 파일명 |
 | 설계 결정 기록 | `docs/adr/` | `ADR-NNN-<영문-kebab>.md` |
 | 주간 학습 노트 | `docs/learning/` | `wN-<영문-kebab>.md` |
