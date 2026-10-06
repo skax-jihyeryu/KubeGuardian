@@ -12,7 +12,7 @@
 | 기준 서비스 | [agent-template-apps-lite](https://github.com/orgs/agent-template-apps-lite/repositories) 포크 (앱 6개) |
 | 실행 환경 | minikube (단일 노드) + Chaos Mesh |
 | LLM | 진단 에이전트·진단 대상 서비스 모두 Azure OpenAI (경로는 분리) |
-| 사용 방식 | **5분 주기 자동 점검 → 이상 시 AI 조사 → Slack 알림** (주), 배포 직후 점검·증상 입력 (보조) |
+| 사용 방식 | **Slack 하나로 사용**: 5분 주기 자동 점검 → 이상 시 AI 조사 → 알림 (주), Slack 명령으로 즉시 점검·증상 조사 (보조) |
 | 문서 버전 | v3.0 (2026-10-04) — 주 10~15시간 기준 범위 조정 (변경 이력은 §17) |
 | 관련 산출물 | [역량·기술 스택](산출물/01-역량및기술스택확인.md), [문제 정의·서비스 기획](산출물/02-문제정의및서비스기획.md), [시나리오](산출물/03-시나리오수립.md) |
 
@@ -78,7 +78,7 @@ T1은 템플릿을 고쳐서 해결할 문제라 **문제 정의의 중심이 �
 
 ```mermaid
 flowchart TB
-    T[점검 시작<br/>CronJob 5분 주기 / kg check / kg investigate] --> R[1. 규칙 점검<br/>감지기 장애 신호 10종 + 개선 권고 2종]
+    T[점검 시작<br/>CronJob 5분 주기 / Slack /kg check / /kg investigate] --> R[1. 규칙 점검<br/>감지기 장애 신호 10종 + 개선 권고 2종]
     T --> S[2. 증상 감지<br/>API 시나리오 실제 호출]
     R --> G{AI 게이트}
     S --> G
@@ -137,7 +137,7 @@ flowchart TB
 1. **주기 점검** — 5분마다 감지기와 증상 감지를 실행하고, 장애 신호와 개선 권고를 구분한다.
 2. **AI 조사·검증** — 게이트가 열리면 선별 → 가설 → 도구 검증 → 근거 인용 보고서를 만든다.
 3. **Slack 알림** — 새 문제는 한 번만 알리고, 해결되면 복구 알림을 보낸다.
-4. **수동 실행** — 배포 직후 점검(`kg check`), 증상 입력 조사(`kg investigate`).
+4. **Slack 명령** — 배포 직후 즉시 점검(`/kg check`), 증상 입력 조사(`/kg investigate 증상`). 결과는 명령 메시지의 스레드로 받는다.
 
 ### 4.2 비목표
 
@@ -146,7 +146,7 @@ flowchart TB
 | **조치 에이전트** (승인 후 실행, 자동 실행) | 진단 정확도 우선, 안전, 평가 명확성. 조사 보고서를 입력으로 받는 **다음 단계 과제** |
 | 보고서 후속 질문(대화) | 보고서 하나로 판단이 끝나도록 만드는 데 집중 |
 | 변경 검증 (배포 전후 diff, 영향 범위 재검증) | 별도 제품 수준의 범위 |
-| 제품용 웹 화면 (React) | CLI + Chainlit + Slack으로 충분 |
+| 제품용 웹 화면 (React) | 운영자는 Slack 하나로 알림·명령·보고서를 처리 |
 | 부하·시간 의존 장애 (L4) | 메트릭 샘플러·추세 센서·부하 도구가 필요해 범위가 큼 |
 | 멀티 클러스터, 실제 AKS·EKS 적용 | PoC 범위 밖 |
 | Prometheus·서비스 메시 등 관측 스택 | 자체 경량 수집으로 대체 |
@@ -175,14 +175,15 @@ flowchart LR
     LG -. 서비스용 LLM .-> AOAI1[Azure OpenAI]
     subgraph ns_kg[namespace: kubeguardian]
         CJ[CronJob 5분] --> JOB[점검 Job]
-        CLI[kg CLI / Chainlit] --> DA[diagnostic-agent]
+        DA[diagnostic-agent<br/>Slack 명령 수신 · Socket Mode] --> ST
+        CLI[kg CLI / Chainlit<br/>개발용] --> DA
         JOB --> ST[(SQLite on PVC)]
-        DA --> ST
     end
     JOB -. 읽기 전용 .-> K8S[K8s API]
     JOB -. API 시나리오 · 앱 조회 .-> ns_dev
     JOB -. 진단용 LLM (직접) .-> AOAI2[Azure OpenAI]
     JOB -. 알림 .-> SLACK[Slack]
+    SLACK <-. 명령 · 결과 .-> DA
     subgraph ns_chaos[namespace: chaos-mesh — 평가 전용]
         CM[Chaos Mesh]
     end
@@ -192,7 +193,8 @@ flowchart LR
 - 다중 Pod 시나리오(B1)를 위해 agent는 replicas 3으로 둔다.
 - 리소스 예산: `minikube start --cpus=4 --memory=10g`
 - 진단 에이전트는 진단 대상 llm-gateway를 거치지 않고 Azure OpenAI를 **직접** 호출한다. llm-gateway가 고장 나도 진단할 수 있어야 하기 때문이다.
-- 주기 점검 Job과 수동 실행(CLI·Chainlit)은 같은 코드·같은 SQLite(PVC)를 쓴다.
+- **diagnostic-agent**는 항상 떠 있는 Deployment(replicas 1)로, Slack 명령을 받아 점검·조사를 실행한다. Socket Mode는 Slack 쪽으로 연결을 먼저 여는 방식이라 공개 URL이 없는 minikube에서도 명령을 받을 수 있다.
+- 주기 점검 Job과 diagnostic-agent, 개발용 CLI·Chainlit은 같은 코드·같은 SQLite(PVC)를 쓴다.
 
 ### 5.2 템플릿 포크와 수정 항목
 
@@ -268,9 +270,11 @@ flowchart TB
 5. 에이전트가 사용자 영향 순으로 **선별**하고, 상위 최대 3건을 조사 (각 도구 호출 ≤ 8회). 경로 B면 증상에서 토폴로지를 따라 역추적하는 가설부터 세움
 6. 보고서 작성 → 근거 검증 → **Slack 알림**(요약 본문 + 스레드에 전체 보고서)
 
-**배포 직후 점검** (`kg check`): 1~5와 같고, 결과를 터미널에 출력한다. `--notify`를 주면 Slack으로도 보낸다.
+**배포 직후 점검** (Slack `/kg check`): "점검을 시작합니다" 메시지를 채널에 올리고 1~5를 실행한 뒤, 결과를 그 메시지의 스레드로 보낸다. 문제 지문이 이미 열려 있어도 사용자가 요청했으므로 결과를 보여준다.
 
-**증상 입력 조사** (`kg investigate "증상"`): 사용자 증상 = 경로 B로 게이트가 바로 열림 → **조사 계획을 먼저 출력** → 가설 최대 3개 → 도구로 검증 → 보고서.
+**증상 입력 조사** (Slack `/kg investigate 증상`): 사용자 증상 = 경로 B로 게이트가 바로 열림 → "조사를 시작합니다" 메시지 → **조사 계획을 먼저 스레드에 올림** → 가설 최대 3개 → 도구로 검증 → 보고서를 같은 스레드에.
+
+같은 기능을 개발·디버깅용 CLI(`kg check`, `kg investigate`)로도 실행할 수 있다.
 
 ### 6.3 에이전트 도구 (7종)
 
@@ -335,6 +339,8 @@ Report (조사 보고서):
 | 진행 중 | 같은 지문이면 AI 조사·알림 생략 (LLM 비용·알림 피로 방지) |
 | 해결 | 경로 C로 바뀌면 `resolved`로 바꾸고 복구 알림 1회 (장애 지속 시간 포함) |
 | 발송 방식 | Slack 봇 토큰(`chat:write`)으로 `chat.postMessage` 호출. 스레드 답글에는 원 메시지 ID(`ts`)가 필요해 Incoming Webhook은 쓰지 않음 |
+| 명령 수신 | Slack 앱의 슬래시 명령(`/kg check`, `/kg investigate`, `/kg evidence`)을 **Socket Mode**로 받음 (`slack_bolt`). 3초 안에 접수 응답을 보내고, 점검·조사는 비동기로 실행 |
+| 실행 권한 | 설정 파일의 허용 채널·허용 사용자만 명령 실행. 같은 사용자의 조사는 동시에 1건 |
 
 ### 6.7 조사 지침과 환경 설명
 
@@ -382,7 +388,7 @@ AI의 일반 지식으로는 **그 환경의 사정**을 모른다. 운영자의
 | 감지 | 이상 판정 (게이트 경로 B) |
 |---|---|
 | API 시나리오 | 설정한 호출 순서(기본: 로그인 → 채팅) 중 하나라도 실패하거나 제한 시간 초과 |
-| 사용자 입력 | `kg investigate "증상"` (항상 경로 B) |
+| 사용자 입력 | Slack `/kg investigate 증상` (항상 경로 B) |
 
 - 평가 시나리오 C5(특정 API만 500)를 위해 해당 API를 호출 순서에 포함한다.
 - L7 프로브 반복 호출·Pod 직접 호출은 증상 감지가 아니라 **에이전트 도구**(`probe`)로 둔다. 그래서 B1(Pod 1개만 오류)은 주기 점검이 놓칠 수 있고, 증상 입력으로 조사한다.
@@ -500,12 +506,12 @@ L4 시나리오(CPU 제한 연쇄 타임아웃, 점진적 메모리 증가, 재�
 
 | 화면 | 용도 |
 |---|---|
-| **Slack** | 주기 점검의 이상 알림(요약 본문 + 스레드에 전체 보고서), 복구 알림 |
-| **CLI** | `kg check [--notify]` 배포 직후 점검 / `kg investigate "증상"` 증상 조사 / `kg report <ID>` 보고서 / `kg evidence <ID>` 근거 원문 |
-| **개발용 화면 (Chainlit)** | 에이전트 개발·디버깅. 조사 단계, 도구 호출, 근거 원문 확인 |
+| **Slack** (운영자용) | 이상 알림(요약 본문 + 스레드에 전체 보고서), 복구 알림, 명령 `/kg check`·`/kg investigate 증상`·`/kg evidence <번호>` |
+| CLI (개발용) | `kg check`, `kg investigate`, `kg report <ID>`, `kg evidence <ID>` — Slack 명령과 같은 기능 |
+| 개발용 화면 (Chainlit) | 에이전트 개발·디버깅. 조사 단계, 도구 호출, 근거 원문 확인 |
 | 실행 추적 (Phoenix) | LLM 호출·도구 호출·토큰 추적 |
 
-제품용 웹 화면(React)은 만들지 않는다. [UI 정의서](04-ui-spec.md)는 위 범위로 축소한다.
+제품용 웹 화면(React)은 만들지 않는다. 메시지 형식과 명령 규칙은 [UI 정의서](04-ui-spec.md)에 정의한다.
 
 ## 12. 비전: 범용 애드온
 
@@ -530,10 +536,12 @@ api_scenarios:
       - call:  {via: gateway, path: /api/v1/agent/invoke, expect: 200, timeout_s: 60}
 app_apis:            # query_app_api 허용 목록 (GET만)
   llm-gateway: [/api/v1/health, /api/v1/quota]
-notify:
-  slack:
-    channel: "#kubeguardian-alerts"
-    bot_token_secret: kg-slack-bot
+slack:
+  alert_channel: "#kubeguardian-alerts"
+  bot_token_secret: kg-slack-bot        # 메시지 발송
+  app_token_secret: kg-slack-app        # Socket Mode 명령 수신
+  allowed_channels: ["#kubeguardian-alerts", "#pr-service-ops"]
+  allowed_users: ["@운영자"]
 knowledge:
   runbooks: [builtin:template, ./runbooks/]
   environment: ./environment.md
@@ -548,7 +556,8 @@ knowledge:
   - `discovery.k8s.io`: endpointslices · `apps`: deployments, replicasets
   - secrets: metadata-only 요청으로만 사용. RBAC상 값 읽기가 가능하다는 잔여 위험은 문서화
 - `query_app_api`: GET + 허용 목록만. 테스트 계정은 Secret으로 주입
-- Slack 봇 토큰은 Secret으로 주입. 권한은 `chat:write`만
+- Slack 봇 토큰·앱 토큰은 Secret으로 주입. 권한은 `chat:write`, `commands`, Socket Mode 연결(`connections:write`)만
+- Slack 명령은 허용 채널·허용 사용자만 실행. 명령도 조회만 하므로 클러스터를 바꿀 수 없음
 - 외부 통신은 Azure OpenAI와 Slack API만. 로그·이벤트·설정은 마스킹 후 전송 (Slack 포함)
 - Chaos Mesh는 평가 환경 전용
 - 사내 SSL 프록시 대비 CA 번들 주입
@@ -563,10 +572,10 @@ knowledge:
 | LLM | Azure OpenAI, 구조화 출력 | 사내 표준. 진단 대상 llm-gateway와 경로 분리 |
 | K8s 접근 | `kubernetes` 공식 클라이언트 | in-cluster config |
 | 주기 실행 | Kubernetes CronJob | 별도 스케줄러 없이 클러스터 기능 사용, K8s 학습 범위 |
-| 알림 | Slack 봇 (`chat.postMessage`) | 팀 메신저, 스레드 답글 |
+| 알림·명령 | Slack 앱 (`slack_bolt`, 봇 토큰 + Socket Mode) | 팀 메신저 하나로 알림·명령·보고서. 공개 URL 없이 명령 수신 |
 | 저장소 | SQLite on PVC | 근거·보고서·알림 이력. 단일 노드라 CronJob Pod와 공유 가능 |
 | 추적 | Phoenix + OpenTelemetry GenAI 표준 속성 | 실무 경험, 템플릿 표준(infra-phoenix) |
-| 화면 | CLI, Chainlit | 에이전트 디버깅. 제품 화면 없음 |
+| 화면 | Slack (운영자), CLI·Chainlit (개발용) | 제품 웹 화면 없음 |
 | 장애 주입 | Chaos Mesh + kustomize overlay | Pod 단위 장애를 코드 수정 없이 |
 | 비교 실험용 | MCP Python SDK, K8s Agent Sandbox, ITBench | §10 |
 
@@ -579,7 +588,7 @@ knowledge:
 | 주기 점검의 오탐 | 잘못된 알림 → 신뢰 하락 | H0에서 4시간 연속 실행해 잘못된 알림 0건 확인 후 기준 확정 |
 | 같은 문제로 5분마다 AI 호출 | LLM 비용·알림 피로 | 문제 지문으로 진행 중 문제는 AI·알림 생략 (§6.6) |
 | AI 조사가 5분을 넘김 | 점검 중복 실행 | CronJob `concurrencyPolicy: Forbid`, 조사 상한 150초·요약 300초 |
-| Slack 봇 생성 승인·사내망 통신 제한 | 알림 불가 | W1에 Azure OpenAI 연결 확인과 함께 점검. 막히면 알림은 파일·로그로 대체하고 평가는 알림 이력으로 진행 |
+| Slack 앱 생성 승인(메시지·명령·Socket Mode 권한)·사내망 통신 제한 | 알림·명령 불가 | W1에 Azure OpenAI 연결 확인과 함께 점검. 막히면 알림은 파일·로그로 대체하고 평가는 알림 이력으로 진행 |
 | 클러스터 안에서 Azure OpenAI 연결 실패 (사내 SSL) | 환경 구축 지연 | W1 첫날 연결 스파이크, CA 주입 |
 | 템플릿 선택 의존성(Milvus, MinIO 등) 없이 앱이 안 뜸 | 환경 구축 지연 | W1에 의존성별 기동 확인, 필요하면 포크에서 선택화 (F2와 같은 방식) |
 | minikube 자원 부족 | 불안정 | 10GB 할당, 비교 실험용 샌드박스는 해당 실험 때만 기동 |
@@ -625,6 +634,7 @@ K8sGPT, HolmesGPT, Komodor(Klaudia), Azure SRE Agent, Kiali 비교는 [03-market
 | 10-04 | 신기술(MCP, Code Mode, ITBench, LLM-as-judge, Skills, kagent)은 비교 실험으로 분리 | 핵심 기능과 분리해 우선순위순으로 진행 |
 | 10-04 | 범용 애드온·템플릿 기여는 비전으로만 | PoC 범위 밖 |
 | 10-04 | Slack 알림은 웹훅이 아니라 봇 토큰 | 스레드 답글에 원 메시지 ID 필요 |
+| 10-06 | **증상 입력·즉시 점검도 Slack 명령으로** (`/kg check`, `/kg investigate`), CLI는 개발용 | 알림을 받는 곳과 조사를 맡기는 곳을 하나로. 문의도 대개 Slack으로 옴. Socket Mode라 공개 URL 불필요 |
 
 ---
 
