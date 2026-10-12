@@ -1,6 +1,6 @@
 # KubeGuardian AI — 실행 계획서
 
-> 기획서: [01-project-proposal.md](01-project-proposal.md) v3.0
+> 기획서: [01-project-proposal.md](01-project-proposal.md) v3.1 (2026-10-12 피드백 반영: 보고서 화면, 심각도별 재알림은 W5·W6에 반영)
 > 1인 · 8주 · **주 10~15시간**. 각 주는 **종료 조건(Exit)** 을 만족해야 다음 주로 넘어간다.
 
 ## 0. 계획의 기준
@@ -171,31 +171,34 @@ KubeGuardian/
 |---|---|---|
 | CronJob 5분 주기, `concurrencyPolicy: Forbid`, Job과 PVC(SQLite) 공유 | 1.5 | `deploy/kubeguardian/cronjob.yaml` |
 | 문제 지문 + 알림 상태(열림/해결) + 진행 중 문제는 AI·알림 생략 | 3 | `alerts/` |
-| Slack 발송: M1 이상 알림, M2 전체 보고서(스레드, 길이 분할), M3 복구 알림 | 4 | `notify/` |
-| 평가 러너에 장애 감지 시간 기록 (주입 시각 → 알림 이력의 발송 시각), 평가용 채널 | 1 | `eval/` |
+| Slack 발송: M1 이상 알림(심각도, 요약 + 보고서 링크), M3 복구 알림, M7 점검 중단 알림 | 3 | `notify/` |
+| 심각도별 재알림 정책(M2 리마인더: 긴급 30분 후 첫 리마인더·이후 2시간마다 총 3회, 주의 2시간 후 1회), 상황 변경 시 갱신 | 1 | `notify/reminder.py` |
+| 평가 러너에 장애 감지 시간 기록 (주입 시각 → 알림 이력의 발송 시각), 평가 중 알림은 Slack 전송 생략(dry-run) | 1 | `eval/` |
 | C5(스키마 드리프트) 시나리오: F7 v2 이미지 빌드 | 2 | `scenarios/C5` |
 | 학습 노트 | 0.5 | |
 
 **Exit**
-- C1 주입 → 다음 주기 점검에서 Slack 알림(요약 + 스레드 보고서) 도착, **7분 이내**
-- 장애가 이어지는 동안 같은 알림이 반복되지 않고, reset 후 복구 알림 1회
+- C1 주입 → 다음 주기 점검에서 Slack 알림(심각도 + 요약 + 보고서 링크) 도착, **7분 이내** (알림 이력 기준)
+- 장애가 이어지는 동안 같은 알림이 반복되지 않고 재알림 정책대로 리마인더만 발송되며, reset 후 복구 알림 1회
 - Slack 승인이 안 났으면: 같은 흐름을 Chainlit "Slack 미리보기"와 알림 이력으로 확인
 
-### W6 — Slack 명령 + 마지막 시나리오 (약 12시간)
+### W6 — Slack 명령 + 보고서 화면 + 마지막 시나리오 (약 14.5시간, 버퍼 사용)
 
 **학습 초점**: 항상 떠 있는 프로세스(Deployment)와 CronJob의 역할 분리, 비동기 처리
 
 | 작업 | 시간 | 산출물 |
 |---|---|---|
 | diagnostic-agent Deployment + Socket Mode 명령 수신 (`slack_bolt`) | 2 | `slack_app/`, `deploy/` |
-| `/kg check`, `/kg investigate`, `/kg evidence`: 3초 내 접수, 비동기 실행, M4~M8, 허용 채널·사용자, 동시 실행 제한 | 3.5 | `slack_app/` |
+| `/kg check`, `/kg investigate`: 3초 내 접수, 비동기 실행, M4~M6·M8, 허용 채널·사용자, 동시 실행 제한 | 3 | `slack_app/` |
+| 보고서 화면(읽기 전용, 서버 렌더링): P1 목록, P2 상세(근거 포함), P3 근거 원문, P4 점검 이력, 마스킹 적용 | 3.5 | `web/` |
 | Slack 연동 테스트 (Slack API 모의 객체로 메시지 형식·스레드·오류 경로) | 1.5 | `tests/` |
 | E1(미끼 신호) 시나리오 | 1.5 | `scenarios/E1` |
 | H0 주기 점검 4시간(48회) 연속 실행, 기준 조정 | 2 | 기준값 기록 |
 | ADR-002 문제 지문·알림 설계 + 학습 노트 | 1 | `docs/adr/` |
 
 **Exit**
-- Slack에서 `/kg investigate`로 B1을 조사하면 같은 스레드에 조사 계획 → 보고서가 올라옴
+- Slack에서 `/kg investigate`로 B1을 조사하면 같은 스레드에 조사 계획 → 요약과 보고서 링크가 올라오고, 링크로 보고서 화면에서 보고서·근거를 확인
+- 점검 이력(P4)에서 최근 점검 결과와 점검 중단 구간을 확인
 - H0 4시간 동안 잘못된 알림 0건
 - E1에서 미끼(과거 재시작)를 1순위로 올리지 않음
 
@@ -240,10 +243,10 @@ KubeGuardian/
 | W3 | 에이전트 골격 (M2) | 12 |
 | W4 | 증상 감지 + 조사 품질 (M3) | 13 |
 | W5 | 주기 점검 + Slack 알림 | 12 |
-| W6 | Slack 명령 + 마지막 시나리오 | 11.5 |
+| W6 | Slack 명령 + 보고서 화면 + 마지막 시나리오 (버퍼 사용) | 14.5 |
 | W7 | 평가 + 튜닝 + 비교 실험 1 | 12 |
 | W8 | 보고서·데모·회고 (버퍼 3 포함) | 12 |
-| **합계** | | **약 97** |
+| **합계** | | **약 100** |
 
 ```mermaid
 gantt
@@ -257,7 +260,7 @@ gantt
     증상 감지·조사 품질 (M3) :w4, after w3, 7d
     section 운영 기능
     주기 점검·Slack 알림 :w5, after w4, 7d
-    Slack 명령·마지막 시나리오 :w6, after w5, 7d
+    Slack 명령·보고서 화면·마지막 시나리오 :w6, after w5, 7d
     section 마무리
     평가·튜닝·비교 실험 1 :w7, after w6, 7d
     보고서·데모·회고 :w8, after w7, 7d
@@ -292,7 +295,7 @@ gantt
 2. 비교 실험 1을 L1 시나리오 3개로만 축소
 3. E1(미끼) → 확장 후보로
 4. C5(스키마 드리프트, v2 이미지 빌드 필요) → 확장 후보로
-5. Slack 명령 중 `/kg evidence` 제외 (근거 원문은 보고서에 발췌로 포함)
+5. 보고서 화면(P1~P4) 제외 → CLI(`kg report`, `kg evidence`)로 대체하고, 알림은 요약만 보냄
 6. Chainlit 개발용 화면 → CLI 출력과 Phoenix 추적으로 대체
 
 **줄이지 않는 것**: 규칙 점검, AI 조사·검증, 주기 점검 + Slack 알림, 근거 검증, L1·L3 시나리오(A1·A3·A5·C1·C2), 2조건 평가.
@@ -312,5 +315,5 @@ gantt
 - [ ] Azure OpenAI 배포 2종 이상 (진단 에이전트용, 진단 대상 서비스용) 및 PoC 사용·비용 승인
 - [ ] 사내 SSL 프록시 CA 인증서
 - [ ] 템플릿 레포 포크 권한 (개인 또는 PoC 조직)
-- [ ] **Slack 앱 생성 승인** (메시지 발송 `chat:write`, 슬래시 명령 `commands`, Socket Mode 앱 토큰) 및 알림·평가용 채널
+- [ ] **Slack 앱 생성 승인** (메시지 발송 `chat:write`, 슬래시 명령 `commands`, Socket Mode 앱 토큰) 및 알림 대상(기존 운영 채널 또는 DM)
 - [ ] 사내망에서 Azure OpenAI·Slack API(slack.com) 통신 허용 여부
