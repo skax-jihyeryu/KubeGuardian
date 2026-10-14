@@ -60,10 +60,10 @@ KubeGuardian 레포의 브랜치·커밋·PR 규칙이다. 1인 5주 PoC에 맞�
 | scope | 대상 |
 |---|---|
 | `collect` `check` | 사실 수집 / 결정적 점검 (`service/collect`, `service/check`) |
-| `agent` `tools` `knowledge` `guard` | 에이전트 코어·도구·조사 지침·가드레일 (`service/agent`, `service/guard`) |
+| `agent` `tools` `knowledge` `guard` | 에이전트·도구·조사 지침·가드레일 (`service/agent`, `service/tools`, `service/knowledge`, `service/guard`) |
 | `alert` `notify` `slack` | 알림 상태·Slack 발송·Slack 명령 |
-| `api` `cli` `core` `db` | API·CLI·설정·에러·로깅 / DB 스키마·리포지토리 |
-| `devui` | Chainlit 개발용 화면 |
+| `api` `cli` `core` `infra` | API·CLI·설정·에러·로깅 / 외부 연결·DB 스키마·리포지토리 |
+| `ui` | Chainlit 개발용 화면 |
 | `deploy` `scenarios` `eval` | 배포 매니페스트·장애 시나리오·평가 |
 | `adr` `learning` `deliverables` | 문서 종류 |
 

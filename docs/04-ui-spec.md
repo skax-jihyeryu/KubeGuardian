@@ -260,6 +260,6 @@ flowchart LR
 | `slack/` | Socket Mode 명령 수신(`slack_bolt`), 권한 확인, 접수 응답, 비동기 실행 |
 | `service/alert/`, `infra/database/repository/alert.py` | 문제 지문, 열림/해결, 최초 감지 시각, 부모 메시지 채널·`ts` |
 | `cli.py` | 개발용 CLI |
-| `devui/` | Chainlit 개발용 화면 |
+| `ui/` | Chainlit 개발용 화면 |
 
 구현 시점은 [실행 계획서](02-execution-plan.md)에서 정한다.

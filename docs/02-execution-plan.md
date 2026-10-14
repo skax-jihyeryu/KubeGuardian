@@ -44,56 +44,65 @@
 
 ### 1.2 KubeGuardian 레포
 
-진단 에이전트는 **템플릿 backend-agent와 같은 FastAPI 구조**를 따른다. 진입점(routes·CLI·Slack 명령) → `service/`(비즈니스 로직) → `infra/database/repository`(DB 접근) 순으로만 호출한다.
+진단 에이전트는 **템플릿 backend-agent와 같은 FastAPI 구조**를 따른다.
+
+- **위치**: 레포 루트에 `app/`·`tests/`를 바로 둔다. Python 앱이 하나뿐이라 `apps/<이름>/` 단계를 두지 않는다 (템플릿 backend-agent와 같음).
+- **계층**: 진입점(`api/routes`·`cli.py`·`slack/`·`ui/`) → `service/`(비즈니스 로직) → `infra/`(클러스터·LLM·Slack·DB 연결). 아래 계층이 위 계층을 import하지 않는다.
+- **import**: `app/`이 Python 루트다 (`from core.config import get_setting`, `app.` 접두사 없음). 실행은 `cd app && python main.py`, 테스트는 pytest `pythonpath`로 맞춘다.
+- **에이전트는 이름/버전 폴더로 관리한다** (`service/agent/<이름>/v<N>/`). 템플릿의 `mentor/v1`, `mentor/v3`와 같은 방식이다. 어떤 에이전트·버전을 쓸지는 `registry.py`에서 설정으로 고른다. 비교 실험과 eval은 버전 키(예: `investigator:v1`)로 같은 입력을 돌린다.
+- **도구·조사 지침은 에이전트 밖에 둔다** (`service/tools/`, `service/knowledge/`). 여러 에이전트·버전과 MCP 서버(비교 실험 3)가 같은 도구를 쓰기 때문이다.
 
 ```text
 KubeGuardian/
-├── apps/diagnostic-agent/
-│   ├── app/
-│   │   ├── main.py                    # FastAPI 앱 생성, 라우터·미들웨어·에러 핸들러 등록
-│   │   ├── cli.py                     # kg check / investigate / report / evidence / alerts (CronJob 진입점 겸용)
-│   │   ├── api/
-│   │   │   ├── deps.py                # 의존성 주입 (설정, DB 세션, 클라이언트)
-│   │   │   ├── router.py              # /api/v1 라우터 묶음
-│   │   │   └── routes/                # health, check, investigation, report, evidence, alert (요청·응답 처리만)
-│   │   ├── slack/                     # Socket Mode 명령 수신 (/kg check·investigate·evidence) — routes와 같은 진입점 층
-│   │   ├── core/
-│   │   │   ├── config.py              # pydantic-settings (.env)
-│   │   │   ├── response.py            # 공통 응답 형식
-│   │   │   ├── error/                 # ErrorCode, ServiceException, error_handler
-│   │   │   ├── log/                   # logging.py, logging_config.yaml
-│   │   │   └── middleware/            # phoenix.py (OpenTelemetry 추적)
-│   │   ├── service/
-│   │   │   ├── model/                 # Pydantic v2 모델: resource, evidence, signal, gate, issue, hypothesis, report, alert
-│   │   │   ├── collect/               # 사실 수집: collector, topology, probe, app_api
-│   │   │   ├── check/                 # 결정적 점검: detectors/(장애 신호 10종 + 개선 권고 2종), symptoms.py, gate.py
-│   │   │   ├── agent/
-│   │   │   │   ├── base.py            # 공통 인터페이스 (게이트 결과·신호판 → Issue·Hypothesis·Report)
-│   │   │   │   ├── tools/             # 에이전트 도구 7종 (프레임워크 독립, collect를 감쌈)
-│   │   │   │   ├── langgraph/         # 기본 구현: graph.py, state.py, prompts/
-│   │   │   │   ├── loop/              # 비교 실험 1: 직접 구현한 도구 호출 루프
-│   │   │   │   └── knowledge/         # 조사 지침, 환경 설명 (md)
-│   │   │   ├── guard/                 # redact, validate(근거 검증), budget
-│   │   │   ├── alert/                 # 문제 지문, 알림 상태 (열림/해결)
-│   │   │   └── notify/                # Slack 메시지 변환(M1~M8), 발송
-│   │   ├── common/util/               # 외부 클라이언트: kubernetes, azure_openai, slack, http
-│   │   ├── infra/database/
-│   │   │   ├── database.py            # SQLite 연결 (SQLAlchemy)
-│   │   │   ├── base.py
-│   │   │   ├── schema/                # 테이블: evidence, report, alert
-│   │   │   └── repository/            # evidence, report, alert
-│   │   └── devui/                     # Chainlit 개발용 화면
-│   └── tests/                         # api/, service/, infra/ — app 구조를 그대로 따른다
+├── app/                              # Python 루트
+│   ├── main.py                       # FastAPI 앱 + lifespan (레지스트리 로드, Slack Socket Mode 기동)
+│   ├── cli.py                        # kg check / investigate / report / evidence / alerts (CronJob 진입점)
+│   ├── api/
+│   │   ├── deps.py                   # 의존성 주입 (설정, DB 세션, 클라이언트)
+│   │   ├── router.py                 # /api/v1 라우터 묶음
+│   │   └── routes/                   # health, check, investigation, report, evidence, alert (요청·응답만)
+│   ├── slack/                        # Socket Mode 명령 핸들러 (/kg check·investigate·evidence)
+│   ├── ui/                           # Chainlit 개발용 화면
+│   ├── core/
+│   │   ├── config.py                 # pydantic-settings (.env)
+│   │   ├── response.py               # 공통 응답 형식
+│   │   ├── tracing.py                # Phoenix·OpenTelemetry 초기화 (API·CLI 공용)
+│   │   ├── error/                    # ErrorCode, ServiceException, error_handler
+│   │   └── log/                      # logging.py, logging_config.yaml
+│   ├── service/
+│   │   ├── model/                    # Pydantic v2: evidence, signal, gate, issue, hypothesis, report, alert
+│   │   ├── collect/                  # 사실 수집: collector, topology, probe, app_api
+│   │   ├── check/                    # 결정적 점검: detectors/(장애 신호 10종 + 개선 권고 2종), symptoms.py, gate.py
+│   │   ├── tools/                    # 에이전트 도구 7종 (collect를 감쌈, 프레임워크 독립)
+│   │   ├── knowledge/                # 조사 지침(runbooks/*.md)·환경 설명 + 로더
+│   │   ├── agent/
+│   │   │   ├── base.py               # 공통 인터페이스 (게이트 결과·신호판 → Issue·Hypothesis·Report)
+│   │   │   ├── registry.py           # "<이름>:<버전>" → 구현
+│   │   │   ├── _common/              # 버전 공용: LLM 생성, 출력 파싱 방어, 상태 기본형
+│   │   │   └── investigator/         # 조사 에이전트 (선별 → 조사 → 보고서). 이후 에이전트는 형제 폴더로 추가
+│   │   │       ├── v1/               # LangGraph 기본 구현: agent.py, graph.py, state.py, config.py, prompts/
+│   │   │       └── v1_loop/          # 비교 실험 1: v1과 같은 사양을 직접 구현한 도구 호출 루프
+│   │   ├── guard/                    # redact, validate(근거 검증), budget
+│   │   ├── alert/                    # 문제 지문, 알림 상태 (열림/해결)
+│   │   └── notify/                   # Slack 메시지 변환(M1~M8), 발송
+│   ├── infra/                        # 프로세스 밖 시스템 연결
+│   │   ├── kubernetes.py             # 공식 클라이언트 (in-cluster / kubeconfig)
+│   │   ├── azure_openai.py           # 진단 에이전트용 LLM 클라이언트 (사내 CA)
+│   │   ├── slack.py                  # Web API 클라이언트
+│   │   └── database/                 # database.py, base.py, schema/(evidence·report·alert), repository/
+│   └── common/util/                  # 순수 헬퍼 (해시, 텍스트 분할, 시간)
+├── tests/                            # api/, service/, infra/ (app 구조와 같게) + fixtures/(K8s 리소스 스냅샷)
 ├── deploy/
-│   ├── kubeguardian/                  # SA·ClusterRole, PVC, CronJob, diagnostic-agent Deployment, Secret 예시
-│   └── chaos-mesh/                    # 평가 환경 전용
-├── scenarios/                         # H0, A1, A3, A5, B1, C1, C2, C5, E1 (+ 확장 후보)
+│   ├── kubeguardian/                     # SA·ClusterRole, PVC, CronJob, diagnostic-agent Deployment, Secret 예시
+│   └── chaos-mesh/                       # 평가 환경 전용
+├── scenarios/                            # H0, A1, A3, A5, B1, C1, C2, C5, E1 (+ 확장 후보)
 │   └── <ID>/{inject.sh, reset.sh, verify_symptom.sh, expected.yaml, README.md}
-├── eval/                              # 평가 러너, 채점, 리포트, history/
-├── Makefile                           # up / down / inject S= / reset S= / eval S= / eval
+├── eval/                                 # 평가 러너, 채점, 리포트, history/ (kg CLI와 SQLite 결과만 사용)
+├── scripts/                              # 일회성 스파이크·스모크 (Azure OpenAI 연결 확인 등)
+├── Makefile                              # up / down / inject S= / reset S= / eval S= / eval
 └── docs/
-    ├── adr/                           # 설계 결정 기록
-    └── learning/                      # 주간 학습 노트
+    ├── adr/                              # 설계 결정 기록
+    └── learning/                         # 주간 학습 노트
 ```
 
 ## 2. 주차별 계획
@@ -106,13 +115,13 @@ KubeGuardian/
 
 | 작업 | 시간 | 산출물 |
 |---|---|---|
-| **Day 1 스파이크**: minikube Pod 안에서 Azure OpenAI 호출 (사내 SSL CA 주입 포함) | 2 | 연결 확인 스크립트 |
+| **Day 1 스파이크**: minikube Pod 안에서 Azure OpenAI 호출 (사내 SSL CA 주입 포함) | 2 | `scripts/` 연결 확인 스크립트 |
 | **승인 요청**: Slack 앱 생성(메시지 발송·슬래시 명령·Socket Mode 권한), 사내망에서 slack.com 통신 확인 | 0.5 | 요청 기록 |
 | 템플릿 포크, F1·F2·F6 적용, 선택 의존성(Milvus, MinIO 등) 없이 기동 확인 | 5 | 포크 브랜치, `make up` |
 | F5 테스트 사용자 시드, 로그인 → 채팅 E2E 확인 | 2 | 스모크 스크립트 |
 | metrics-server, Chaos Mesh, Phoenix 설치 | 1.5 | `deploy/chaos-mesh/` |
 | H0 정의, A5(원본 템플릿 상태) 시나리오 스크립트 | 0.5 | `scenarios/H0`, `A5` |
-| 수집기 (리소스, 로그 current/previous, 이벤트) + 정규화 | 2.5 | `service/collect/collector` |
+| 수집기 (리소스, 로그 current/previous, 이벤트) + 정규화 | 2.5 | `service/collect/`, `infra/kubernetes.py` |
 | Evidence 저장소 + id 발급 | 1 | `infra/database/` |
 | 토폴로지 (env URL 파싱 → declared/unresolved, 계층) | 2 | `service/collect/topology` |
 | 마스킹 (로그·이벤트·env) + 단위 테스트 | 1 | `service/guard/redact` |
@@ -135,10 +144,10 @@ KubeGuardian/
 | SA `kubeguardian` + 최소 권한 ClusterRole | 0.5 | `deploy/kubeguardian/rbac.yaml` |
 | A1 시나리오 + ADR-001 도구 계층과 에이전트 코어의 경계 | 1 | `scenarios/A1`, `docs/adr/` |
 | 에이전트 공통 인터페이스 (입력: 게이트 결과·신호판 / 출력: Issue·Hypothesis·Report) | 1 | `service/agent/base.py`, `service/model/` |
-| 도구 7종 (get_topology, get_resource, get_pod_logs, get_events, probe, run_api_scenario, query_app_api) | 3 | `service/agent/tools/` |
-| LangGraph 구현: 선별 → 조사 → 보고서 작성 | 3.5 | `service/agent/langgraph/` |
+| 도구 7종 (get_topology, get_resource, get_pod_logs, get_events, probe, run_api_scenario, query_app_api) | 3 | `service/tools/` |
+| LangGraph 구현: 선별 → 조사 → 보고서 작성 | 3.5 | `service/agent/investigator/v1/`, `registry.py` |
 | 근거 검증기, 출력 파싱 방어, 호출·시간 상한 | 2 | `service/guard/` |
-| Phoenix 추적 연동 (OpenTelemetry GenAI 속성) | 0.5 | `core/middleware/phoenix.py` |
+| Phoenix 추적 연동 (OpenTelemetry GenAI 속성) | 0.5 | `core/tracing.py` |
 | 평가 러너 최소판: `make eval S=<ID>` = 주입 → 증상 확인 → 점검·게이트·AI → 채점 → 원복 | 1.5 | `eval/` |
 | A3 시나리오 + 학습 노트 | 0.5 | `scenarios/A3` |
 
@@ -160,11 +169,11 @@ KubeGuardian/
 | 작업 | 시간 | 산출물 |
 |---|---|---|
 | API 시나리오 증상 감지, 게이트 v1(경로 B), `kg investigate` | 2 | `service/check/symptoms.py` |
-| 가설 루프 + 보고서 섹션 완성 (배제 이유, 확인한 범위·확인하지 못한 것, 권장 조치, 재검증) | 3 | `service/agent/langgraph/` |
-| 조사 지침(장애 유형 단위)·환경 설명 문서 | 2 | `service/agent/knowledge/` |
+| 가설 루프 + 보고서 섹션 완성 (배제 이유, 확인한 범위·확인하지 못한 것, 권장 조치, 재검증) | 3 | `service/agent/investigator/v1/` |
+| 조사 지침(장애 유형 단위)·환경 설명 문서 | 2 | `service/knowledge/` |
 | C1(할당량), C2(Redis 차단) 시나리오 + `verify_symptom.sh` | 2.5 | `scenarios/` |
 | B1(Pod 1개만 오류) 시나리오 | 1 | `scenarios/B1` |
-| Chainlit 개발용 화면 (단계 펼침, 근거 원문) | 1.5 | `devui/` |
+| Chainlit 개발용 화면 (단계 펼침, 근거 원문) | 1.5 | `ui/` |
 | 기준 조건(규칙만) 결과 기록 + 학습 노트 | 1 | `eval/history/` |
 | CronJob 5분 주기, `concurrencyPolicy: Forbid`, Job과 PVC(SQLite) 공유 | 1.5 | `deploy/kubeguardian/cronjob.yaml` |
 | 문제 지문 + 알림 상태(열림/해결) + 진행 중 문제는 AI·알림 생략 | 3 | `service/alert/` |
@@ -183,7 +192,7 @@ KubeGuardian/
 
 | 작업 | 시간 | 산출물 |
 |---|---|---|
-| Slack 발송: M1 이상 알림, M2 전체 보고서(스레드, 길이 분할), M3 복구 알림 | 4 | `service/notify/` |
+| Slack 발송: M1 이상 알림, M2 전체 보고서(스레드, 길이 분할), M3 복구 알림 | 4 | `service/notify/`, `infra/slack.py` |
 | 평가 러너에 장애 감지 시간 기록 (주입 시각 → 알림 이력의 발송 시각), 평가용 채널 | 1 | `eval/` |
 | C5(스키마 드리프트) 시나리오: F7 v2 이미지 빌드 | 2 | `scenarios/C5` |
 | diagnostic-agent Deployment + Socket Mode 명령 수신 (`slack_bolt`) | 2 | `slack/`, `deploy/` |
@@ -211,7 +220,7 @@ KubeGuardian/
 | KPI 계산: 원인 규명 커버리지, 원인 정확도, 장애 감지 시간, 확인 항목 감소율, 조사 시간·비용 | 1 | `eval/report.md` |
 | 근거 일치율: 보고서 10건 본인 검토 | 1.5 | 검토 기록 |
 | 프롬프트·지침 튜닝 (**튜닝 후 전체 eval로 회귀 확인**) | 3 | — |
-| **비교 실험 1**: 직접 구현한 도구 호출 루프로 같은 시나리오 실행 → LangGraph와 비교 | 3.5 | `service/agent/loop/`, 비교표 |
+| **비교 실험 1**: 직접 구현한 도구 호출 루프로 같은 시나리오 실행 → LangGraph와 비교 | 3.5 | `service/agent/investigator/v1_loop/`, 비교표 |
 | 지침 과적합 확인: 지침 작성 때 보지 않은 확장 후보 1~2개 실행 | 1 | 확인 기록 |
 | 평가 결과 보고서 (KPI를 헤드라인으로, 기준 조건 대비) | 3 | `docs/05-evaluation-report.md` |
 | 데모 3종 리허설: C1(주기 점검 → Slack 알림), A1(`/kg check`), B1(`/kg investigate`) | 2 | `docs/06-demo-script.md` |

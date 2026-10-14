@@ -30,7 +30,8 @@ make format  # 자동 수정
 ## 레포 구조
 
 ```text
-apps/diagnostic-agent/   # 진단 에이전트 (Python, uv workspace 멤버)
+app/                     # 진단 에이전트 (FastAPI, Python 루트)
+tests/                   # 테스트
 docs/                    # 기획·계획·산출물·ADR·학습 노트
 ```
 
