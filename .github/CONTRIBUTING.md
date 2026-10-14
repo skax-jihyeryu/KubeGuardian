@@ -97,11 +97,35 @@ docs(deliverables): 시나리오 수립 문서 추가
 - **크기**: 한 PR은 한 주제만 담는다. 주차 작업이 크면 나눠서 올린다.
 - **대상 브랜치**: 작업 PR은 `develop`으로 올린다. `main`으로는 `develop` → `main` PR만 올린다.
 - **병합 방식**: 작업 PR은 **Squash merge**를 쓰고, squash 커밋 메시지는 PR 제목을 그대로 쓴다. `develop` → `main`은 merge commit을 쓰고 제목은 `release: v0.N <요약>`으로 쓴다 (예: `release: v0.2 규칙 점검 계층`).
-- **병합 조건**
+- **병합 조건** (모두 만족해야 병합한다)
+  - CI(lint·테스트)가 통과한다.
+  - 이슈의 완료 조건을 하나씩 확인한 결과를 PR 본문 "검증"에 적었다.
+  - PR 템플릿 체크리스트를 채웠다.
   - 기능·시나리오 변경이면 관련 시나리오의 `make eval` 결과를 PR에 붙인다.
-  - 프롬프트나 조사 지침을 바꿨으면 전체 eval로 회귀를 확인한다 (실행 계획서 §4).
+  - 프롬프트나 조사 지침을 바꿨으면 전체 eval로 회귀를 확인한다 (실행 계획서 §6).
   - 설계 결정이 있으면 ADR을 같은 PR에 넣는다.
+  - 리뷰 대상(§3.1)이면 리뷰 지적을 모두 해소했다.
+- **병합하는 사람**: 본인이 위 조건을 확인한 뒤 병합한다. Claude가 PR을 만들었으면 사용자 승인 후 병합한다.
 - `spike/` 브랜치는 PR 없이 남겨 둬도 된다. 결론은 ADR로 남긴다.
+
+### 3.1 리뷰
+
+1인 프로젝트라 사람 리뷰어가 없다. **본인 셀프 리뷰 + Claude 리뷰**로 한다. 리뷰 여부는 줄 수만이 아니라 **위험도**로 정한다.
+
+| 구분 | 대상 | 리뷰 |
+|---|---|---|
+| 리뷰 필수 | 변경 100줄 초과, 또는 줄 수와 상관없이 아래를 바꾸는 PR: 프롬프트·조사 지침(`service/agent/*/prompts`, `service/knowledge`), 규칙 판정(`service/checks/detectors`, `gate.py`), 가드레일(`core/guard`: 마스킹·근거 검증·상한), 권한·비밀값(`deploy/` RBAC·Secret), 기반 계약(실행 계획서 §1.3: `service/model`, `agent/base.py`, `tools/base.py`, `core/llm.py`, `core/error`) | 셀프 리뷰 + Claude 리뷰 (`superpowers:requesting-code-review` 또는 `/code-review`) |
+| 셀프 리뷰만 | 문서만 바꾸거나 오타·포맷만 고치는 PR, 위 대상이 아닌 100줄 이하 변경 | PR 템플릿 체크리스트 확인 |
+
+- 리뷰 지적은 그대로 따르지 않고 근거를 확인한 뒤 반영하거나, 반영하지 않는 이유를 PR 코멘트로 남긴다 (`superpowers:receiving-code-review`).
+- 리뷰 결과와 처리 내역은 PR 코멘트로 남긴다.
+
+### 3.2 브랜치 보호 (GitHub 규칙)
+
+| 브랜치 | 규칙 |
+|---|---|
+| `develop` | PR로만 병합, CI(`lint-test`) 통과 필수, **squash merge만 허용**, 강제 push·삭제 금지 |
+| `main` | PR로만 병합, CI(`lint-test`) 통과 필수, **merge commit만 허용** (`develop` → `main`), 강제 push·삭제 금지 |
 
 ## 4. 문서 규칙
 
