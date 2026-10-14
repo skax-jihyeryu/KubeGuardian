@@ -255,10 +255,10 @@ flowchart LR
 
 | 모듈 | 역할 |
 |---|---|
-| `notify/format.py` | 점검 결과·보고서를 M1~M8 Slack 블록으로 변환 (길이 분할, 마스킹 확인) |
-| `notify/slack.py` | `chat.postMessage` 발송, 스레드 답글, 메시지 ID 저장 |
-| `slack_app/` | Socket Mode 명령 수신(`slack_bolt`), 권한 확인, 접수 응답, 비동기 실행 |
-| `store/alerts` | 문제 지문, 열림/해결, 최초 감지 시각, 부모 메시지 채널·`ts` |
+| `service/notify/format.py` | 점검 결과·보고서를 M1~M8 Slack 블록으로 변환 (길이 분할, 마스킹 확인) |
+| `service/notify/slack.py` | `chat.postMessage` 발송, 스레드 답글, 메시지 ID 저장 |
+| `slack/` | Socket Mode 명령 수신(`slack_bolt`), 권한 확인, 접수 응답, 비동기 실행 |
+| `service/alert/`, `infra/database/repository/alert.py` | 문제 지문, 열림/해결, 최초 감지 시각, 부모 메시지 채널·`ts` |
 | `cli.py` | 개발용 CLI |
 | `devui/` | Chainlit 개발용 화면 |
 
