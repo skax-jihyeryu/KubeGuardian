@@ -18,7 +18,6 @@ class Settings(BaseSettings):
     AZURE_OPENAI_ENDPOINT: str = ""
     AZURE_OPENAI_API_KEY: str = ""
     AZURE_OPENAI_API_VERSION: str = ""
-    AZURE_OPENAI_DEPLOYMENT: str = ""
 
     # 진단 대상
     KG_TARGET_NAMESPACE: str = "dev"
