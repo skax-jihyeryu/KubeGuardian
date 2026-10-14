@@ -7,7 +7,7 @@ description: Use when starting or closing a KubeGuardian week (W1~W5) — 주차
 
 ## 개요
 실행 계획서(`docs/02-execution-plan.md` §2)의 주차 작업 표를 GitHub Issue로 옮기고, 지난 주차를 마감한다.
-상세 이슈는 **이번 주와 다음 주만** 만든다 (M2·M3 체크포인트 결과로 이후 계획이 바뀔 수 있음).
+상세 이슈는 **이번 주부터 3주치**만 만든다 (M2·M3 체크포인트 결과로 이후 계획이 바뀔 수 있음).
 
 규칙의 정본: `.github/CONTRIBUTING.md` §5(이슈) §6(Project). Project 조작은 `bash .claude/skills/_shared/board.sh`.
 
@@ -20,9 +20,9 @@ description: Use when starting or closing a KubeGuardian week (W1~W5) — 주차
 1. `board.sh list W<N-1>`로 열린 이슈와 Estimate·Actual 합계를 본다.
 2. 실행 계획서의 W<N-1> **Exit 조건**을 항목별로 표로 보여주고, 각 항목 충족 여부를 사용자에게 묻는다. 직접 판정하지 않는다.
 3. 열린 이슈마다 사용자에게 **이월 / 닫기**를 묻는다. 이월이면 마일스톤을 W<N>으로 바꾸고 `carried-over` 라벨을 단다.
-4. Actual 합계가 22시간을 넘었고 그 전 주도 넘었으면 실행 계획서 §5 축소 순서의 다음 항목을 제안한다.
+4. Actual 합계가 Estimate 합계보다 3시간 넘게 많고 그 전 주도 그랬으면 실행 계획서 §5 축소 순서의 다음 항목을 제안한다.
 
-### 2. 이슈 초안 만들기 (W<N>, W<N+1>)
+### 2. 이슈 초안 만들기 (W<N> ~ W<N+2>, W5까지)
 작업 표 한 행 = 이슈 하나. 이미 같은 제목의 이슈가 그 마일스톤에 있으면 건너뛴다 (`gh issue list --milestone "<제목>" --state all`).
 
 | 필드 | 채우는 법 |

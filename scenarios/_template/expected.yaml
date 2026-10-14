@@ -3,6 +3,7 @@ id: XX
 level: L1                 # L1~L3 (기획서 §8.1)
 k8s_visible: true         # K8s 상태만으로 원인이 드러나는가
 gate_path: A              # 기대 게이트 경로 A / B / C
+expected_signals: []      # 적발되어야 할 규칙 ID (app/service/check/detectors/catalog.py), 예: [S04]
 root_cause: ""            # 정답 원인
 affected_services: []     # 영향 서비스
 expected_top1: ""         # 기대 요약 1순위

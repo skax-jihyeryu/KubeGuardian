@@ -1,7 +1,7 @@
 # KubeGuardian AI — 실행 계획서
 
 > 기획서: [01-project-proposal.md](01-project-proposal.md) v3.0
-> 1인 · 5주 · **주 약 19시간**. 각 주는 **종료 조건(Exit)** 을 만족해야 다음 주로 넘어간다.
+> 1인 · 5주 · **주 약 20시간**. 각 주는 **종료 조건(Exit)** 을 만족해야 다음 주로 넘어간다.
 > 8주(주 10~15시간) 계획을 5주로 압축했다 (2026-10-14). 범위는 그대로 두고, 진행하면서 §5 축소 순서로 조정한다.
 
 ## 0. 계획의 기준
@@ -10,12 +10,12 @@
 
 | 항목 | 시간 |
 |---|---|
-| 쓸 수 있는 시간 | 5주 × 약 19시간 = 약 95시간 |
-| **핵심 범위 배치** | **주 17.5~21시간, 총 약 94시간** |
+| 쓸 수 있는 시간 | 5주 × 약 20시간 = 약 100시간 |
+| **핵심 범위 배치** | **주 18~23시간, 총 약 100시간** (기반 설계 작업 포함, 2026-10-14) |
 | 버퍼 | 없음. 지연은 §5 축소 순서로 흡수한다 |
 | 매주 고정 | 학습 노트 0.5시간 (각 주 시간에 포함) |
 
-- 주차 작업의 시간은 추정치다. 매주 금요일에 실제 사용 시간을 기록하고, 두 주 연속 22시간을 넘으면 §5의 축소 순서를 적용한다.
+- 주차 작업의 시간은 추정치다. 매주 금요일에 실제 사용 시간을 기록하고, **실제 시간이 그 주 계획보다 3시간 넘게 많은 주가 두 주 연속**이면 §5의 축소 순서를 적용한다.
 - 일정: W1 = 2026-10-12 주, W5 = 2026-11-09 주. 시작일이 바뀌면 주차만 밀린다.
 - 압축 전 8주 계획과의 대응: W1 = 구 W1 + 구 W2 전반, W2 = 구 W2 후반 + 구 W3, W3 = 구 W4 + 구 W5 전반, W4 = 구 W5 후반 + 구 W6, W5 = 구 W7 + 구 W8.
 
@@ -64,7 +64,7 @@ KubeGuardian/
 │   │   └── routes/                   # health, check, investigation, report, evidence, alert (요청·응답만)
 │   ├── slack/                        # Socket Mode 명령 핸들러 (/kg check·investigate·evidence)
 │   ├── core/
-│   │   ├── config.py                 # pydantic-settings (.env)
+│   │   ├── config.py                 # pydantic-settings (.env) + kubeguardian.yaml 로더
 │   │   ├── response.py               # 공통 응답 형식
 │   │   ├── tracing.py                # Phoenix·OpenTelemetry 초기화 (API·CLI 공용)
 │   │   ├── error/                    # ErrorCode, ServiceException, error_handler
@@ -72,26 +72,31 @@ KubeGuardian/
 │   ├── service/
 │   │   ├── model/                    # Pydantic v2: evidence, signal, gate, issue, hypothesis, report, alert
 │   │   ├── collect/                  # 사실 수집: collector, topology, probe, app_api
-│   │   ├── check/                    # 결정적 점검: detectors/(장애 신호 10종 + 개선 권고 2종), symptoms.py, gate.py
-│   │   ├── tools/                    # 에이전트 도구 7종 (collect를 감쌈, 프레임워크 독립)
+│   │   ├── check/                    # 결정적 점검
+│   │   │   ├── detectors/            #   catalog.py(규칙 목록 정본) + 감지기 구현 (장애 신호 10종 + 개선 권고 2종)
+│   │   │   ├── signal_board.py       #   원시 신호 → 서비스별 신호판 (에이전트 입력)
+│   │   │   ├── symptoms.py           #   API 시나리오 증상 감지
+│   │   │   └── gate.py               #   경로 A / B / C 판정
+│   │   ├── tools/                    # base.py(Tool 인터페이스) + 도구 7종 (collect를 감쌈, 프레임워크 독립)
 │   │   ├── knowledge/                # 조사 지침(runbooks/*.md)·환경 설명 + 로더
 │   │   ├── agent/
-│   │   │   ├── base.py               # 공통 인터페이스 (게이트 결과·신호판 → Issue·Hypothesis·Report)
+│   │   │   ├── base.py               # BaseAgent·AgentSpec·AgentResult (§1.3)
 │   │   │   ├── registry.py           # "<이름>:<버전>" → 구현
-│   │   │   ├── _common/              # 버전 공용: LLM 생성, 출력 파싱 방어, 상태 기본형
+│   │   │   ├── _common/              # 버전 공용: 구조화 출력 파싱 방어·재시도, 프롬프트 로더, 도구 어댑터
 │   │   │   └── investigator/         # 조사 에이전트 (선별 → 조사 → 보고서). 이후 에이전트는 형제 폴더로 추가
-│   │   │       ├── v1/               # LangGraph 기본 구현: agent.py, graph.py, state.py, config.py, prompts/
+│   │   │       ├── v1/               # LangGraph 기본 구현: agent.py, graph.py, state.py, config.py(모델 이름·예산), prompts/
 │   │   │       └── v1_loop/          # 비교 실험 1: v1과 같은 사양을 직접 구현한 도구 호출 루프
 │   │   ├── guard/                    # redact, validate(근거 검증), budget
 │   │   ├── alert/                    # 문제 지문, 알림 상태 (열림/해결)
 │   │   └── notify/                   # Slack 메시지 변환(M1~M8), 발송
 │   ├── infra/                        # 프로세스 밖 시스템 연결
 │   │   ├── kubernetes.py             # 공식 클라이언트 (in-cluster / kubeconfig)
-│   │   ├── azure_openai.py           # 진단 에이전트용 LLM 클라이언트 (사내 CA)
+│   │   ├── llm.py                    # build_chat_model(model) — 제공사별 분기는 여기 한 곳 (사내 CA 포함)
 │   │   ├── slack.py                  # Web API 클라이언트
 │   │   └── database/                 # database.py, base.py, schema/(evidence·report·alert), repository/
 │   └── common/util/                  # 순수 헬퍼 (해시, 텍스트 분할, 시간)
 ├── ui/                               # Chainlit 개발용 화면 (app API를 HTTP로 호출)
+├── Dockerfile                        # KubeGuardian 이미지 (CronJob·Deployment 공용)
 ├── tests/                            # api/, service/, infra/ (app 구조와 같게) + fixtures/(K8s 리소스 스냅샷)
 ├── deploy/
 │   ├── kubeguardian/                 # SA·ClusterRole, PVC, CronJob, diagnostic-agent Deployment, Secret 예시
@@ -119,56 +124,84 @@ KubeGuardian/
 - Slack **알림 발송**은 Web API 호출(`service/notify` + `infra/slack.py`)이라 결과를 만든 쪽(CronJob 또는 Deployment)이 직접 보낸다. 상주 프로세스가 필요한 것은 **명령 수신**(Socket Mode)뿐이다.
 - 명령 수신과 조사 실행을 한 Deployment에 둔다. 조사가 수신을 막지 않도록 동시 실행 제한·호출·시간 상한(`service/guard/budget`)·백그라운드 실행을 쓴다. **분리 조건**(조사로 인한 수신 중단 발생, Slack 수신부 권한 분리 필요, replicas 증가로 Postgres 전환)은 ADR-002에 기록한다.
 
+### 1.3 기반 설계 (먼저 정하는 계약)
+
+여러 감지기·도구·에이전트·버전을 붙여도 흔들리지 않도록, 아래 계약을 **구현보다 먼저** 정의하고 테스트로 고정한다. 바꿀 때는 ADR을 남긴다.
+
+| 계약 | 위치 | 정하는 것 | 시점 |
+|---|---|---|---|
+| 도메인 모델 | `service/model/` | `ClusterSnapshot`(정규화된 수집 결과), `Evidence`, `Signal`, `SignalBoard`, `GateResult`, `InvestigationRequest`, `Issue`, `Hypothesis`, `Report` (기획서 §6.4, 상세설계 §2.1) | W1 |
+| 규칙 목록 | `service/check/detectors/catalog.py` | 진단 규칙의 정본. ID·이름·카테고리(N·P·W·S·C·H)·등급(장애 신호/개선 권고)·성격(상태/선언/시간)·판정 근거·관련 지침. 감지기 구현, `expected.yaml`의 `expected_signals`, 조사 지침의 `related_rules`, 보고서가 모두 이 ID를 참조한다. 기획서 §7.2 표는 설계 의도이고 이후 변경은 이 파일이 기준이다 | W1 |
+| 감지기 인터페이스 | `service/check/detectors/` | `ClusterSnapshot → list[Signal]`인 순수 함수 + `@detector("S04")` 등록. 테스트는 `tests/fixtures/`의 스냅샷으로 돌린다 | W1 정의, W2 구현 |
+| 에러 코드 | `core/error/` | 템플릿 방식 `ErrorCode`(HTTP 상태·코드·메시지) + `ServiceException`. 영역: X0 공통·X1 수집·X2 점검·X3 에이전트·LLM·X4 가드레일·X5 알림·X6 저장소·X9 시스템. API 응답·CLI 종료 코드·Slack M8에 같은 코드를 쓴다. 진단 규칙(S04 등)과 섞지 않는다 | W1 |
+| LLM 생성 | `infra/llm.py` | `build_chat_model(model) -> BaseChatModel`. 어디에 연결할지(`LLM_PROVIDER`, 엔드포인트·키)는 설정, **어떤 모델을 쓸지는 에이전트 버전의 `config.py`**가 정한다. 에이전트는 `bind_tools`·`with_structured_output`만 쓴다. 다른 제공사는 이 함수에 분기를 더해 붙인다 | W1 |
+| 도구 인터페이스 | `service/tools/base.py` | `name`·`description`(언제 쓰는지 한 줄)·`Input`(Pydantic)·`run(input, ctx) -> ToolResult`. `ctx`가 네임스페이스 고정·마스킹·근거 저장을 강제한다. LangChain 도구로는 `_common`의 어댑터가 바꾼다 (직접 구현 루프·MCP 서버도 같은 도구를 쓴다) | W2 |
+| 에이전트 base | `service/agent/base.py`, `registry.py` | `AgentSpec`(이름·버전·모델·예산·프롬프트 위치), `BaseAgent.run(InvestigationRequest) -> AgentResult`(보고서·상태·사용량: 토큰·도구 호출·시간). LLM·도구·저장소는 생성자로 주입해 가짜 LLM으로 테스트한다. `registry`가 `"investigator:v1"` 같은 키로 구현을 고른다 | W2 (investigator v1보다 먼저) |
+| 설정 파일 | `core/config.py` | `kubeguardian.yaml`: 대상 네임스페이스, 점검 주기, API 시나리오, 앱 API 허용 목록, Slack 채널·허용 사용자 (상세설계 §7.4) | W2 |
+| 저장소 | `infra/database/` | SQLite(WAL 모드, CronJob·Deployment 동시 접근), 테이블: evidence·investigation_run(사용량)·report·alert. LangGraph 체크포인트는 같은 파일의 별도 테이블 | W1 evidence, W2 run, W3 report·alert |
+
+**테스트 전략**: 단위 테스트(스냅샷 픽스처·가짜 LLM)는 CI에서 돈다. minikube가 필요한 통합 확인은 `make eval`로 하고 결과를 PR에 붙인다.
+
 ## 2. 주차별 계획
 
 각 주에 **학습 초점**을 함께 적었다. 학습 노트는 그 주의 시나리오를 중심으로 쓴다.
 
-### W1 — 환경 + 사실 수집 (2026-10-12 주, 약 18.5시간)
+### W1 — 환경 + 기반 계약 + 사실 수집 (2026-10-12 주, 약 19시간)
 
 **학습 초점**: 컨테이너 이미지와 레지스트리, Deployment·Service·ConfigMap·Secret의 관계, CRD 기반 도구(Chaos Mesh), K8s API 객체 모델(spec/status, ownerReferences, selector, EndpointSlice)
 
 | 작업 | 시간 | 산출물 |
 |---|---|---|
-| **Day 1 스파이크**: minikube Pod 안에서 Azure OpenAI 호출 (사내 SSL CA 주입 포함) | 2 | `scripts/` 연결 확인 스크립트 |
+| **Day 1 스파이크**: minikube Pod 안에서 Azure OpenAI 호출 (사내 SSL CA 주입 포함). `build_chat_model`로 작성 | 2.5 | `infra/llm.py`, `scripts/` 연결 확인 |
 | **승인 요청**: Slack 앱 생성(메시지 발송·슬래시 명령·Socket Mode 권한), 사내망에서 slack.com 통신 확인 | 0.5 | 요청 기록 |
-| 템플릿 포크, F1·F2·F6 적용, 선택 의존성(Milvus, MinIO 등) 없이 기동 확인 | 5 | 포크 브랜치, `make up` |
+| 템플릿 포크, F1·F2 적용 | 2.5 | 포크 브랜치 |
+| F6 overlay(postgres·redis·로컬 이미지), 선택 의존성 없이 기동, `make up`·`make down` | 2.5 | `Makefile` |
 | F5 테스트 사용자 시드, 로그인 → 채팅 E2E 확인 | 2 | 스모크 스크립트 |
 | metrics-server, Chaos Mesh, Phoenix 설치 | 1.5 | `deploy/chaos-mesh/` |
-| H0 정의, A5(원본 템플릿 상태) 시나리오 스크립트 | 0.5 | `scenarios/H0`, `A5` |
-| 수집기 (리소스, 로그 current/previous, 이벤트) + 정규화 | 2.5 | `service/collect/`, `infra/kubernetes.py` |
+| H0 정의, A5(원본 템플릿 상태) 시나리오 스크립트 (`expected.yaml` 먼저) | 0.5 | `scenarios/H0`, `A5` |
+| 도메인 모델 정의 (§1.3) | 1 | `service/model/` |
+| 규칙 목록 12종 + 감지기 인터페이스 (§1.3) | 0.5 | `service/check/detectors/catalog.py` |
+| 공통 에러 코드·예외·핸들러, CLI 종료 코드 (§1.3) | 0.5 | `core/error/` |
+| 수집기 (리소스, 로그 current/previous, 이벤트) + 정규화 → `ClusterSnapshot` | 2.5 | `service/collect/`, `infra/kubernetes.py` |
 | Evidence 저장소 + id 발급 | 1 | `infra/database/` |
-| 토폴로지 (env URL 파싱 → declared/unresolved, 계층) | 2 | `service/collect/topology` |
-| 마스킹 (로그·이벤트·env) + 단위 테스트 | 1 | `service/guard/redact` |
-| 학습 노트: "원본 템플릿은 왜 클러스터에서 동작하지 않았나" | 0.5 | `docs/learning/w1-*.md` |
+| 테스트 픽스처: H0·A5 상태의 스냅샷 저장 | 0.5 | `tests/fixtures/` |
+| 환경 설명 초안 + 학습 노트 "원본 템플릿은 왜 클러스터에서 동작하지 않았나" | 1 | `service/knowledge/environment.md`, `docs/learning/w1-*.md` |
 
 **Exit**
 - `make up` 후 전 Pod Ready, front-chat 경유 로그인 → 채팅이 실제 Azure OpenAI 응답으로 성공
+- `build_chat_model`로 클러스터 안에서 진단용 Azure OpenAI 호출 성공
 - A5 inject 시 채팅 실패, reset 시 복구
-- 수집기가 A5 상태에서 리소스·로그·이벤트를 Evidence로 저장하고, 토폴로지가 unresolved 주소를 표시
+- 수집기가 A5 상태에서 `ClusterSnapshot`을 만들고 리소스·로그·이벤트를 Evidence로 저장
+- 규칙 목록 12종과 도메인 모델이 단위 테스트로 고정됨
 - Slack 앱 승인 요청 완료
 
-### W2 — 규칙 점검 계층 + 에이전트 골격 (2026-10-19 주, 가장 중요한 주, 약 18시간)
+### W2 — 규칙 점검 계층 + 에이전트 기반·골격 (2026-10-19 주, 가장 중요한 주, 약 23시간)
 
 **학습 초점**: RBAC 최소 권한, 가설 → 도구 검증 → 판정 루프, 근거 인용 강제, 구조화 출력
 
 | 작업 | 시간 | 산출물 |
 |---|---|---|
-| 감지기 장애 신호 10종 + 개선 권고 2종, 단위 테스트 | 3.5 | `service/check/detectors` |
-| 게이트 v0 (경로 A·C) + CLI `kg check` | 1 | `service/check/gate.py`, `cli.py` |
+| 토폴로지 (env URL 파싱 → declared/unresolved, 계층) | 2 | `service/collect/topology` |
+| 마스킹 (로그·이벤트·env) + 단위 테스트 | 1 | `service/guard/redact` |
+| 감지기 장애 신호 10종 + 개선 권고 2종, 스냅샷 픽스처 단위 테스트 | 3.5 | `service/check/detectors` |
+| 게이트 v0 (경로 A·C) + 신호판 + CLI `kg check` | 1.5 | `service/check/gate.py`, `signal_board.py`, `cli.py` |
+| `kubeguardian.yaml` 설정 로더 (§1.3) | 0.5 | `core/config.py` |
 | SA `kubeguardian` + 최소 권한 ClusterRole | 0.5 | `deploy/kubeguardian/rbac.yaml` |
-| A1 시나리오 + ADR-001 도구 계층과 에이전트 코어의 경계 | 1 | `scenarios/A1`, `docs/adr/` |
-| 에이전트 공통 인터페이스 (입력: 게이트 결과·신호판 / 출력: Issue·Hypothesis·Report) | 1 | `service/agent/base.py`, `service/model/` |
+| A1 시나리오 + ADR-001 도구 계층·에이전트 base·LLM 생성의 경계 | 1 | `scenarios/A1`, `docs/adr/` |
+| L1 조사 지침 (`service-no-endpoints`, `service-url-mismatch`, `image-pull-failure`) | 1 | `service/knowledge/runbooks/` |
+| **에이전트 기반**: `BaseAgent`·`AgentSpec`·`AgentResult`, `registry`, `_common`(구조화 출력 파싱 방어·1회 재시도, 프롬프트 로더), 가짜 LLM 테스트 | 1.5 | `service/agent/base.py`, `registry.py`, `_common/` |
+| **도구 기반**: Tool 인터페이스·`ToolResult`·근거 저장·네임스페이스 강제 + LangChain 어댑터 | 0.5 | `service/tools/base.py` |
 | 도구 7종 (get_topology, get_resource, get_pod_logs, get_events, probe, run_api_scenario, query_app_api) | 3 | `service/tools/` |
-| LangGraph 구현: 선별 → 조사 → 보고서 작성 | 3.5 | `service/agent/investigator/v1/`, `registry.py` |
-| 근거 검증기, 출력 파싱 방어, 호출·시간 상한 | 2 | `service/guard/` |
-| Phoenix 추적 연동 (OpenTelemetry GenAI 속성) | 0.5 | `core/tracing.py` |
-| 평가 러너 최소판: `make eval S=<ID>` = 주입 → 증상 확인 → 점검·게이트·AI → 채점 → 원복 | 1.5 | `eval/` |
+| investigator v1 (LangGraph): 선별 → 조사 → 보고서 작성 | 3.5 | `service/agent/investigator/v1/` |
+| 근거 검증기, 호출·시간 상한 | 1.5 | `service/guard/` |
+| 평가 러너 최소판 `make eval S=<ID>` + 조사 실행 기록(토큰·도구 호출·시간) | 1.5 | `eval/`, `infra/database/` |
 | A3 시나리오 + 학습 노트 | 0.5 | `scenarios/A3` |
 
 **Exit**
 - A1·A5에서 해당 감지기(S01·S02 / S04)가 장애 신호로 적발, 게이트가 경로 A
 - H0에서 개선 권고만 나오고 게이트는 경로 C
 - `kubectl auth can-i`로 쓰기 권한 없음 확인
+- `registry`에서 `investigator:v1`을 골라 실행하고, 가짜 LLM 테스트가 CI에서 통과
 - `make eval S=A1`이 사람 개입 없이 끝까지 돌고 채점 결과를 출력
 - L1 3개(A1·A3·A5)에서 **요약 1순위 = 주입 장애**가 3개 모두 (3회 반복 다수결)
 - 모든 보고서가 근거 검증기 통과
@@ -176,19 +209,21 @@ KubeGuardian/
 
 > **M2 체크포인트**: L1 선별이 3개 중 2개 이하면 W3 전에 신호판 구조와 프롬프트부터 고친다. 버퍼가 없으므로 §5 축소 순서를 바로 적용한다.
 
-### W3 — 증상 감지(경로 B) + 조사 품질 + 알림 상태 (2026-10-26 주, 약 17.5시간)
+### W3 — 증상 감지(경로 B) + 조사 품질 + 주기 점검 (2026-10-26 주, 약 18시간)
 
 **학습 초점**: Service 라우팅과 Pod 직접 호출, 서비스 간 통신 차단, 앱 층 장애가 K8s에서 어떻게 보이는가, CronJob(주기 실행, 중복 실행 방지), PVC 공유
 
 | 작업 | 시간 | 산출물 |
 |---|---|---|
+| L3 조사 지침 (`llm-quota`, `redis-auth`, `partial-failure`, `noise-filtering`) | 1 | `service/knowledge/runbooks/` |
 | API 시나리오 증상 감지, 게이트 v1(경로 B), `kg investigate` | 2 | `service/check/symptoms.py` |
 | 가설 루프 + 보고서 섹션 완성 (배제 이유, 확인한 범위·확인하지 못한 것, 권장 조치, 재검증) | 3 | `service/agent/investigator/v1/` |
-| 조사 지침(장애 유형 단위)·환경 설명 문서 | 2 | `service/knowledge/` |
 | C1(할당량), C2(Redis 차단) 시나리오 + `verify_symptom.sh` | 2.5 | `scenarios/` |
 | B1(Pod 1개만 오류) 시나리오 | 1 | `scenarios/B1` |
+| Phoenix 추적 연동 (OpenTelemetry GenAI 속성) | 0.5 | `core/tracing.py` |
 | Chainlit 개발용 화면 (단계 펼침, 근거 원문) + 화면용 API | 1.5 | `ui/`, `api/routes/` |
 | 기준 조건(규칙만) 결과 기록 + 학습 노트 | 1 | `eval/history/` |
+| KubeGuardian 이미지 (Dockerfile, 사내 CA, `minikube image load`) | 1 | `Dockerfile`, `Makefile` |
 | CronJob 5분 주기, `concurrencyPolicy: Forbid`, Job과 PVC(SQLite) 공유 | 1.5 | `deploy/kubeguardian/cronjob.yaml` |
 | 문제 지문 + 알림 상태(열림/해결) + 진행 중 문제는 AI·알림 생략 | 3 | `service/alert/` |
 
@@ -251,22 +286,22 @@ KubeGuardian/
 
 | 주차 | 내용 | 핵심 시간 |
 |---|---|---|
-| W1 | 환경, 승인 요청, 사실 수집 | 18.5 |
-| W2 | 규칙 점검 계층 + 에이전트 골격 (M2) | 18 |
-| W3 | 증상 감지 + 조사 품질 + 알림 상태 (M3) | 17.5 |
+| W1 | 환경, 승인 요청, 기반 계약, 사실 수집 | 19 |
+| W2 | 규칙 점검 계층 + 에이전트 기반·골격 (M2) | 23 |
+| W3 | 증상 감지 + 조사 품질 + 주기 점검 (M3) | 18 |
 | W4 | Slack 알림·명령 + 남은 시나리오 | 19 |
 | W5 | 평가·튜닝·비교 실험 1 + 보고서·데모·회고 | 21 |
-| **합계** | | **약 94** |
+| **합계** | | **약 100** |
 
 ```mermaid
 gantt
     dateFormat YYYY-MM-DD
     axisFormat %m/%d
     section 기반
-    환경·승인 요청·사실 수집 :w1, 2026-10-12, 7d
+    환경·기반 계약·사실 수집 :w1, 2026-10-12, 7d
     section 에이전트
-    규칙 점검·에이전트 골격 (M2) :crit, w2, after w1, 7d
-    증상 감지·조사 품질·알림 상태 (M3) :w3, after w2, 7d
+    규칙 점검·에이전트 기반·골격 (M2) :crit, w2, after w1, 7d
+    증상 감지·조사 품질·주기 점검 (M3) :w3, after w2, 7d
     section 운영 기능
     Slack 알림·명령·남은 시나리오 :w4, after w3, 7d
     section 마무리
@@ -296,7 +331,7 @@ gantt
 
 ## 5. 일정이 밀릴 때 축소 순서
 
-두 주 연속 22시간을 넘거나 체크포인트를 못 넘으면 아래 순서로 줄인다. 위에서부터 먼저 줄인다.
+실제 시간이 계획보다 3시간 넘게 많은 주가 두 주 연속이거나 체크포인트를 못 넘으면 아래 순서로 줄인다. 위에서부터 먼저 줄인다.
 
 1. 선택 비교 실험(§4) 전부 보류
 2. 비교 실험 1을 L1 시나리오 3개로만 축소
