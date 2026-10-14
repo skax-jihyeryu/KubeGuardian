@@ -23,6 +23,8 @@
 make setup   # 의존성 설치 + git 훅(pre-commit, 커밋 메시지 검사) 설치
 make check   # lint + 테스트 (PR 올리기 전)
 make format  # 자동 수정
+make run     # API 서버 로컬 실행 (http://localhost:8000/api/v1/health)
+make doctor  # minikube·kubectl·docker·메모리 확인
 ```
 
 비밀값은 `.env.example`을 복사한 `.env`에 넣는다. `.env`는 커밋되지 않는다.
@@ -30,12 +32,17 @@ make format  # 자동 수정
 ## 레포 구조
 
 ```text
-app/                     # 진단 에이전트 (FastAPI, Python 루트)
-tests/                   # 테스트
-docs/                    # 기획·계획·산출물·ADR·학습 노트
+app/        # 진단 에이전트 (FastAPI, Python 루트: from core.config import ...)
+ui/         # Chainlit 개발용 화면 (app API를 HTTP로 호출)
+tests/      # 테스트 (app 구조와 같게)
+deploy/     # 쿠버네티스 매니페스트
+scenarios/  # 장애 시나리오 (_template/ 복사해서 추가)
+eval/       # 평가 러너·채점·리포트
+scripts/    # 일회성 스파이크·스모크
+docs/       # 기획·계획·산출물·ADR·학습 노트
 ```
 
-실행 계획서 §1.2의 구조(`deploy/`, `scenarios/`, `eval/` 등)는 주차 작업에 맞춰 추가한다.
+자세한 구조와 배포 단위는 [실행 계획서 §1.2](docs/02-execution-plan.md#12-kubeguardian-레포).
 
 ## 기여
 
