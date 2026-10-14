@@ -35,3 +35,7 @@ eval/blind/answers/
 
 # Node (제품 화면)
 node_modules/
+
+# Claude Code 로컬 파일
+.claude/settings.local.json
+.claude/plans/
