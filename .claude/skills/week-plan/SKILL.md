@@ -7,7 +7,7 @@ description: Use when starting or closing a KubeGuardian week (W1~W5, 발표 준
 
 ## 개요
 실행 계획서(`docs/02-execution-plan.md` §2)의 주차 작업 표를 GitHub Issue로 옮기고, 지난 주차를 마감한다.
-상세 이슈는 **이번 주부터 3주치**만 만든다 (M2·M3 체크포인트 결과로 이후 계획이 바뀔 수 있음).
+상세 이슈는 **이번 주부터 3주치**만 만든다 (CP2·CP3 체크포인트 결과로 이후 계획이 바뀔 수 있음).
 
 규칙의 정본: `.github/CONTRIBUTING.md` §5(이슈) §6(Project). Project 조작은 `bash .claude/skills/_shared/board.sh`.
 
