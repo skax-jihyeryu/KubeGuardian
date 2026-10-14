@@ -24,6 +24,8 @@
 make setup   # 의존성 설치 + git 훅(pre-commit, 커밋 메시지 검사) 설치
 make check   # lint + 테스트 (PR 올리기 전)
 make format  # 자동 수정
+make run     # 서버 로컬 실행 (http://localhost:8000/api/v1/health)
+make doctor  # minikube·kubectl·docker·메모리 확인
 ```
 
 비밀값은 `.env.example`을 복사한 `.env`에 넣는다. `.env`는 커밋되지 않는다.
@@ -31,12 +33,17 @@ make format  # 자동 수정
 ## 레포 구조
 
 ```text
-apps/diagnostic-agent/   # 진단 에이전트 (Python, uv workspace 멤버)
-docs/                    # 기획·계획·산출물·ADR·학습 노트
+app/        # 진단 에이전트 (FastAPI, Python 루트: from core.config import ...) — api / service / core
+tests/      # 테스트 (app 구조와 같게)
+deploy/     # 쿠버네티스 매니페스트
+scenarios/  # 장애 시나리오 (_template/ 복사해서 추가)
+eval/       # 평가 러너·채점·리포트
+scripts/    # 일회성 스파이크·스모크
+docs/       # 기획·계획·규칙 명세·산출물·ADR·학습 노트
 ```
 
-실행 계획서 §1.2의 구조(`deploy/`, `scenarios/`, `eval/` 등)는 주차 작업에 맞춰 추가한다.
+자세한 구조·배포 단위·기반 계약은 [실행 계획서 §1.2·§1.3](docs/02-execution-plan.md#12-kubeguardian-레포).
 
 ## 기여
 
-브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md). 기본 브랜치는 `develop`이다.
+브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](.github/CONTRIBUTING.md). 기본 브랜치는 `develop`이다.

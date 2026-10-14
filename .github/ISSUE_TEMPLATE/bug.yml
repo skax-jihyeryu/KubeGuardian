@@ -1,0 +1,42 @@
+name: 버그
+description: 기대와 다르게 동작하는 것
+title: "<scope>: "
+labels: ["type:fix"]
+body:
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 현상
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 재현 방법
+      description: 명령·시나리오·입력. 재현이 안 되면 그렇다고 적는다
+      value: |
+        1.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 동작
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 로그·근거
+      description: 비밀값은 마스킹한다
+      render: text
+  - type: input
+    id: scenario
+    attributes:
+      label: 관련 시나리오
+      placeholder: "C1 / 없으면 -"
+  - type: input
+    id: estimate
+    attributes:
+      label: 예상 시간 (시간)
+      placeholder: "1"
