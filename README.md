@@ -9,7 +9,7 @@
 | 문서 | 내용 |
 |---|---|
 | [기획서](docs/01-project-proposal.md) | 배경, 아키텍처, 감지기, 장애 시나리오, 평가 |
-| [실행 계획서](docs/02-execution-plan.md) | 8주 주차별 작업과 Exit 조건 |
+| [실행 계획서](docs/02-execution-plan.md) | 5주 주차별 작업과 Exit 조건 |
 | [외부 서비스 분석](docs/03-market-analysis.md) | K8sGPT, HolmesGPT 등 비교 |
 | [UI 화면 정의서](docs/04-ui-spec.md) | 화면 구성 |
 | [과제 산출물](docs/산출물/) | 역량·기술 스택, 문제 정의·서비스 기획, 시나리오 |
@@ -38,4 +38,4 @@ docs/                    # 기획·계획·산출물·ADR·학습 노트
 
 ## 기여
 
-브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md). 기본 브랜치는 `develop`이다.
+브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](.github/CONTRIBUTING.md). 기본 브랜치는 `develop`이다.
