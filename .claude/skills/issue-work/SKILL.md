@@ -23,7 +23,8 @@ Project 조작: `bash .claude/skills/_shared/board.sh`.
 | 코드 변경 | superpowers:test-driven-development |
 | 버그·테스트 실패 | superpowers:systematic-debugging |
 | PR 전 | superpowers:verification-before-completion (`make check`, 관련 시나리오 eval) |
-| 변경 100줄 초과 | superpowers:requesting-code-review |
+| 리뷰 필수 대상 (CONTRIBUTING §3.1: 100줄 초과, 프롬프트·지침, 규칙 판정, 가드레일, RBAC·Secret, 기반 계약) | superpowers:requesting-code-review |
+| 리뷰 지적을 받음 | superpowers:receiving-code-review (근거 확인 후 반영 또는 반영하지 않는 이유 기록) |
 
 - 계획 문서는 `.claude/plans/<이슈#>-<설명>.md`에 저장한다 (커밋하지 않음).
 - 작업 중 범위 밖 문제를 발견하면 고치지 말고 `issue-create`로 등록한다.
@@ -34,7 +35,8 @@ Project 조작: `bash .claude/skills/_shared/board.sh`.
 2. `git push -u origin <브랜치>`.
 3. `gh pr create --base develop --title "<커밋과 같은 형식>" --body-file <파일>`. 본문은 `.github/pull_request_template.md`를 채운다: 주차, 시나리오, `Closes #<#>`, 검증 결과, 체크리스트.
 4. `board.sh status <#> "In review"`.
-5. CI 결과를 사용자에게 알린다. **병합은 사용자가 승인한 뒤** squash merge로 한다 (`gh pr merge --squash --delete-branch`).
+5. 리뷰 필수 대상이면 리뷰를 실행하고, 결과와 처리 내역을 PR 코멘트로 남긴다 (`gh pr comment`).
+6. CI 결과와 병합 조건(CONTRIBUTING §3) 확인 결과를 사용자에게 알린다. **병합은 사용자가 승인한 뒤** squash merge로 한다 (`gh pr merge --squash --delete-branch`). `develop`은 squash만 허용되도록 보호되어 있다.
 
 ## 자주 하는 실수
 - `develop`에서 바로 커밋 → pre-commit이 막는다. 항상 브랜치에서.
