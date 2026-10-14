@@ -56,7 +56,7 @@ KubeGuardian/
 │   ├── service/               # ── 업무 로직: 기능별 하위 패키지 ──
 │   │   ├── pipeline/          #   점검 실행 흐름 (점검 → 게이트 → 조사 → 저장 → 알림), 동시 실행 제한
 │   │   ├── checks/            #   결정적 점검 계층
-│   │   │   ├── detectors/     #     장애 신호 10종 + 개선 권고 2종
+│   │   │   ├── detectors/     #     장애 신호 11종 + 개선 권고 2종 (docs/05-rules.md)
 │   │   │   ├── symptoms.py    #     API 시나리오 증상 감지
 │   │   │   └── gate.py        #     경로 A / B / C 판정
 │   │   ├── sensors/           #   사실 수집: collector, topology, probes, app_api
@@ -67,7 +67,7 @@ KubeGuardian/
 │   │   │   ├── impl_langgraph/ #    기본 구현
 │   │   │   └── impl_loop/     #     비교 실험 1: 직접 구현한 도구 호출 루프
 │   │   ├── alerts/            #   문제 지문, 알림 상태 (열림/해결)
-│   │   ├── notify/            #   Slack 메시지 변환(M1~M8), 발송, 재알림
+│   │   ├── notify/            #   Slack 메시지 변환(M1~M9), 발송, 재알림
 │   │   └── knowledge/         #   조사 지침, 환경 설명
 │   └── core/                  # ── 여러 기능이 같이 쓰는 기반 ──
 │       ├── config.py          #   설정 (kubeguardian.yaml, 환경변수)
@@ -118,7 +118,7 @@ KubeGuardian/
 | 수집기 (리소스, 로그 current/previous, 이벤트) + 정규화 | 2.5 | `service/sensors/collector` | W2 |
 | 점검 이력·Evidence 저장소 + id 발급 | 1 | `core/db/` | W2 |
 | 토폴로지 (env URL 파싱 → declared/unresolved, 계층) | 2 | `service/sensors/topology` | W2 |
-| 감지기 장애 신호 10종 + 개선 권고 2종, 단위 테스트 | 3.5 | `service/checks/detectors` | W2 |
+| 감지기 장애 신호 11종 + 개선 권고 2종 ([규칙 점검 명세](05-rules.md) 기준), 관측 기록(지속 시간 판정), 픽스처 단위 테스트 | 3.5 | `service/checks/detectors` | W2 |
 | 게이트 v0 (경로 A·C) | 0.5 | `service/checks/gate.py` | W2 |
 | 마스킹 (로그·이벤트·env) + 단위 테스트 | 1 | `core/guard/redact` | W2 |
 | SA `kubeguardian` + 최소 권한 ClusterRole | 0.5 | `deploy/kubeguardian/rbac.yaml` | W2 |
@@ -176,9 +176,9 @@ KubeGuardian/
 |---|---|---|---|
 | CronJob 5분 주기, `concurrencyPolicy: Forbid`, Job과 PVC(SQLite) 공유 | 1.5 | `deploy/kubeguardian/cronjob.yaml` | W5 |
 | 문제 지문 + 알림 상태(열림/해결) + 진행 중 문제는 AI·알림 생략 | 3 | `service/alerts/` | W5 |
-| Slack 발송: M1 이상 알림(심각도, 요약 + 보고서 링크), M3 복구 알림, M7 점검 중단 알림 | 3 | `service/notify/` | W5 |
+| Slack 발송: M1 이상 알림(이상 판정 직후 1차 감지 알림 → 조사 후 같은 메시지를 원인으로 갱신, M9 원인 확인 답글), M3 복구 알림, M7 점검 중단 알림 | 3 | `service/notify/` | W5 |
 | 심각도별 재알림 정책(M2 리마인더: 긴급 30분 후 첫 리마인더·이후 2시간마다 총 3회, 주의 2시간 후 1회), 상황 변경 시 갱신 | 1 | `service/notify/reminder.py` | W5 |
-| 평가 러너에 장애 감지 시간 기록 (주입 시각 → 알림 이력의 발송 시각), 평가 중 알림은 Slack 전송 생략(dry-run) | 1 | `eval/` | W5 |
+| 평가 러너에 장애 감지 시간·원인 파악 시간 기록 (주입 시각 → 알림 이력의 1차 발송·갱신 시각), 평가 중 알림은 Slack 전송 생략(dry-run) | 1 | `eval/` | W5 |
 | diagnostic-agent Deployment + Socket Mode 명령 수신 (`slack_bolt`) | 2 | `api/slack/`, `deploy/` | W6 |
 | `/kg check`, `/kg investigate`: 3초 내 접수, 비동기 실행, M4~M6·M8, 허용 채널·사용자, 동시 실행 제한 | 3 | `api/slack/`, `service/pipeline/` | W6 |
 | 보고서 화면 완성(서버 렌더링): P1 목록, P2 상세(근거·알림 이력 포함), P4 점검 이력 + **점검 실행 버튼**(백그라운드 실행, 동시 1건, 1분 간격), P5 진행 중 갱신, 마스킹 적용 | 4 | `api/routes/`, `api/templates/` | W6 |
@@ -188,7 +188,7 @@ KubeGuardian/
 | 학습 노트 | 0.5 | | W5 |
 
 **Exit**
-- C1 주입 → 다음 주기 점검에서 Slack 알림(심각도 + 요약 + 보고서 링크) 도착, **7분 이내** (알림 이력 기준)
+- C1 주입 → 다음 주기 점검에서 1차 감지 알림 도착 **6분 이내**, 조사 후 원인으로 갱신 **7분 이내** (알림 이력 기준). AI 조사를 일부러 실패시켜도 1차 알림은 나가고 "조사 실패"로 갱신됨
 - 장애가 이어지는 동안 같은 알림이 반복되지 않고 재알림 정책대로 리마인더만 발송되며, reset 후 복구 알림 1회
 - Slack에서 `/kg investigate`로 B1을 조사하면 같은 스레드에 조사 계획 → 요약과 보고서 링크가 올라오고, 링크로 보고서 화면에서 보고서·근거를 확인
 - 점검 이력(P4)에서 최근 점검 결과와 점검 중단 구간을 확인하고, 점검 실행 버튼으로 A1을 점검하면 P5에서 진행 과정과 결과를 확인
@@ -203,7 +203,7 @@ KubeGuardian/
 |---|---|---|---|
 | C5(스키마 드리프트) 시나리오: F7 v2 이미지 빌드 | 2 | `scenarios/C5` | W5 |
 | 평가 러너 확장: 전체 시나리오 × 2조건 × 3회, `eval/report.md` 자동 생성 | 3 | `eval/` | W7 |
-| KPI 계산: 원인 규명 커버리지, 원인 정확도, 장애 감지 시간, 확인 항목 감소율, 조사 시간·비용 | 1 | `eval/report.md` | W7 |
+| KPI 계산: 원인 규명 커버리지, 원인 정확도, 장애 감지 시간, 원인 파악 시간, 확인 항목 감소율, 조사 시간·비용 | 1 | `eval/report.md` | W7 |
 | 근거 일치율: 보고서 10건 본인 검토 | 1.5 | 검토 기록 | W7 |
 | 프롬프트·지침 튜닝 (**튜닝 후 전체 eval로 회귀 확인**) | 3 | — | W7 |
 | **비교 실험 1**: 직접 구현한 도구 호출 루프로 같은 시나리오 실행 → LangGraph와 비교 | 3.5 | `service/agent/impl_loop/`, 비교표 | W7 |
@@ -281,6 +281,7 @@ gantt
 
 | # | 비교 실험 | 예상 시간 | 판단 |
 |---|---|---|---|
+| 8 | 조사·선별 모델 조합 비교 (gpt-4.1 / gpt-4.1-mini / gpt-5 계열) | 1.5 | 여유 있으면 진행 (W2 말, 에이전트 골격 직후 L1·C1로) |
 | 2 | 조사 지침 전체 주입 vs 필요한 지침만 불러오기(Skills 방식) | 2 | 여유 있으면 진행 (W2 이후) |
 | 3 | 함수 직접 호출 vs MCP 서버 경유 | 2 | 여유 있으면 진행 (W2 이후) |
 | 4 | 본인 채점 vs LLM-as-judge | 2 | 여유 있으면 진행 (W4, 근거 일치율 검토와 함께) |
@@ -313,7 +314,7 @@ gantt
 ## 7. 착수 전 준비물
 
 - [ ] 로컬 머신 여유 메모리 ≥ 12GB, minikube·kubectl·docker 설치
-- [ ] Azure OpenAI 배포 2종 이상 (진단 에이전트용, 진단 대상 서비스용) 및 PoC 사용·비용 승인
+- [ ] Azure OpenAI 배포 2종 이상 (진단 에이전트용, 진단 대상 서비스용) 및 PoC 사용·비용 승인. 사용 가능 모델: gpt-4.1, gpt-4.1-mini, gpt-4o, gpt-4o-mini, gpt-5, gpt-5-mini, gpt-5.4, gpt-5.6-luna, text-embedding-3-large·small, ada-002. 진단용은 서비스용과 쿼터를 분리하고, 채점용(LLM-as-judge)은 조사 모델과 다른 모델로 배포한다
 - [ ] 사내 SSL 프록시 CA 인증서
 - [ ] 템플릿 레포 포크 권한 (개인 또는 PoC 조직)
 - [ ] **Slack 앱 생성 승인** (메시지 발송 `chat:write`, 슬래시 명령 `commands`, Socket Mode 앱 토큰) 및 알림 대상(기존 운영 채널 또는 DM)
