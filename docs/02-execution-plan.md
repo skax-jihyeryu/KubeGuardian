@@ -47,7 +47,8 @@
 진단 에이전트는 **템플릿 backend-agent와 같은 FastAPI 구조**를 따른다.
 
 - **위치**: 레포 루트에 `app/`·`tests/`를 바로 둔다. Python 앱이 하나뿐이라 `apps/<이름>/` 단계를 두지 않는다 (템플릿 backend-agent와 같음).
-- **계층**: 진입점(`api/routes`·`cli.py`·`slack/`·`ui/`) → `service/`(비즈니스 로직) → `infra/`(클러스터·LLM·Slack·DB 연결). 아래 계층이 위 계층을 import하지 않는다.
+- **계층**: 진입점(`api/routes`·`cli.py`·`slack/`) → `service/`(비즈니스 로직) → `infra/`(클러스터·LLM·Slack·DB 연결). 아래 계층이 위 계층을 import하지 않는다.
+- **`ui/`는 `app/` 밖에 둔다.** Chainlit은 별도 프로세스이고, `app/` 코드를 import하지 않고 `api/routes`를 HTTP로만 호출한다.
 - **import**: `app/`이 Python 루트다 (`from core.config import get_setting`, `app.` 접두사 없음). 실행은 `cd app && python main.py`, 테스트는 pytest `pythonpath`로 맞춘다.
 - **에이전트는 이름/버전 폴더로 관리한다** (`service/agent/<이름>/v<N>/`). 템플릿의 `mentor/v1`, `mentor/v3`와 같은 방식이다. 어떤 에이전트·버전을 쓸지는 `registry.py`에서 설정으로 고른다. 비교 실험과 eval은 버전 키(예: `investigator:v1`)로 같은 입력을 돌린다.
 - **도구·조사 지침은 에이전트 밖에 둔다** (`service/tools/`, `service/knowledge/`). 여러 에이전트·버전과 MCP 서버(비교 실험 3)가 같은 도구를 쓰기 때문이다.
@@ -62,7 +63,6 @@ KubeGuardian/
 │   │   ├── router.py                 # /api/v1 라우터 묶음
 │   │   └── routes/                   # health, check, investigation, report, evidence, alert (요청·응답만)
 │   ├── slack/                        # Socket Mode 명령 핸들러 (/kg check·investigate·evidence)
-│   ├── ui/                           # Chainlit 개발용 화면
 │   ├── core/
 │   │   ├── config.py                 # pydantic-settings (.env)
 │   │   ├── response.py               # 공통 응답 형식
@@ -91,19 +91,33 @@ KubeGuardian/
 │   │   ├── slack.py                  # Web API 클라이언트
 │   │   └── database/                 # database.py, base.py, schema/(evidence·report·alert), repository/
 │   └── common/util/                  # 순수 헬퍼 (해시, 텍스트 분할, 시간)
+├── ui/                               # Chainlit 개발용 화면 (app API를 HTTP로 호출)
 ├── tests/                            # api/, service/, infra/ (app 구조와 같게) + fixtures/(K8s 리소스 스냅샷)
 ├── deploy/
-│   ├── kubeguardian/                     # SA·ClusterRole, PVC, CronJob, diagnostic-agent Deployment, Secret 예시
-│   └── chaos-mesh/                       # 평가 환경 전용
-├── scenarios/                            # H0, A1, A3, A5, B1, C1, C2, C5, E1 (+ 확장 후보)
+│   ├── kubeguardian/                 # SA·ClusterRole, PVC, CronJob, diagnostic-agent Deployment, Secret 예시
+│   └── chaos-mesh/                   # 평가 환경 전용
+├── scenarios/                        # H0, A1, A3, A5, B1, C1, C2, C5, E1 (+ 확장 후보)
 │   └── <ID>/{inject.sh, reset.sh, verify_symptom.sh, expected.yaml, README.md}
-├── eval/                                 # 평가 러너, 채점, 리포트, history/ (kg CLI와 SQLite 결과만 사용)
-├── scripts/                              # 일회성 스파이크·스모크 (Azure OpenAI 연결 확인 등)
-├── Makefile                              # up / down / inject S= / reset S= / eval S= / eval
+├── eval/                             # 평가 러너, 채점, 리포트, history/ (kg CLI와 SQLite 결과만 사용)
+├── scripts/                          # 일회성 스파이크·스모크 (Azure OpenAI 연결 확인 등)
+├── Makefile                          # up / down / inject S= / reset S= / eval S= / eval
 └── docs/
-    ├── adr/                              # 설계 결정 기록
-    └── learning/                         # 주간 학습 노트
+    ├── adr/                          # 설계 결정 기록
+    └── learning/                     # 주간 학습 노트
 ```
+
+#### 배포 단위
+
+**배포 단위는 Deployment 1개 + CronJob 1개다.** 둘 다 같은 이미지·같은 SQLite(PVC)를 쓰고 실행 명령만 다르다.
+
+| 배포 단위 | 실행 | 역할 |
+|---|---|---|
+| Deployment `diagnostic-agent` (replicas 1) | `app/main.py` — FastAPI + Slack Socket Mode 한 프로세스 | Slack 명령 수신 → 접수 응답 후 백그라운드로 점검·조사 → 결과 발송. FastAPI는 `/health`(프로브)와 `ui/`용 API |
+| CronJob (5분) | `app/cli.py` (`kg check`) | 주기 점검 → 필요 시 AI 조사 → 알림 발송 |
+| (배포 안 함) | `ui/`, `kg` CLI | 개발용, 로컬 실행 |
+
+- Slack **알림 발송**은 Web API 호출(`service/notify` + `infra/slack.py`)이라 결과를 만든 쪽(CronJob 또는 Deployment)이 직접 보낸다. 상주 프로세스가 필요한 것은 **명령 수신**(Socket Mode)뿐이다.
+- 명령 수신과 조사 실행을 한 Deployment에 둔다. 조사가 수신을 막지 않도록 동시 실행 제한·호출·시간 상한(`service/guard/budget`)·백그라운드 실행을 쓴다. **분리 조건**(조사로 인한 수신 중단 발생, Slack 수신부 권한 분리 필요, replicas 증가로 Postgres 전환)은 ADR-002에 기록한다.
 
 ## 2. 주차별 계획
 
@@ -173,7 +187,7 @@ KubeGuardian/
 | 조사 지침(장애 유형 단위)·환경 설명 문서 | 2 | `service/knowledge/` |
 | C1(할당량), C2(Redis 차단) 시나리오 + `verify_symptom.sh` | 2.5 | `scenarios/` |
 | B1(Pod 1개만 오류) 시나리오 | 1 | `scenarios/B1` |
-| Chainlit 개발용 화면 (단계 펼침, 근거 원문) | 1.5 | `ui/` |
+| Chainlit 개발용 화면 (단계 펼침, 근거 원문) + 화면용 API | 1.5 | `ui/`, `api/routes/` |
 | 기준 조건(규칙만) 결과 기록 + 학습 노트 | 1 | `eval/history/` |
 | CronJob 5분 주기, `concurrencyPolicy: Forbid`, Job과 PVC(SQLite) 공유 | 1.5 | `deploy/kubeguardian/cronjob.yaml` |
 | 문제 지문 + 알림 상태(열림/해결) + 진행 중 문제는 AI·알림 생략 | 3 | `service/alert/` |
@@ -200,7 +214,7 @@ KubeGuardian/
 | Slack 연동 테스트 (Slack API 모의 객체로 메시지 형식·스레드·오류 경로) | 1.5 | `tests/` |
 | E1(미끼 신호) 시나리오 | 1.5 | `scenarios/E1` |
 | H0 주기 점검 4시간(48회) 연속 실행, 기준 조정 | 2 | 기준값 기록 |
-| ADR-002 문제 지문·알림 설계 + 학습 노트 | 1 | `docs/adr/` |
+| ADR-002 문제 지문·알림 설계 (Deployment 분리 조건 포함) + 학습 노트 | 1 | `docs/adr/` |
 
 **Exit**
 - C1 주입 → 다음 주기 점검에서 Slack 알림(요약 + 스레드 보고서) 도착, **7분 이내**
