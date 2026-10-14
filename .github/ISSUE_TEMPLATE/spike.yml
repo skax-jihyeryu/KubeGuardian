@@ -1,0 +1,35 @@
+name: 스파이크
+description: 비교·검증이 필요한 질문. 결론은 ADR로 남긴다
+title: "spike: "
+labels: ["type:spike"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: 질문
+      description: 이 스파이크로 답할 질문 하나
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: 비교 대상
+  - type: textarea
+    id: criteria
+    attributes:
+      label: 판단 기준
+      description: 무엇을 보면 결정할 수 있는가
+    validations:
+      required: true
+  - type: input
+    id: timebox
+    attributes:
+      label: 시간 상한 (시간)
+      placeholder: "2"
+    validations:
+      required: true
+  - type: input
+    id: adr
+    attributes:
+      label: 결론 기록 위치
+      placeholder: "docs/adr/ADR-00N-..."
