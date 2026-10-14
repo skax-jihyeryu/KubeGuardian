@@ -34,9 +34,17 @@ priority_opt() {
   esac
 }
 
-# 이슈를 Project에 넣고 item id를 돌려준다. 이미 들어 있으면 기존 item id가 나온다.
+# 이슈의 Project item id를 돌려준다. Project에 없으면 넣는다 (자동 추가 워크플로로 이미 들어 있을 수 있다).
 item_id() {
-  gh project item-add "$NUM" --owner "$OWNER" --url "https://github.com/$REPO/issues/$1" --format json --jq .id
+  local id
+  id=$(gh api graphql -f owner="${REPO%/*}" -f name="${REPO#*/}" -F n="$1" -f query='
+    query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){issue(number:$n){
+      projectItems(first:20){nodes{id project{id}}}}}}' \
+    --jq ".data.repository.issue.projectItems.nodes[] | select(.project.id==\"$PROJECT_ID\") | .id")
+  if [ -z "$id" ]; then
+    id=$(gh project item-add "$NUM" --owner "$OWNER" --url "https://github.com/$REPO/issues/$1" --format json --jq .id)
+  fi
+  echo "$id"
 }
 set_select() { gh project item-edit --project-id "$PROJECT_ID" --id "$1" --field-id "$2" --single-select-option-id "$3" >/dev/null; }
 set_number() { gh project item-edit --project-id "$PROJECT_ID" --id "$1" --field-id "$2" --number "$3" >/dev/null; }
