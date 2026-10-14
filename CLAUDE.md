@@ -1,6 +1,6 @@
 # KubeGuardian
 
-AI 기반 Kubernetes 서비스 진단 Agent (1인 8주 PoC). 기획은 `docs/01-project-proposal.md`, 일정은 `docs/02-execution-plan.md`.
+AI 기반 Kubernetes 서비스 진단 Agent (1인 PoC, 2026-10-12 ~ 11-20). 기획은 `docs/01-project-proposal.md`, 일정은 `docs/02-execution-plan.md`.
 
 ## 작업 규칙
 

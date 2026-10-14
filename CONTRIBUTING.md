@@ -59,11 +59,12 @@ KubeGuardian 레포의 브랜치·커밋·PR 규칙이다. 1인 8주 PoC에 맞�
 
 | scope | 대상 |
 |---|---|
-| `detectors` `symptoms` `gate` | 결정적 점검 계층 (`checks/`) |
+| `detectors` `symptoms` `gate` | 결정적 점검 계층 (`service/checks/`) |
 | `sensors` `tools` `mcp` | 사실 수집·에이전트 도구·MCP 서버 |
 | `agent` `codemode` `guard` `knowledge` | 에이전트 코어·가드레일·조사 지침 |
-| `api` `cli` `store` | API·CLI·저장소 |
-| `devui` `ui` | Chainlit 개발용 화면 / 제품 화면 |
+| `pipeline` `alerts` `notify` | 점검 실행 흐름·문제 지문·Slack 알림 |
+| `api` `ui` `slack` `cli` | 화면 라우트·보고서 화면 템플릿·Slack 명령 수신·CLI |
+| `core` `db` | 공통 기반 (설정·K8s 클라이언트·추적)·SQLite 저장소 |
 | `deploy` `scenarios` `eval` | 배포 매니페스트·장애 시나리오·평가 |
 | `adr` `learning` `deliverables` | 문서 종류 |
 
