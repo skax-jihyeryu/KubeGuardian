@@ -1,0 +1,43 @@
+name: 작업
+description: 실행 계획서의 작업이나 새로 생긴 작업 (운영 작업은 type:ops 라벨로 바꾼다)
+title: "<scope>: "
+labels: ["type:feat"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 목적
+      description: 무엇을 왜 하는지 1~3줄. 실행 계획서 작업 행이면 해당 주차·행을 적는다
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 조건
+      description: 확인할 수 있는 문장으로 체크박스를 쓴다
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: input
+    id: output
+    attributes:
+      label: 산출물
+      placeholder: "app/service/collect/, scenarios/A1/"
+  - type: input
+    id: estimate
+    attributes:
+      label: 예상 시간 (시간)
+      placeholder: "2.5"
+    validations:
+      required: true
+  - type: input
+    id: scenario
+    attributes:
+      label: 관련 시나리오
+      placeholder: "A1, A5 / 없으면 -"
+  - type: textarea
+    id: notes
+    attributes:
+      label: 참고
+      description: 관련 문서 링크, 선행 이슈
