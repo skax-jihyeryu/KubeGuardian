@@ -1,0 +1,32 @@
+# KubeGuardian 설정 예시. 복사해서 kubeguardian.yaml로 쓴다 (클러스터에서는 ConfigMap).
+# 비밀값(토큰·키·계정)은 여기에 두지 않고 Secret 이름만 적는다.
+# LLM 연결 정보는 환경 변수(LLM_PROVIDER, AZURE_OPENAI_*), 모델은 에이전트 버전 설정에서 정한다.
+target:
+  namespace: dev
+schedule: "*/5 * * * *"
+core_paths:                 # 사용자 기능 → 서비스 (1차 심각도 판정, docs/05-rules.md §3)
+  login: [front-chat, gateway, admin]
+  chat: [front-chat, gateway, agent, llm-gateway]
+external_hosts:             # S04 제외: 클러스터 밖 호스트
+  - "*.openai.azure.com"
+topology:
+  url_env_patterns: ["*_SERVICE_URL", "*_URL"]
+api_scenarios:
+  - name: chat
+    steps:
+      - login: {via: gateway, path: /api/v1/auth/login, account_secret: kg-test-user}
+      - call: {via: gateway, path: /api/v1/agent/invoke, expect: 200, timeout_s: 60}
+app_apis:                   # query_app_api 허용 목록 (GET만)
+  llm-gateway: [/api/v1/health, /api/v1/quota]
+slack:
+  alert_target: "#pr-service-ops"
+  bot_token_secret: kg-slack-bot
+  app_token_secret: kg-slack-app
+  allowed_channels: ["#pr-service-ops"]
+  allowed_users: []
+  reminders:
+    critical: {first_after: 30m, then_every: 2h, max: 3}
+    warning: {first_after: 2h, max: 1}
+knowledge:
+  runbooks: [./runbooks/]
+  environment: ./environment.md

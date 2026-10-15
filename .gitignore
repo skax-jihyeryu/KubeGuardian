@@ -40,3 +40,6 @@ node_modules/
 .claude/settings.local.json
 .claude/plans/
 .claude/worktrees/
+
+# 로컬 설정 (예시는 kubeguardian.example.yaml)
+kubeguardian.yaml
