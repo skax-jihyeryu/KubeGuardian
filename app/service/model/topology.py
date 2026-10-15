@@ -18,3 +18,6 @@ class TopologyEdge(BaseModel):
 class Topology(BaseModel):
     services: list[str] = []
     edges: list[TopologyEdge] = []
+    unchecked: list[
+        str
+    ] = []  # 주소를 읽지 못한 호출 서비스 (envFrom ConfigMap 수집 실패) → 확인하지 못함

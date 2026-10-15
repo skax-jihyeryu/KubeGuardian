@@ -1,7 +1,9 @@
 """토폴로지: 서비스 호출 관계와 Service → Deployment → ReplicaSet → Pod 계층 (기획서 §7.1).
 
-호출 관계는 Deployment Pod 템플릿의 env 중 이름이 `topology.url_env_patterns`(glob)에 맞는 값을
-URL로 읽어 대상 네임스페이스의 Service·port와 맞춘다.
+호출 관계는 Deployment Pod 템플릿의 env와 `envFrom` ConfigMap 값 중 이름이
+`topology.url_env_patterns`(glob)에 맞는 값을 URL로 읽어 대상 네임스페이스의 Service·port와 맞춘다.
+같은 이름이면 env가 envFrom보다 우선한다 (Kubernetes 규칙). envFrom이 가리키는 ConfigMap을
+수집하지 못했으면 그 호출 서비스를 `unchecked`에 넣는다. 없는 ConfigMap 참조는 C01이 다룬다.
 
 - declared: 호스트가 네임스페이스의 Service이고 포트가 그 Service에 있음
   (포트를 알 수 없으면 호스트만 본다)
@@ -30,20 +32,52 @@ def build_topology(snapshot: ClusterSnapshot, config: KubeGuardianConfig) -> Top
     deployments = snapshot.items("Deployment")
     if services is None or deployments is None:
         return None
+    config_maps = snapshot.items("ConfigMap")
+    cm_data = {c["metadata"]["name"]: c.get("data") or {} for c in config_maps or []}
     ports = {s["metadata"]["name"]: _service_ports(s) for s in services}
-    edges = []
+    edges, unchecked = [], set()
     for dep in deployments:
         template = dep["spec"].get("template") or {}
         source = _source_name(dep, template, services)
         for container in (template.get("spec") or {}).get("containers") or []:
-            for env in container.get("env") or []:
-                name, value = env.get("name", ""), env.get("value")
+            values, readable = _container_env(container, cm_data, config_maps is not None)
+            if not readable:
+                unchecked.add(source)
+            for name, value in values.items():
                 if not value or not _matches(name, config.topology.url_env_patterns):
                     continue
                 edge = _edge(source, name, value, snapshot.namespace, ports, config.external_hosts)
                 if edge is not None:
                     edges.append(edge)
-    return Topology(services=sorted(ports), edges=edges)
+    return Topology(services=sorted(ports), edges=edges, unchecked=sorted(unchecked))
+
+
+def _container_env(
+    container: Obj, cm_data: dict[str, dict[str, str]], cm_collected: bool
+) -> tuple[dict[str, str], bool]:
+    """컨테이너가 보는 env 이름 → 값. envFrom을 먼저 넣고 env로 덮는다 (env 우선).
+
+    두 번째 값은 envFrom ConfigMap을 모두 읽었는지 여부 (ConfigMap 수집 실패면 False).
+    """
+    values: dict[str, str] = {}
+    readable = True
+    for source in container.get("envFrom") or []:
+        ref = source.get("configMapRef")
+        if not ref:
+            continue  # secretRef 등: 서비스 주소는 ConfigMap에 둔다고 보고 읽지 않는다
+        if not cm_collected:
+            readable = False
+            continue
+        prefix = source.get("prefix") or ""
+        for key, value in cm_data.get(ref.get("name", ""), {}).items():
+            values[prefix + key] = value
+    for env in container.get("env") or []:
+        name = env.get("name", "")
+        if "value" in env:
+            values[name] = env["value"]
+        else:  # valueFrom: 실제 값은 알 수 없지만 envFrom 값을 덮으므로 그 값을 쓰지 않는다
+            values.pop(name, None)
+    return values, readable
 
 
 def _matches(name: str, patterns: list[str]) -> bool:

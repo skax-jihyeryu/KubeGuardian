@@ -232,3 +232,86 @@ def test_hierarchy_is_unknown_when_pods_failed():
     snapshot = _snapshot([_service("agent")], [], failed={"Pod": "timeout"})
 
     assert service_hierarchy(snapshot) is None
+
+
+def _config_map(name, data):
+    return {"kind": "ConfigMap", "metadata": {"name": name, "namespace": "dev"}, "data": data}
+
+
+def _env_from_snapshot(env_from, config_maps, env=(), failed=None):
+    dep = _deployment("gateway", list(env))
+    dep["spec"]["template"]["spec"]["containers"][0]["envFrom"] = env_from
+    snap = _snapshot([_service("agent"), _service("gateway", [80])], [dep])
+    resources = dict(snap.resources)
+    if failed:
+        return ClusterSnapshot(
+            namespace="dev", collected_at=NOW, resources=resources, failed=failed
+        )
+    resources["ConfigMap"] = config_maps
+    return ClusterSnapshot(namespace="dev", collected_at=NOW, resources=resources)
+
+
+def test_env_from_config_map_urls_become_edges():
+    snap = _env_from_snapshot(
+        [{"configMapRef": {"name": "app-config"}}],
+        [_config_map("app-config", {"AGENT_SERVICE_URL": "http://localhost:8080", "MODE": "dev"})],
+    )
+
+    edges = build_topology(snap, CONFIG).edges
+
+    assert [(e.env_name, e.status, e.target) for e in edges] == [
+        ("AGENT_SERVICE_URL", "unresolved", "localhost")
+    ]
+
+
+def test_env_from_prefix_is_applied_to_names():
+    snap = _env_from_snapshot(
+        [{"configMapRef": {"name": "app-config"}, "prefix": "AGENT_"}],
+        [_config_map("app-config", {"SERVICE_URL": "http://agent:8080"})],
+    )
+
+    edges = build_topology(snap, CONFIG).edges
+
+    assert [(e.env_name, e.status) for e in edges] == [("AGENT_SERVICE_URL", "declared")]
+
+
+def test_env_value_overrides_env_from_with_same_name():
+    snap = _env_from_snapshot(
+        [{"configMapRef": {"name": "app-config"}}],
+        [_config_map("app-config", {"AGENT_SERVICE_URL": "http://localhost:8080"})],
+        env=[{"name": "AGENT_SERVICE_URL", "value": "http://agent:8080"}],
+    )
+
+    edges = build_topology(snap, CONFIG).edges
+
+    assert [(e.env_name, e.status) for e in edges] == [("AGENT_SERVICE_URL", "declared")]
+
+
+def test_missing_config_map_is_left_to_c01():
+    snap = _env_from_snapshot([{"configMapRef": {"name": "gone"}}], [])
+
+    topo = build_topology(snap, CONFIG)
+
+    assert topo.edges == [] and topo.unchecked == []
+
+
+def test_config_map_collection_failure_marks_source_unchecked():
+    snap = _env_from_snapshot(
+        [{"configMapRef": {"name": "app-config"}}], [], failed={"ConfigMap": "403"}
+    )
+
+    topo = build_topology(snap, CONFIG)
+
+    assert topo.unchecked == ["gateway"]
+
+
+def test_env_value_from_overrides_env_from_and_is_not_guessed():
+    snap = _env_from_snapshot(
+        [{"configMapRef": {"name": "app-config"}}],
+        [_config_map("app-config", {"AGENT_SERVICE_URL": "http://localhost:8080"})],
+        env=[
+            {"name": "AGENT_SERVICE_URL", "valueFrom": {"secretKeyRef": {"name": "s", "key": "k"}}}
+        ],
+    )
+
+    assert build_topology(snap, CONFIG).edges == []
