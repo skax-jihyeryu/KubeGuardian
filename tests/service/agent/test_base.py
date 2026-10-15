@@ -156,3 +156,49 @@ def test_llm_call_error_is_normalized():
     with pytest.raises(ServiceException) as exc:
         invoke_structured(DownLLM(responses=["x"]), Report, [("user", "x")])
     assert exc.value.error_code is ErrorCode.LLM_CALL_FAILED
+
+
+def test_run_context_requires_evidence_sink():
+    with pytest.raises(TypeError):
+        RunContext(run_id="r", namespace="dev", budget=BudgetTracker(Budget()))
+
+
+def test_native_structured_output_is_used_once_and_raw_text_reused():
+    from langchain_core.messages import AIMessage
+    from langchain_core.runnables import RunnableLambda
+
+    calls = []
+
+    class NativeLLM(FakeListChatModel):
+        def with_structured_output(self, schema, include_raw=False):
+            def answer(_):
+                calls.append(1)
+                return {
+                    "raw": AIMessage(content=json.dumps(REPORT)),
+                    "parsed": None,
+                    "parsing_error": "x",
+                }
+
+            return RunnableLambda(answer)
+
+    report = invoke_structured(NativeLLM(responses=["unused"]), Report, [("user", "x")])
+
+    assert report.confidence == "high"
+    assert len(calls) == 1
+
+
+def test_native_schema_rejection_falls_back_to_text():
+    class RejectingLLM(FakeListChatModel):
+        def with_structured_output(self, schema, include_raw=False):
+            raise ValueError("schema not supported")
+
+    llm = RejectingLLM(responses=[json.dumps(REPORT)])
+
+    assert invoke_structured(llm, Report, [("user", "x")]).confidence == "high"
+
+
+def test_prompt_dollar_signs_are_reported_clearly(tmp_path):
+    (tmp_path / "p.md").write_text("비용 $5", encoding="utf-8")
+
+    with pytest.raises(KeyError, match=r"\$\$"):
+        load_prompt(tmp_path, "p")

@@ -39,41 +39,58 @@ def invoke_structured[T: BaseModel](
     retries: int = 1,
     usage: UsageTracker | None = None,
 ) -> T:
-    native = _invoke_native(llm, schema, messages, usage)
+    """총 LLM 호출은 retries + 1회를 넘지 않는다 (native 시도도 한 번으로 센다)."""
+    history = list(messages)
+    attempts = retries + 1
+    error = ""
+
+    native, raw_text = _invoke_native(llm, schema, history, usage)
     if native is not None:
         return native
+    if raw_text is not None:  # native로 한 번 불렀고 응답 본문이 있다 → 텍스트로 다시 읽는다
+        attempts -= 1
+        try:
+            return parse_structured(raw_text, schema)
+        except ValueError as e:
+            error = str(e)
+            history += _correction(raw_text, schema.__name__, error)
 
-    history = list(messages)
-    error = ""
-    for _ in range(retries + 1):
+    for _ in range(attempts):
         reply = _invoke(llm, history, usage)
         try:
             return parse_structured(reply.text, schema)
         except ValueError as e:
             error = str(e)
-            history += [
-                AIMessage(content=reply.text),  # tool_calls는 빼고 본문만 남긴다
-                ("user", f"응답을 {schema.__name__} 형식의 JSON 하나로 다시 주세요. 오류: {error}"),
-            ]
+            history += _correction(reply.text, schema.__name__, error)
     raise ServiceException(ErrorCode.LLM_OUTPUT_INVALID, detail=redact_text(error))
 
 
+def _correction(text: str, schema_name: str, error: str) -> list:
+    return [
+        AIMessage(content=text),  # tool_calls는 빼고 본문만 남긴다
+        ("user", f"응답을 {schema_name} 형식의 JSON 하나로 다시 주세요. 오류: {error}"),
+    ]
+
+
 def _invoke_native[T: BaseModel](
-    llm: BaseChatModel, schema: type[T], messages: Sequence[Any], usage: UsageTracker | None
-) -> T | None:
-    """제공사의 구조화 출력. 지원하지 않거나 형식이 깨지면 None (텍스트 파싱으로 넘어간다)."""
+    llm: BaseChatModel, schema: type[T], messages: list, usage: UsageTracker | None
+) -> tuple[T | None, str | None]:
+    """제공사의 구조화 출력. (파싱 결과, 응답 본문)을 돌려준다.
+
+    지원하지 않거나 스키마를 거부하면 (None, None): 호출하지 않은 것으로 보고 텍스트로 넘어간다.
+    응답은 받았는데 파싱이 안 됐으면 (None, 본문): 본문을 텍스트 파서로 다시 읽는다.
+    """
     try:
-        structured = llm.with_structured_output(schema, include_raw=True)
-    except NotImplementedError:
-        return None
-    try:
-        out = structured.invoke(list(messages))
-    except Exception as e:
-        raise ServiceException(ErrorCode.LLM_CALL_FAILED, detail=redact_text(str(e))) from e
-    if usage is not None and isinstance(out.get("raw"), AIMessage):
-        usage.add(out["raw"])
+        out = llm.with_structured_output(schema, include_raw=True).invoke(messages)
+    except Exception:
+        return None, None
+    raw = out.get("raw")
+    if usage is not None and isinstance(raw, AIMessage):
+        usage.add(raw)
     parsed = out.get("parsed")
-    return parsed if isinstance(parsed, schema) else None
+    if isinstance(parsed, schema):
+        return parsed, None
+    return None, raw.text if isinstance(raw, AIMessage) else ""
 
 
 def _invoke(llm: BaseChatModel, history: list, usage: UsageTracker | None) -> AIMessage:

@@ -24,15 +24,15 @@
 
 | 계층 | 위치 | 책임 | 모르는 것 |
 |---|---|---|---|
-| 도구 | `service/tools/` — `Tool`, `ToolContext`, `ToolResult` | `Tool.run`이 입력 검증 → 호출 수 집계 → 수집 → 범위 확인 → **마스킹**(data·summary·source·subject, 실패 메시지) → 근거 저장 → 요약 반환을 강제한다. 수집 실패도 근거로 저장하고 `ok=False`로 돌려준다. 구현은 `collect()`만 쓴다 | LangGraph, LLM |
+| 도구 | `service/tools/` — `Tool`, `ToolContext`, `ToolResult` | `Tool.run`이 입력 검증(모르는 인자 거부) → 호출 상한·집계 → 수집 → 범위 확인 → **마스킹**(data·summary·source·subject, 실패 메시지) → 근거 저장 → 요약 반환을 강제한다. 수집 실패(범위 위반 외의 모든 예외)도 근거로 저장하고 `ok=False`로 돌려준다. 구현은 `collect()`만 쓴다 | LangGraph, LLM |
 | 에이전트 | `service/agent/` — `BaseAgent`, `AgentSpec`, `RunContext`, `registry`, `_common/` | 구현은 `_run()`만 쓰고, `run()`이 사용량·시간 집계와 예외 → `failed` 변환(마스킹)을 공통으로 한다. `<이름>/v<N>/` 폴더로 구현을 나누고 `"이름:버전"` 키로 고른다. 도구는 `_common/tool_adapter.py`가 LangChain 도구로 바꾸고 결과를 `<tool_output>`으로 감싼다(결과 안의 `< >`는 이스케이프) | 제공사, 엔드포인트, 키 |
 | LLM 생성 | `core/llm.py` — `build_chat_model(model)` (#8에서 추가) | 제공사 분기와 연결 설정(환경 변수)을 한 곳에 둔다 | 어떤 역할에 어떤 모델을 쓰는지 |
 
 - **어떤 모델을 쓸지는 에이전트 버전의 `AgentSpec.models`(역할 → 모델)**가 정한다. 모델을 바꾸는 것은 새 버전이거나 그 버전 설정의 변경이므로 리뷰·eval 비교 대상이 된다.
 - 에이전트는 LLM을 직접 만들지 않고 생성자로 받은 `llm_factory`(운영에서는 `build_chat_model`)를 역할 이름으로 부른다. 그래서 테스트는 가짜 LLM으로 같은 코드를 돌린다.
-- 구조화 출력은 `_common/structured.py`가 제공사의 `with_structured_output`을 먼저 쓰고, 지원하지 않거나 형식이 깨지면 텍스트에서 JSON을 찾아 1회 재시도한다 (제공사를 바꿔도 같은 방어가 남게 하기 위해서다). 형식이 맞아도 근거 번호 검증은 별도 가드레일(`core/guard`)이 한다.
-- **네임스페이스 범위**는 세 겹이다. ① 도구 입력에 네임스페이스 필드를 둘 수 없다(클래스 정의 때 거부) ② 도구는 `ToolContext.k8s`(대상 네임스페이스에 묶인 조회 클라이언트, #11 `core/k8s.py`)만 쓴다 ③ `Tool.run`이 결과의 subject가 대상 네임스페이스(또는 `cluster/Node/`)인지 확인한다. ③은 사후 확인이라 ②가 실제 차단이다. RBAC는 ClusterRole이라 이 경계를 대신하지 않는다.
-- **예산**(`core/guard/budget.py`)은 `Tool.run`이 호출 수를 세고, 에이전트 구현이 `can_call_tool()`·`time_over()`로 분기한다. 그래서 v1과 v1_loop가 같은 기준으로 잰다.
+- 구조화 출력은 `_common/structured.py`가 제공사의 `with_structured_output`을 먼저 쓰고, 지원하지 않거나 스키마를 거부하면 텍스트에서 JSON을 찾는다. 응답 본문이 있으면 다시 부르지 않고 그 본문부터 읽는다. 총 LLM 호출은 `retries + 1`회(기본 2회)를 넘지 않는다 (제공사를 바꿔도 같은 방어가 남게 하기 위해서다). 형식이 맞아도 근거 번호 검증은 별도 가드레일(`core/guard`)이 한다.
+- **네임스페이스 범위**는 세 겹이다. ① 도구 입력에 네임스페이스 필드를 둘 수 없고(snake·camelCase·alias·중첩 모델까지, 클래스 정의 때 거부) 모르는 인자도 거부한다 ② 도구는 `ToolContext.k8s`(대상 네임스페이스에 묶인 조회 클라이언트, #11 `core/k8s.py`)만 쓴다 ③ `Tool.run`이 결과의 subject가 `<대상 네임스페이스>/<Kind>/<name>`(또는 `cluster/Node/<name>`)와 완전히 일치하는지 확인한다. `ToolContext`는 바꿀 수 없다(frozen). ③은 사후 확인이라 ②가 실제 차단이다. RBAC는 ClusterRole이라 이 경계를 대신하지 않는다.
+- **예산**(`core/guard/budget.py`)은 `Tool.run`이 호출 수를 세고 **상한을 넘으면 호출하지 않고 `ok=False`를 돌려준다**. 에이전트 구현은 `can_call_tool()`·`time_over()`로 다음 단계(판정·보고서 작성)로 넘어갈지 분기한다. 그래서 v1과 v1_loop가 같은 기준으로 상한을 지킨다.
 - 근거 저장소는 `EvidenceSink.add(evidence) -> "ev-0001"` 하나로 도구와 연결한다 (구현: `core/db`).
 
 ## 결과

@@ -13,13 +13,15 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from traceback import format_exc
 from typing import Any, ClassVar, Literal, Protocol
 
 from langchain_core.language_models import BaseChatModel
 from pydantic import AwareDatetime, BaseModel
 
 from core.guard.budget import Budget, BudgetTracker
-from core.guard.redact import redact_text
+from core.guard.redact import redact_mapping, redact_text
+from core.log.logging import get_logging
 from service.agent._common.usage import UsageTracker
 from service.model import InvestigationRequest, Report
 from service.tools.base import EvidenceSink, Tool, ToolContext
@@ -88,7 +90,7 @@ class RunContext:
 
     run_id: str
     namespace: str
-    evidence: EvidenceSink | None
+    evidence: EvidenceSink
     budget: BudgetTracker
     usage: UsageTracker = field(default_factory=UsageTracker)
     steps: StepSink = field(default_factory=MemorySteps)
@@ -124,14 +126,16 @@ class BaseAgent(ABC):
             yield s
         finally:
             s.ended_at = self.ctx.now()
+            s.args, s.detail = redact_mapping(s.args), redact_mapping(s.detail)
             self.ctx.steps.record(s)
 
     def run(self, request: InvestigationRequest) -> AgentResult:
         try:
             result = self._run(request)
-        except (
-            Exception
-        ) as e:  # 조사 실패여도 1차 알림은 이미 나갔다. 사유만 남긴다 (상세설계 §2.3)
+        except Exception as e:
+            # 조사 실패여도 1차 알림은 이미 나갔다. 사유만 남기고, 원인 추적용 traceback은 로그로
+            trace = redact_text(format_exc())
+            get_logging().error(f"agent={self.spec.key} run_id={self.ctx.run_id} 실패\n{trace}")
             result = AgentResult(status="failed", error=redact_text(f"{type(e).__name__}: {e}"))
         u = self.ctx.usage
         result.usage = Usage(

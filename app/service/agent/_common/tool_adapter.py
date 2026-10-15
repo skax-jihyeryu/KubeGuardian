@@ -5,7 +5,10 @@
 도구 오류(입력 검증·범위 위반)도 같은 형식으로 LLM에 돌려준다.
 """
 
+import json
+
 from langchain_core.tools import StructuredTool, ToolException
+from pydantic import ValidationError
 
 from core.error.service_exception import ServiceException
 from core.guard.redact import redact_text
@@ -24,7 +27,13 @@ def to_langchain_tool(tool: Tool, ctx: ToolContext) -> StructuredTool:
             raise ToolException(e.error_code.name) from e
 
     def on_error(e: ToolException) -> str:
-        return wrap_tool_output(f'{{"ok": false, "error": "{redact_text(str(e))}"}}')
+        return wrap_tool_output(json.dumps({"ok": False, "error": redact_text(str(e))}))
+
+    def on_validation_error(e: ValidationError) -> str:
+        # 어느 인자가 틀렸는지만 알려 준다 (값은 넣지 않는다)
+        fields = [".".join(map(str, err["loc"])) for err in e.errors()]
+        body = {"ok": False, "error": "VALIDATION_ERROR", "fields": fields}
+        return wrap_tool_output(json.dumps(body, ensure_ascii=False))
 
     return StructuredTool.from_function(
         func=call,
@@ -32,7 +41,5 @@ def to_langchain_tool(tool: Tool, ctx: ToolContext) -> StructuredTool:
         description=tool.description,
         args_schema=tool.Input,
         handle_tool_error=on_error,
-        handle_validation_error=lambda e: wrap_tool_output(
-            '{"ok": false, "error": "VALIDATION_ERROR"}'
-        ),
+        handle_validation_error=on_validation_error,
     )

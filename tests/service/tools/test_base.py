@@ -151,3 +151,58 @@ def test_adapter_returns_tool_errors_to_llm_as_data(ctx):
     out = to_langchain_tool(GetEnv(), ctx).invoke({})
 
     assert out.startswith("<tool_output>") and "VALIDATION_ERROR" in out
+
+
+def test_tool_context_is_immutable(ctx):
+    import dataclasses
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        ctx.namespace = "kube-system"
+
+
+def test_service_exception_from_collect_is_stored_as_failure(ctx):
+    class Failing(GetEnv):
+        name = "failing"
+
+        def collect(self, args, ctx):
+            raise ServiceException(ErrorCode.COLLECT_FAILED, detail="403 token=abcdefgh12345678")
+
+    result = Failing().run({"pod": "x"}, ctx)
+
+    assert result.ok is False
+    assert len(ctx.evidence.saved) == 1
+    assert ctx.evidence.saved[0].subject == "dev/Tool/failing"
+    assert "abcdefgh12345678" not in ctx.evidence.saved[0].model_dump_json()
+
+
+def test_tool_call_over_budget_is_refused_without_calling(ctx):
+    ctx.budget.budget.per_issue_tool_calls = 1
+    GetEnv().run({"pod": "a"}, ctx)
+
+    result = GetEnv().run({"pod": "b"}, ctx)
+
+    assert result.ok is False and "상한" in result.summary
+    assert len(ctx.evidence.saved) == 1
+
+
+@pytest.mark.parametrize("field", ["nsName", "targetNs"])
+def test_camel_case_namespace_fields_are_rejected(field):
+    from pydantic import create_model
+
+    with pytest.raises(TypeError):
+        type(
+            "Bad",
+            (Tool,),
+            {
+                "name": "b",
+                "description": "x",
+                "Input": create_model("I", **{field: (str, ...)}),
+                "collect": lambda s, a, c: None,
+            },
+        )
+
+
+def test_tool_input_rejects_unknown_arguments(ctx):
+    out = to_langchain_tool(GetEnv(), ctx).invoke({"pod": "a", "namespace": "kube-system"})
+
+    assert "VALIDATION_ERROR" in out and "namespace" in out
