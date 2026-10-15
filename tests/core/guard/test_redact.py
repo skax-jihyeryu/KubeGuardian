@@ -39,6 +39,10 @@ def test_url_userinfo_password_is_masked():
         "http://token-service:80/?password=pw1",
         "user@token:pw1",  # URL이 아닌 `@` 뒤의 이름=값은 그대로 가린다
         "x@password:pw1",
+        "user@secret=pw1",
+        "login admin@token: pw1",
+        "scheme://password=pw1",
+        "http://token:pw1",  # 포트 자리가 숫자가 아니면 값으로 본다
     ],
 )
 def test_sensitive_key_variants_are_masked(text):

@@ -115,7 +115,7 @@ def _redact_key_values(text: str) -> str:
     for m in _KEY_SEP.finditer(text):
         if m.start() < pos or not is_sensitive_name(m.group("key")):
             continue
-        if _is_url_host(text, m.start()):
+        if _is_url_host(text, m.start()) and _PORT.match(text, m.end("key")):
             continue  # URL의 host:port (`http://token-service:8080`)는 이름=값이 아니다
         if text.startswith(("<", "-----BEGIN"), m.end()):
             continue
@@ -131,6 +131,7 @@ def _redact_key_values(text: str) -> str:
 
 
 _URL_AUTHORITY_TAIL = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://(?:[^\s/@]*@)?\Z")
+_PORT = re.compile(r":\d{1,5}(?=$|[/?#\s\"'])")  # host 바로 뒤의 `:포트`만 예외로 둔다
 _AUTHORITY_LOOKBACK = 256  # 긴 줄에서 선형 시간을 지키려고 뒤돌아보는 길이를 제한한다
 
 
