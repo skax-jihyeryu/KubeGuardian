@@ -1,11 +1,14 @@
-"""에이전트 레지스트리. "<이름>:<버전>" 키로 구현을 고른다 (평가·비교 실험도 같은 키를 쓴다)."""
+"""에이전트 레지스트리. "<이름>:<버전>" 키로 구현을 고른다 (평가·비교 실험도 같은 키를 쓴다).
+
+등록은 import로 일어난다. 구현을 추가하면 service/agent/__init__.py에서 import한다.
+"""
 
 from service.agent.base import BaseAgent
 
 _AGENTS: dict[str, type[BaseAgent]] = {}
 
 
-def register(cls: type[BaseAgent]) -> type[BaseAgent]:
+def register[A: BaseAgent](cls: type[A]) -> type[A]:
     key = cls.spec.key
     if key in _AGENTS:
         raise ValueError(f"이미 등록된 에이전트: {key}")

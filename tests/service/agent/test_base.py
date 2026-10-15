@@ -5,10 +5,11 @@ import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from core.error.service_exception import ErrorCode, ServiceException
+from core.guard.budget import Budget, BudgetTracker
 from service.agent import registry
 from service.agent._common.prompts import load_prompt
 from service.agent._common.structured import invoke_structured, parse_structured
-from service.agent.base import AgentResult, AgentSpec, BaseAgent
+from service.agent.base import AgentResult, AgentSpec, BaseAgent, RunContext
 from service.model import InvestigationRequest, Report, SignalBoard
 
 REPORT = {
@@ -23,9 +24,19 @@ class EchoAgent(BaseAgent):
 
     spec: ClassVar[AgentSpec] = AgentSpec(name="echo", version="v1", models={"write": "fake"})
 
-    def run(self, request: InvestigationRequest) -> AgentResult:
-        report = invoke_structured(self.llm("write"), Report, [("user", "보고서를 써라")])
+    def _run(self, request: InvestigationRequest) -> AgentResult:
+        with self.step("write"):
+            report = invoke_structured(
+                self.llm("write"), Report, [("user", "보고서를 써라")], usage=self.ctx.usage
+            )
         return AgentResult(status="done", report=report)
+
+
+class BrokenAgent(EchoAgent):
+    spec: ClassVar[AgentSpec] = AgentSpec(name="broken", version="v1", models={"write": "fake"})
+
+    def _run(self, request):
+        raise RuntimeError("내부 오류 token=abcdefgh12345678")
 
 
 @pytest.fixture
@@ -39,16 +50,33 @@ def _fake_llm(*responses: str):
     return lambda model: FakeListChatModel(responses=list(responses))
 
 
+def _ctx() -> RunContext:
+    return RunContext(
+        run_id="run-1", namespace="dev", evidence=None, budget=BudgetTracker(Budget())
+    )
+
+
+REQ = InvestigationRequest(trigger="check", gate_path="A", signal_board=SignalBoard())
+
+
 def test_registry_runs_agent_by_key_with_fake_llm(echo_registered):
     agent_cls = registry.get("echo:v1")
-    agent = agent_cls(llm_factory=_fake_llm(json.dumps(REPORT)), tools=[])
+    agent = agent_cls(llm_factory=_fake_llm(json.dumps(REPORT)), tools=[], ctx=_ctx())
 
-    result = agent.run(
-        InvestigationRequest(trigger="check", gate_path="A", signal_board=SignalBoard())
-    )
+    result = agent.run(REQ)
 
     assert result.status == "done"
     assert result.report.conclusion.startswith("S04")
+    assert [s.node for s in result.steps] == ["write"]
+    assert result.steps[0].ended_at is not None
+    assert result.usage.llm_calls == 1
+
+
+def test_unexpected_error_becomes_failed_result_without_secret():
+    result = BrokenAgent(llm_factory=_fake_llm("{}"), tools=[], ctx=_ctx()).run(REQ)
+
+    assert result.status == "failed"
+    assert "abcdefgh12345678" not in (result.error or "")
 
 
 def test_same_key_cannot_be_registered_twice(echo_registered):
@@ -62,7 +90,7 @@ def test_unknown_agent_key_is_rejected():
 
 
 def test_llm_for_unknown_role_is_rejected(echo_registered):
-    agent = EchoAgent(llm_factory=_fake_llm("{}"), tools=[])
+    agent = EchoAgent(llm_factory=_fake_llm("{}"), tools=[], ctx=_ctx())
 
     with pytest.raises(KeyError, match="triage"):
         agent.llm("triage")
@@ -74,6 +102,11 @@ def test_llm_for_unknown_role_is_rejected(echo_registered):
         json.dumps(REPORT),
         "```json\n" + json.dumps(REPORT) + "\n```",
         "보고서입니다:\n" + json.dumps(REPORT, ensure_ascii=False) + "\n끝",
+        "설명 {dev} ```kubectl get pods``` 다음이 결과:\n" + json.dumps(REPORT),
+        json.dumps({**REPORT, "verification": "```bash\nkubectl get ep\n```"}),
+        '{"conclusion": "줄\n바꿈", "confidence": "high", "impact_scope": "전체"}'.replace(
+            "\\n", "\n"
+        ),
     ],
 )
 def test_parse_structured_tolerates_fences_and_prose(text):
@@ -95,8 +128,31 @@ def test_invoke_structured_fails_after_retry():
 
 
 def test_load_prompt_fills_variables_and_rejects_missing(tmp_path):
-    (tmp_path / "system.md").write_text("네임스페이스 {namespace}를 조사합니다.", encoding="utf-8")
+    (tmp_path / "system.md").write_text('$namespace 조사. 예시 {"a": 1}', encoding="utf-8")
 
-    assert load_prompt(tmp_path, "system", namespace="dev") == "네임스페이스 dev를 조사합니다."
+    assert load_prompt(tmp_path, "system", namespace="dev") == 'dev 조사. 예시 {"a": 1}'
     with pytest.raises(KeyError, match="namespace"):
         load_prompt(tmp_path, "system")
+
+
+def test_list_content_reply_is_parsed():
+    from langchain_core.messages import AIMessage
+
+    class ListContentLLM(FakeListChatModel):
+        def invoke(self, *args, **kwargs):
+            return AIMessage(content=[{"type": "text", "text": json.dumps(REPORT)}])
+
+    assert (
+        invoke_structured(ListContentLLM(responses=["x"]), Report, [("user", "x")]).confidence
+        == "high"
+    )
+
+
+def test_llm_call_error_is_normalized():
+    class DownLLM(FakeListChatModel):
+        def invoke(self, *args, **kwargs):
+            raise TimeoutError("timeout")
+
+    with pytest.raises(ServiceException) as exc:
+        invoke_structured(DownLLM(responses=["x"]), Report, [("user", "x")])
+    assert exc.value.error_code is ErrorCode.LLM_CALL_FAILED
