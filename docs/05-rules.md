@@ -197,7 +197,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 
 | 항목 | 내용 |
 |---|---|
-| 판정 조건 | 컨테이너 env와 `envFrom`으로 불러오는 ConfigMap 값 중 이름이 `*_SERVICE_URL`·`*_URL`인 값의 호스트가 다음 중 하나: `localhost`·`127.0.0.1`, 대상 네임스페이스에 없는 Service 이름, Service에 없는 포트. 같은 이름이 둘 다 있으면 Kubernetes 규칙대로 env 값을 쓴다. 참조한 ConfigMap을 수집하지 못했으면 그 컨테이너는 "확인하지 못함" |
+| 판정 조건 | 컨테이너 env와 `envFrom`으로 불러오는 ConfigMap 값 중 이름이 `*_SERVICE_URL`·`*_URL`인 값의 호스트가 다음 중 하나: `localhost`·`127.0.0.1`, 대상 네임스페이스에 없는 Service 이름, Service에 없는 포트. 우선순위는 Kubernetes 규칙대로 뒤의 envFrom이 앞을 덮고 env가 envFrom을 덮는다. Secret envFrom과 env `valueFrom`은 값을 읽지 않고 판정하지 않으며, 같은 이름의 앞선 값도 판정에서 뺀다. envFrom이 가리키는 ConfigMap·Secret을 수집하지 못했으면 그 서비스의 envFrom 값은 "확인하지 못함"이다. 같은 서비스에 적발된 주소가 하나라도 있으면 적발이 우선한다 |
 | 지속 시간 | 없음 (선언 비교) |
 | 제외 | 설정 파일 `external_hosts` 허용 목록에 있는 외부 호스트 (예: LLM API 엔드포인트) |
 | 1차 심각도 | 그 env를 쓰는 서비스가 핵심 경로면 🔴 긴급, 아니면 🟠 주의 |
