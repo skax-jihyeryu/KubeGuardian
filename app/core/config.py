@@ -24,9 +24,6 @@ class Settings(BaseSettings):
     AZURE_OPENAI_API_VERSION: str = ""
     AZURE_OPENAI_DEPLOYMENT: str = ""
 
-    # 진단 대상
-    KG_TARGET_NAMESPACE: str = "dev"
-
     # 실행 추적 (Phoenix, OpenTelemetry)
     OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
 

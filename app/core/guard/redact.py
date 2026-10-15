@@ -115,6 +115,8 @@ def _redact_key_values(text: str) -> str:
     for m in _KEY_SEP.finditer(text):
         if m.start() < pos or not is_sensitive_name(m.group("key")):
             continue
+        if _is_url_host(text, m.start()) and _PORT.match(text, m.end("key")):
+            continue  # URL의 host:port (`http://token-service:8080`)는 이름=값이 아니다
         if text.startswith(("<", "-----BEGIN"), m.end()):
             continue
         v = _VALUE.match(text, m.end())
@@ -126,6 +128,18 @@ def _redact_key_values(text: str) -> str:
         pos = v.end(group)
     out.append(text[pos:])
     return "".join(out)
+
+
+_URL_AUTHORITY_TAIL = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://(?:[^\s/@]*@)?\Z")
+_PORT = re.compile(r":\d{1,5}(?=$|[/?#\s\"'])")  # host 바로 뒤의 `:포트`만 예외로 둔다
+_AUTHORITY_LOOKBACK = 256  # 긴 줄에서 선형 시간을 지키려고 뒤돌아보는 길이를 제한한다
+
+
+def _is_url_host(text: str, pos: int) -> bool:
+    """pos가 `scheme://` 또는 `scheme://userinfo@` 바로 뒤(URL 호스트 자리)인지."""
+    if not text.endswith(("://", "@"), 0, pos):
+        return False  # 대부분의 키는 여기서 끝난다
+    return _URL_AUTHORITY_TAIL.search(text, max(0, pos - _AUTHORITY_LOOKBACK), pos) is not None
 
 
 def redact_mapping(data: Any) -> Any:
