@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
+from core.config import KubeGuardianConfig
 from service.checks.detectors.catalog import CATALOG, RuleSpec
 from service.model import ClusterSnapshot, Signal, Verdict
 
@@ -33,21 +34,38 @@ class ObservationStore(Protocol):
     def touch(
         self, rule_id: str, subject: str, now: datetime, values: dict[str, Any] | None = None
     ) -> Observation:
-        """조건을 만족함을 기록한다. 기록이 없으면 최초 관측 시각을 지금으로 둔다."""
+        """조건을 만족함을 기록한다. 기록이 없으면 최초 관측 시각을 지금으로 둔다.
+
+        values를 넘기면 저장된 값을 통째로 바꾸고, None이면 기존 값을 그대로 둔다.
+        """
         ...
 
     def clear(self, rule_id: str, subject: str) -> None:
         """조건이 풀렸을 때 기록을 지운다 (연속성이 끊김)."""
         ...
 
+    def prune(self, rule_id: str, keep_subjects: set[str]) -> None:
+        """이번 점검에서 판정한 대상 밖의 기록을 지운다 (삭제된 리소스가 다시 생겨도 처음부터 잰다).
+
+        러너는 그 규칙이 "확인하지 못함"이면 부르지 않는다 (판정 보류, 05-rules §0.2).
+        """
+        ...
+
 
 @dataclass(frozen=True)
 class DetectorContext:
+    """감지기 입력. 감지기는 이것 밖의 값을 읽지 않는다 (결정적 판정).
+
+    1차 심각도는 감지기가 규칙별 조건(05-rules §4)과 config.core_paths로 정해 Signal에 담고,
+    게이트는 적발된 신호 중 가장 높은 심각도를 쓴다.
+    """
+
     snapshot: ClusterSnapshot
     previous: (
         ClusterSnapshot | None
     )  # 직전 점검 스냅샷. 변화로 판정하는 규칙용 (P06 restartCount 증가)
     observations: ObservationStore
+    config: KubeGuardianConfig  # core_paths, external_hosts, topology.url_env_patterns
     now: datetime
 
 

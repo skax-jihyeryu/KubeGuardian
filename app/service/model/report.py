@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, computed_field
 
 from service.model.signal import Severity
 
@@ -30,6 +30,7 @@ class Issue(BaseModel):
     confidence: Confidence
     evidence_ids: list[str] = []
 
+    @computed_field
     @property
     def severity(self) -> Severity:
         return severity_for(self.impact)
@@ -46,7 +47,7 @@ class Fact(BaseModel):
     """가설 없이 확인한 사실 (사전 확인)."""
 
     statement: str
-    evidence_ids: list[str]
+    evidence_ids: list[str] = Field(min_length=1)  # 사실 문장은 근거를 1개 이상 인용한다
 
 
 class CheckedScope(BaseModel):

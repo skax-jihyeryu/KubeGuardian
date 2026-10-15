@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 Verdict = Literal[
     "detected", "observing", "passed", "unknown"
@@ -19,6 +19,12 @@ class Signal(BaseModel):
     values: dict[str, Any] = {}  # 판정에 쓴 값 (P4 표시, 근거)
     message: str = ""
     evidence_id: str | None = None
+
+    @model_validator(mode="after")
+    def _severity_only_when_detected(self) -> "Signal":
+        if self.severity is not None and self.verdict != "detected":
+            raise ValueError("severity는 적발(detected)일 때만 둔다")
+        return self
 
 
 class SignalBoard(BaseModel):

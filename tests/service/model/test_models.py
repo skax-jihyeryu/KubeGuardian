@@ -72,3 +72,29 @@ def test_gate_result_lists_signals_that_opened_it():
     gate = GateResult(path="A", severity="critical", signals=[signal], reason="S04 적발")
 
     assert gate.signals[0].rule_id == "S04"
+
+
+def test_snapshot_kind_not_collected_is_unknown():
+    snap = ClusterSnapshot(namespace="dev", collected_at=NOW)
+
+    assert snap.items("Pod") is None
+
+
+def test_issue_severity_is_serialized():
+    from service.model import Issue
+
+    issue = Issue(rank=1, title="채팅 실패", impact="core_path_broken", confidence="high")
+
+    assert issue.model_dump()["severity"] == "critical"
+
+
+def test_signal_severity_only_when_detected():
+    with pytest.raises(ValidationError):
+        Signal(rule_id="S02", verdict="observing", subject="dev/Service/agent", severity="critical")
+
+
+def test_fact_requires_evidence():
+    from service.model import Fact
+
+    with pytest.raises(ValidationError):
+        Fact(statement="Pod 3개 모두 Ready", evidence_ids=[])

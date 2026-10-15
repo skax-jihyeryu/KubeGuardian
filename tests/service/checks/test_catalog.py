@@ -14,10 +14,13 @@ SEVERITY = {"🔴": "critical", "🟠": "warning", "⚪": "info"}
 
 
 def _spec_rows() -> list[list[str]]:
-    text = RULES_MD.read_text()
+    """§2 표의 머리글·구분선 다음 모든 데이터 행 (형식이 어긋난 행도 빠뜨리지 않는다)."""
+    text = RULES_MD.read_text(encoding="utf-8")
     section = text.split("## 2. 규칙 요약", 1)[1].split("\n## 3.", 1)[0]
-    rows = [line for line in section.splitlines() if re.match(r"\| \**[NPWSCH]\d\d", line)]
-    return [[cell.strip().replace("**", "") for cell in row.strip("|").split("|")] for row in rows]
+    table = [line for line in section.splitlines() if line.startswith("|")]
+    return [
+        [cell.strip().replace("**", "") for cell in row.strip("|").split("|")] for row in table[2:]
+    ]
 
 
 def _hold(text: str) -> timedelta | None:
@@ -29,7 +32,21 @@ def _hold(text: str) -> timedelta | None:
     return None
 
 
-SPEC = {row[0]: row for row in _spec_rows()}
+ROWS = _spec_rows()
+SPEC = {row[0]: row for row in ROWS}
+
+
+def test_spec_rows_have_valid_unique_ids():
+    ids = [row[0] for row in ROWS]
+
+    assert all(re.fullmatch(r"[NPWSCH]\d\d", i) for i in ids), ids
+    assert len(ids) == len(set(ids))
+
+
+def test_catalog_has_no_duplicate_ids():
+    from service.checks.detectors.catalog import _RULES
+
+    assert len(_RULES) == len(CATALOG)
 
 
 def test_catalog_has_same_rule_ids_as_spec():

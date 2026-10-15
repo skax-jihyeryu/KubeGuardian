@@ -30,3 +30,32 @@ def test_target_namespace_is_required(tmp_path):
 
     with pytest.raises(ValidationError, match="target"):
         load_kubeguardian_config(path)
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "slack: {alert_target: a, bot_token_secret: b, app_token_secret: c,"
+        " reminders: {critcal: {first_after: 30m, max: 3}}}",
+        "slack: {alert_target: a, bot_token_secret: b, app_token_secret: c,"
+        " reminders: {critical: {first_after: 30분, max: 3}}}",
+        "slack: {alert_target: a, bot_token_secret: b, app_token_secret: c,"
+        " reminders: {critical: {first_after: 30m, max: 0}}}",
+        "schedule: nope",
+    ],
+)
+def test_invalid_values_are_rejected(tmp_path, snippet):
+    path = tmp_path / "kubeguardian.yaml"
+    path.write_text("target: {namespace: dev}\n" + snippet + "\n")
+
+    with pytest.raises(ValidationError):
+        load_kubeguardian_config(path)
+
+
+@pytest.mark.parametrize("namespace", ["", "Dev_NS"])
+def test_namespace_must_be_dns_label(tmp_path, namespace):
+    path = tmp_path / "kubeguardian.yaml"
+    path.write_text(f"target: {{namespace: '{namespace}'}}\n")
+
+    with pytest.raises(ValidationError):
+        load_kubeguardian_config(path)

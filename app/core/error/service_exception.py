@@ -24,7 +24,11 @@ class ErrorInfo:
 class ErrorCode(Enum):
     # 공통 (클라이언트)
     VALIDATION_ERROR = ErrorInfo(status.HTTP_400_BAD_REQUEST, 10001, "입력값 검증에 실패했습니다")
+    BAD_REQUEST = ErrorInfo(status.HTTP_400_BAD_REQUEST, 10000, "잘못된 요청입니다")
     NOT_FOUND = ErrorInfo(status.HTTP_404_NOT_FOUND, 10004, "대상을 찾을 수 없습니다")
+    METHOD_NOT_ALLOWED = ErrorInfo(
+        status.HTTP_405_METHOD_NOT_ALLOWED, 10005, "허용되지 않은 메서드입니다"
+    )
     # 점검 (클라이언트): 동시 1건, 1분 간격 (UI 정의서 §6.5)
     CHECK_ALREADY_RUNNING = ErrorInfo(
         status.HTTP_409_CONFLICT, 12001, "이미 실행 중인 점검이 있습니다"

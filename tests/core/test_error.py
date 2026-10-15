@@ -70,3 +70,11 @@ def test_unknown_route_uses_not_found_code():
 
     assert response.status_code == 404
     assert response.json()["error"]["name"] == "NOT_FOUND"
+
+
+def test_method_not_allowed_keeps_allow_header():
+    response = _client().post("/busy")
+
+    assert response.status_code == 405
+    assert response.json()["error"]["name"] == "METHOD_NOT_ALLOWED"
+    assert "GET" in response.headers["allow"]

@@ -2,10 +2,10 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -49,7 +49,7 @@ class _Strict(BaseModel):
 
 
 class TargetConfig(_Strict):
-    namespace: str
+    namespace: str = Field(pattern=r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")  # DNS label
 
 
 class TopologyConfig(_Strict):
@@ -61,10 +61,13 @@ class ApiScenario(_Strict):
     steps: list[dict[str, Any]]  # 단계 형식은 증상 감지(W2)에서 정한다
 
 
+_DURATION = r"^\d+[mh]$"  # 30m, 2h
+
+
 class ReminderPolicy(_Strict):
-    first_after: str  # 예: 30m, 2h
-    then_every: str | None = None
-    max: int
+    first_after: str = Field(pattern=_DURATION)
+    then_every: str | None = Field(default=None, pattern=_DURATION)
+    max: int = Field(ge=1)  # 리마인더 총 횟수
 
 
 class SlackConfig(_Strict):
@@ -73,7 +76,7 @@ class SlackConfig(_Strict):
     app_token_secret: str
     allowed_channels: list[str] = []
     allowed_users: list[str] = []
-    reminders: dict[str, ReminderPolicy] = {}  # 심각도별 재알림 (critical, warning)
+    reminders: dict[Literal["critical", "warning"], ReminderPolicy] = {}  # 심각도별 재알림
 
 
 class KnowledgeConfig(_Strict):
@@ -83,7 +86,7 @@ class KnowledgeConfig(_Strict):
 
 class KubeGuardianConfig(_Strict):
     target: TargetConfig
-    schedule: str = "*/5 * * * *"
+    schedule: str = Field(default="*/5 * * * *", pattern=r"^\S+( \S+){4}$")  # cron 5필드
     core_paths: dict[str, list[str]] = {}  # 사용자 기능 → 서비스 목록 (1차 심각도, 05-rules §3)
     external_hosts: list[str] = []  # S04 제외: 외부 호스트 허용 목록
     topology: TopologyConfig = TopologyConfig()
@@ -95,4 +98,4 @@ class KubeGuardianConfig(_Strict):
 
 def load_kubeguardian_config(path: str | Path | None = None) -> KubeGuardianConfig:
     path = Path(path or get_setting().KG_CONFIG_PATH)
-    return KubeGuardianConfig.model_validate(yaml.safe_load(path.read_text()) or {})
+    return KubeGuardianConfig.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")) or {})

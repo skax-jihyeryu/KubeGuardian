@@ -35,6 +35,7 @@ def test_declared_rule_is_detected_immediately():
 
 
 def test_detector_context_carries_previous_snapshot_for_change_rules():
+    from core.config import KubeGuardianConfig
     from service.checks.detectors.base import DetectorContext, Observation
     from service.model import ClusterSnapshot
 
@@ -43,6 +44,7 @@ def test_detector_context_carries_previous_snapshot_for_change_rules():
         snapshot=ClusterSnapshot(namespace="dev", collected_at=NOW),
         previous=prev,
         observations=None,
+        config=KubeGuardianConfig(target={"namespace": "dev"}),
         now=NOW,
     )
 
