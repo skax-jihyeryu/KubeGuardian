@@ -3,7 +3,10 @@
 #
 # secrets: 앱은 metadata-only 요청(PartialObjectMetadata)으로만 Secret의 존재·키 이름을 확인하고
 # 값은 수집하지 않는다. 다만 RBAC는 리소스 단위라 이 ClusterRole로도 Secret 값을 읽을 수 있다.
+# ClusterRole이라 이 권한은 kube-system을 포함한 모든 네임스페이스에 미친다.
 # 이 잔여 위험은 기획서 §13에 문서화했다.
+#
+# 전제: `kubeguardian` 네임스페이스가 먼저 있어야 한다 (`kubectl create namespace kubeguardian`).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
