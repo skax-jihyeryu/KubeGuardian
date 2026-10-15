@@ -63,3 +63,10 @@ def test_codes_follow_area_scheme():
         first = code.code // 10000
         assert (first == 1) == (code.http_status < 500), code.name
         assert code.code // 1000 % 10 in {0, 1, 2, 3, 4, 5, 6, 9}, code.name
+
+
+def test_unknown_route_uses_not_found_code():
+    response = _client().get("/no-such-path")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["name"] == "NOT_FOUND"

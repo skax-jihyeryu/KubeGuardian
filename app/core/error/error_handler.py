@@ -3,6 +3,7 @@
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from core.error.service_exception import ErrorCode, ServiceException, error_body
 from core.log.logging import get_logging
@@ -21,6 +22,13 @@ def set_error_handlers(app: FastAPI) -> None:
         logger.warning(f"VALIDATION_ERROR path={request.url.path} errors={exc.errors()}")
         code = ErrorCode.VALIDATION_ERROR
         return JSONResponse(status_code=code.http_status, content=error_body(code))
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        code = ErrorCode.NOT_FOUND if exc.status_code == 404 else ErrorCode.VALIDATION_ERROR
+        if exc.status_code >= 500:
+            code = ErrorCode.INTERNAL_ERROR
+        return JSONResponse(status_code=exc.status_code, content=error_body(code))
 
     @app.exception_handler(Exception)
     async def unexpected_exception_handler(request: Request, exc: Exception):

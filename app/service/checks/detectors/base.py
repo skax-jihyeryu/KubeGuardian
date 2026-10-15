@@ -5,19 +5,35 @@
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from service.checks.detectors.catalog import CATALOG, RuleSpec
 from service.model import ClusterSnapshot, Signal, Verdict
 
 
-class ObservationStore(Protocol):
-    """지속 시간 판정용 관측 기록 (05-rules §0.2). 구현은 core/db."""
+@dataclass(frozen=True)
+class Observation:
+    """관측 기록 하나 (05-rules §0.2).
 
-    def touch(self, rule_id: str, subject: str, now: datetime) -> datetime:
-        """조건을 만족함을 기록하고 최초 관측 시각을 돌려준다."""
+    values에는 판정에 쓴 값을 남긴다 (W01의 updatedReplicas 등).
+    """
+
+    first_seen: datetime
+    last_seen: datetime
+    values: dict[str, Any] = field(default_factory=dict)
+
+
+class ObservationStore(Protocol):
+    """지속 시간 판정용 관측 기록. 키는 (규칙 ID, 대상 리소스). 구현은 core/db."""
+
+    def get(self, rule_id: str, subject: str) -> Observation | None: ...
+
+    def touch(
+        self, rule_id: str, subject: str, now: datetime, values: dict[str, Any] | None = None
+    ) -> Observation:
+        """조건을 만족함을 기록한다. 기록이 없으면 최초 관측 시각을 지금으로 둔다."""
         ...
 
     def clear(self, rule_id: str, subject: str) -> None:
@@ -28,6 +44,9 @@ class ObservationStore(Protocol):
 @dataclass(frozen=True)
 class DetectorContext:
     snapshot: ClusterSnapshot
+    previous: (
+        ClusterSnapshot | None
+    )  # 직전 점검 스냅샷. 변화로 판정하는 규칙용 (P06 restartCount 증가)
     observations: ObservationStore
     now: datetime
 
