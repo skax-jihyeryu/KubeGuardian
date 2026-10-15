@@ -158,6 +158,16 @@ def test_url_with_masked_credentials_still_resolves_host():
     assert (edges[0].target, edges[0].status) == ("agent", "declared")
 
 
+def test_service_host_with_sensitive_word_survives_collector_redaction():
+    """호스트에 token이 들어가도 마스킹이 포트를 가리지 않아 declared로 남는다 (S04 오탐 방지)."""
+    from core.guard.redact import redact_mapping
+
+    env = redact_mapping(_env("http://token-service:8080/api"))
+    edges = _edges(env, [_service("token-service")])
+
+    assert (edges[0].target, edges[0].port, edges[0].status) == ("token-service", 8080, "declared")
+
+
 def test_source_falls_back_to_deployment_name_without_service():
     snapshot = _snapshot([_service("agent")], [_deployment("worker", _env("http://agent:8080"))])
 

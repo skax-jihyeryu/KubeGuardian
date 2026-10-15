@@ -405,6 +405,41 @@ def test_fetch_logs_returns_redacted_tail_lines():
     assert reader.log_calls == [("agent-7c9f-x2k", "agent", True, 50)]
 
 
+def test_fetch_logs_masks_multiline_private_key():
+    text = (
+        "boot\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\nzzQ9\n"
+        "-----END RSA PRIVATE KEY-----\nok\n"
+    )
+    reader = FakeReader(logs={("p", "c", False): text})
+
+    lines = fetch_logs(reader, "p", "c")
+
+    assert "MIIEpAIBAAKCAQEA" not in str(lines)
+    assert "zzQ9" not in str(lines)
+    assert lines[0] == "boot" and lines[-1] == "ok"
+
+
+def test_probe_header_values_are_masked():
+    pod = _pod()
+    pod["spec"]["containers"][0]["livenessProbe"] = {
+        "httpGet": {
+            "path": "/health",
+            "port": 8080,
+            "httpHeaders": [{"name": "Authorization", "value": "Basic dXNlcjpwYXNz"}],
+        },
+        "periodSeconds": 10,
+    }
+
+    container = collect(FakeReader({"Pod": [pod]}), now=NOW).items("Pod")[0]["spec"]["containers"][
+        0
+    ]
+
+    probe = container["livenessProbe"]
+    assert probe["httpGet"]["httpHeaders"] == [{"name": "Authorization", "value": "***"}]
+    assert probe["httpGet"]["path"] == "/health"
+    assert probe["periodSeconds"] == 10
+
+
 def test_fetch_logs_grep_runs_on_redacted_lines():
     reader = FakeReader(logs={("p", "c", False): "ERROR a\ninfo\npassword=hunter2 ERROR\n"})
 

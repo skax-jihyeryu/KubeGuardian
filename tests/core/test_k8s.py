@@ -1,6 +1,7 @@
 import json
 
 import pytest
+import urllib3
 from kubernetes.client.exceptions import ApiException
 
 from core.config import KubeGuardianConfig
@@ -100,6 +101,31 @@ def test_connection_error_becomes_k8s_call_error():
         client.list("Pod")
 
 
+class _BrokenBody:
+    @property
+    def data(self):
+        raise urllib3.exceptions.ProtocolError("Connection reset by peer")
+
+
+class _BodyApi:
+    def __init__(self, resp):
+        self.resp = resp
+
+    def __getattr__(self, method):
+        return lambda *a, **kw: self.resp
+
+
+@pytest.mark.parametrize(
+    ("resp", "match"),
+    [(_BrokenBody(), "ProtocolError"), (_Resp("<html>not json"), "해석")],
+)
+def test_body_read_or_parse_failure_becomes_k8s_call_error(resp, match):
+    client = K8sClient("dev", core=_BodyApi(resp), apps=FakeApi(), discovery=FakeApi())
+
+    with pytest.raises(K8sCallError, match=match):
+        client.list("Pod")
+
+
 def test_read_log_uses_namespace_and_tail():
     client, core, _, _ = _client()
 
@@ -112,6 +138,7 @@ def test_read_log_uses_namespace_and_tail():
     assert kwargs["container"] == "agent"
     assert kwargs["previous"] is True
     assert kwargs["tail_lines"] == 200
+    assert kwargs["limit_bytes"] > 0  # 아주 긴 줄도 바이트 상한으로 자른다
 
 
 def test_client_has_no_write_methods():

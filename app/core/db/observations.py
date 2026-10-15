@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Engine, delete
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
 from core.db.tables import ObservationRow, require_aware
@@ -26,17 +27,17 @@ class SqliteObservationStore:
         self, rule_id: str, subject: str, now: datetime, values: dict[str, Any] | None = None
     ) -> Observation:
         now = require_aware(now)
+        # 한 문장 upsert: 두 프로세스(CronJob·화면 점검)가 동시에 처음 기록해도 충돌하지 않는다
+        stmt = insert(ObservationRow).values(
+            rule_id=rule_id, subject=subject, first_seen=now, last_seen=now, values=values or {}
+        )
+        update: dict[str, Any] = {"last_seen": stmt.excluded.last_seen}
+        if values is not None:
+            update["values"] = stmt.excluded["values"]
+        stmt = stmt.on_conflict_do_update(index_elements=["rule_id", "subject"], set_=update)
         with Session(self._engine) as s, s.begin():
-            row = s.get(ObservationRow, (rule_id, subject))
-            if row is None:
-                row = ObservationRow(
-                    rule_id=rule_id, subject=subject, first_seen=now, last_seen=now, values={}
-                )
-                s.add(row)
-            row.last_seen = now
-            if values is not None:
-                row.values = dict(values)
-            s.flush()
+            s.execute(stmt)
+            row = s.get_one(ObservationRow, (rule_id, subject))
             return _to_observation(row)
 
     def clear(self, rule_id: str, subject: str) -> None:

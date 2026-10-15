@@ -31,6 +31,7 @@ _LIST_METHODS: dict[str, tuple[str, str]] = {
     "EndpointSlice": ("discovery", "list_namespaced_endpoint_slice"),
 }
 _TIMEOUT_S = 10
+_LOG_LIMIT_BYTES = 256 * 1024  # tail 200줄이라도 아주 긴 줄을 막는다
 
 # 클래스 안의 `list` 메서드가 내장 list를 가리므로 반환 타입은 모듈 수준 별칭으로 쓴다
 Items = list[dict[str, Any]]
@@ -73,18 +74,14 @@ class K8sClient:
         if kind not in _LIST_METHODS:
             raise ValueError(f"네임스페이스 범위로 수집하지 않는 kind: {kind}")
         api, method = _LIST_METHODS[kind]
-        return self._items(self._call(api, method, self._namespace))
+        return _items(self._call(api, method, self._namespace))
 
     def list_nodes(self) -> Items:
         """노드 목록 (클러스터 범위). 대상 Pod가 올라간 노드만 고르는 것은 수집기가 한다."""
-        return self._items(self._call("core", "list_node"))
-
-    @staticmethod
-    def _items(resp: Any) -> Items:
-        return json.loads(resp.data).get("items") or []
+        return _items(self._call("core", "list_node"))
 
     def read_log(self, pod: str, container: str, *, previous: bool, tail_lines: int) -> str:
-        resp = self._call(
+        body = self._call(
             "core",
             "read_namespaced_pod_log",
             pod,
@@ -92,15 +89,25 @@ class K8sClient:
             container=container,
             previous=previous,
             tail_lines=tail_lines,
+            limit_bytes=_LOG_LIMIT_BYTES,
         )
-        return resp.data.decode("utf-8", errors="replace")
+        return body.decode("utf-8", errors="replace")
 
-    def _call(self, api: str, method: str, *args: Any, **kwargs: Any) -> Any:
+    def _call(self, api: str, method: str, *args: Any, **kwargs: Any) -> bytes:
+        """API를 호출하고 응답 본문을 읽는다. 본문을 읽다 끊긴 경우도 K8sCallError다."""
         try:
-            return getattr(self._apis[api], method)(
+            resp = getattr(self._apis[api], method)(
                 *args, _preload_content=False, _request_timeout=_TIMEOUT_S, **kwargs
             )
+            return resp.data
         except ApiException as e:
             raise K8sCallError(f"{e.status} {e.reason}") from e
         except (urllib3.exceptions.HTTPError, OSError) as e:
             raise K8sCallError(f"{type(e).__name__}: {e}") from e
+
+
+def _items(body: bytes) -> Items:
+    try:
+        return json.loads(body).get("items") or []
+    except (ValueError, AttributeError) as e:
+        raise K8sCallError(f"응답을 해석하지 못함: {type(e).__name__}") from e

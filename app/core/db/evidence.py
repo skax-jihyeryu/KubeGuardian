@@ -17,7 +17,9 @@ def format_evidence_id(pk: int) -> str:
 
 def _parse_id(ev_id: str) -> int | None:
     m = _ID.fullmatch(ev_id)
-    return int(m.group(1)) if m else None
+    if m is None or format_evidence_id(int(m.group(1))) != ev_id:
+        return None  # 발급한 형식(ev-0001)만 받는다. ev-1·ev-00001은 다른 id로 본다
+    return int(m.group(1))
 
 
 class EvidenceStore:

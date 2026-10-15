@@ -75,10 +75,22 @@ def test_previous_snapshot_is_latest_earlier_run_with_snapshot(engine):
     runs.create("schedule", NOW + timedelta(minutes=10))  # 수집 전에 실패한 점검
     current = runs.create("schedule", NOW + timedelta(minutes=15))
 
-    previous = runs.previous_snapshot(current)
+    previous = runs.previous_snapshot(current, "dev")
 
     assert previous.items("Pod")[0]["metadata"]["name"] == "second"
-    assert runs.previous_snapshot(first) is None
+    assert runs.previous_snapshot(first, "dev") is None
+
+
+def test_previous_snapshot_ignores_other_namespaces(engine):
+    runs = CheckRunStore(engine)
+    dev = runs.create("schedule", NOW)
+    runs.save_snapshot(dev, _snapshot([]))
+    other = runs.create("schedule", NOW)
+    runs.save_snapshot(other, _snapshot([]).model_copy(update={"namespace": "staging"}))
+    current = runs.create("schedule", NOW)
+
+    assert runs.previous_snapshot(current, "dev").namespace == "dev"
+    assert runs.previous_snapshot(current, "prod") is None
 
 
 def test_check_run_rejects_naive_time(engine):
@@ -120,9 +132,12 @@ def test_evidence_ids_are_unique_across_stores_and_runs(engine):
     ]
 
 
-@pytest.mark.parametrize("ev_id", ["ev-9999", "ev-x", "42", ""])
+@pytest.mark.parametrize("ev_id", ["ev-9999", "ev-x", "42", "", "ev-1", "ev-00001"])
 def test_unknown_evidence_id_returns_none(engine, ev_id):
-    assert EvidenceStore(engine).get(ev_id) is None
+    store = EvidenceStore(engine)
+    store.add(_evidence())  # ev-0001만 있다
+
+    assert store.get(ev_id) is None
 
 
 def test_evidence_that_already_has_an_id_is_rejected(engine):

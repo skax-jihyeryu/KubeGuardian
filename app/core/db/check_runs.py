@@ -30,11 +30,18 @@ class CheckRunStore:
             row = s.get(CheckRunRow, run_id)
             return _to_snapshot(row.snapshot if row else None)
 
-    def previous_snapshot(self, run_id: int) -> ClusterSnapshot | None:
-        """run_id보다 앞선 점검 중 스냅샷이 있는 가장 최근 것. 없으면 None."""
+    def previous_snapshot(self, run_id: int, namespace: str) -> ClusterSnapshot | None:
+        """run_id보다 앞선 점검 중 같은 네임스페이스의 스냅샷이 있는 가장 최근 것. 없으면 None.
+
+        대상 네임스페이스를 바꾼 뒤 다른 네임스페이스의 값과 비교하지 않도록 거른다.
+        """
         stmt = (
             select(CheckRunRow.snapshot)
-            .where(CheckRunRow.id < run_id, CheckRunRow.snapshot.is_not(None))
+            .where(
+                CheckRunRow.id < run_id,
+                CheckRunRow.snapshot.is_not(None),
+                CheckRunRow.snapshot["namespace"].as_string() == namespace,
+            )
             .order_by(CheckRunRow.id.desc())
             .limit(1)
         )

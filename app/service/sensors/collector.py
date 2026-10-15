@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from core.error.service_exception import ErrorCode, ServiceException
-from core.guard.redact import redact_mapping, redact_text
+from core.guard.redact import MASK, redact_mapping, redact_text
 from core.k8s import Items, K8sCallError
 from service.model import ClusterSnapshot, Evidence
 
@@ -90,7 +90,8 @@ def fetch_logs(
         text = reader.read_log(pod, container, previous=previous, tail_lines=tail)
     except K8sCallError as e:
         raise ServiceException(ErrorCode.COLLECT_FAILED, redact_text(str(e))) from e
-    lines = [redact_text(line) for line in text.splitlines()]
+    # 줄로 나누기 전에 전체를 마스킹한다 (PEM 개인 키처럼 여러 줄에 걸친 비밀값)
+    lines = redact_text(text).splitlines()
     if grep:
         lines = [line for line in lines if grep in line]
     return lines
@@ -187,22 +188,24 @@ def _conditions(conditions: list[Obj] | None) -> list[Obj]:
     ]
 
 
+_PROBES = ("readinessProbe", "livenessProbe", "startupProbe")
+
+
 def _container(c: Obj) -> Obj:
-    return _pick(
-        c,
-        "name",
-        "image",
-        "ports",
-        "env",
-        "envFrom",
-        "resources",
-        "readinessProbe",
-        "livenessProbe",
-        "startupProbe",
-    )
+    out = _pick(c, "name", "image", "ports", "env", "envFrom", "resources", *_PROBES)
+    for key in _PROBES:
+        if key in out:
+            out[key] = _probe(out[key])
+    return out
 
 
-_CONFIG_VOLUME_SOURCES = ("configMap", "secret", "projected")
+def _probe(probe: Obj) -> Obj:
+    """httpGet 헤더 값은 가린다 (`Authorization: Basic ...`). H01에는 probe 종류·설정만 필요하다."""
+    headers = _get(probe, "httpGet", "httpHeaders")
+    if not headers:
+        return probe
+    masked = [{**h, "value": MASK} for h in headers]
+    return {**probe, "httpGet": {**probe["httpGet"], "httpHeaders": masked}}
 
 
 def _pod_spec(spec: Obj | None) -> Obj:
