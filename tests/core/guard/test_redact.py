@@ -35,6 +35,8 @@ def test_url_userinfo_password_is_masked():
         "x-api-key: pw1",
         "GITHUB_TOKEN='pw1'",
         "https://h/cb?token=pw1&x=1",
+        "http://token:pw1@host:80",
+        "http://token-service:80/?password=pw1",
     ],
 )
 def test_sensitive_key_variants_are_masked(text):
@@ -51,6 +53,9 @@ def test_sensitive_key_variants_are_masked(text):
         "Back-off restarting failed container api in pod api-7d9",
         'MountVolume.SetUp failed for volume "cfg" : secret "db-secret" not found',
         "see https://example.com:8443/path",
+        # 호스트 이름에 민감 단어가 있어도 URL의 host:port는 이름=값이 아니다 (S04 오탐 방지)
+        "http://token-service:8080/api",
+        "http://u@secret-store.dev.svc:8200",
     ],
 )
 def test_normal_text_is_untouched(text):

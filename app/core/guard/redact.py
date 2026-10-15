@@ -115,6 +115,8 @@ def _redact_key_values(text: str) -> str:
     for m in _KEY_SEP.finditer(text):
         if m.start() < pos or not is_sensitive_name(m.group("key")):
             continue
+        if text.endswith(("://", "@"), 0, m.start()):
+            continue  # URL의 host:port (`http://token-service:8080`)는 이름=값이 아니다
         if text.startswith(("<", "-----BEGIN"), m.end()):
             continue
         v = _VALUE.match(text, m.end())
