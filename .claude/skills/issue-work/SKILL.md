@@ -24,7 +24,7 @@ Project 조작: `bash .claude/skills/_shared/board.sh`.
 | 버그·테스트 실패 | superpowers:systematic-debugging |
 | PR 전 | superpowers:verification-before-completion (`make check`, 관련 시나리오 eval) |
 | 리뷰 필수 대상 (CONTRIBUTING §3.1: 100줄 초과, 프롬프트·지침, 규칙 판정, 가드레일, RBAC·Secret, 기반 계약) | superpowers:requesting-code-review |
-| 리뷰 지적을 받음 | superpowers:receiving-code-review (근거 확인 후 반영 또는 반영하지 않는 이유 기록) |
+| 리뷰 지적을 받음 | superpowers:receiving-code-review + CONTRIBUTING §3.1 "리뷰 지적 처리 기준" (심각·중요는 같은 PR에서 수정, 사소는 범위 안 몇 줄만, 명세·설계 변경은 사용자에게 묻기, 재리뷰는 한 번) |
 
 - 계획 문서는 `.claude/plans/<이슈#>-<설명>.md`에 저장한다 (커밋하지 않음).
 - 작업 중 범위 밖 문제를 발견하면 고치지 말고 `issue-create`로 등록한다.
