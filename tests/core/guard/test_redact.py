@@ -141,6 +141,10 @@ def test_long_line_finishes_quickly(text):
         "DB_PASSWORD:  <set to the key 'password' in secret 'db-secret'>  Optional: false",
         'Bearer realm="api" error',
         "public_key=ssh-ed25519 token_ttl=3600 key_id=abc secret_type=Opaque",
+        "pod/sk-hynix-batch-worker-7d9f8c-abcde   0/1   CrashLoopBackOff",
+        "deployment.apps/sk-telecom-chat-gateway-prod scaled",
+        "namespace sk-ax-dev-environment-01",
+        'service "sk-agent-orchestrator-svc" not found',
     ],
 )
 def test_yaml_and_describe_output_are_untouched(text):

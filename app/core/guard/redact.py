@@ -54,7 +54,8 @@ _URL_USERINFO = re.compile(
 )
 _KNOWN_TOKEN = re.compile(
     r"(?<![A-Za-z0-9_\-])(?:xox[abposr]-[A-Za-z0-9\-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}"
-    r"|sk-[A-Za-z0-9_\-]{20,}|eyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]+)"
+    # sk- 키는 `-` 없는 영숫자다. `sk-hynix-batch` 같은 K8s 리소스 이름과 구분하기 위함이다.
+    r"|sk-(?:proj-|ant-[a-z0-9]+-)?[A-Za-z0-9_]{20,}|eyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]+)"
 )
 _BEARER = re.compile(r"(?P<head>\bBearer[ \t]+)[A-Za-z0-9\-._~+/]{8,}=*", re.IGNORECASE)
 _AUTH_HEADER = re.compile(
