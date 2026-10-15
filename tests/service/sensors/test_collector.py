@@ -113,6 +113,13 @@ class FakeReader:
         self.log_calls = []
 
     def list(self, kind):
+        assert kind != "Node", "Node는 list_nodes로 읽는다"
+        return self._respond(kind)
+
+    def list_nodes(self):
+        return self._respond("Node")
+
+    def _respond(self, kind):
         value = self.responses[kind]
         if isinstance(value, Exception):
             raise value

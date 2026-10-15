@@ -63,19 +63,27 @@ def test_namespaced_kinds_are_listed_only_in_target_namespace(kind, api, method)
     assert kwargs["_preload_content"] is False  # 원본 JSON(camelCase)을 그대로 받는다
 
 
-def test_node_is_listed_cluster_wide():
+def test_nodes_are_listed_cluster_wide_by_separate_method():
     client, core, _, _ = _client()
 
-    client.list("Node")
+    assert client.list_nodes() == [{"metadata": {"name": "x"}}]
+    name, args, _ = core.calls[0]
+    assert (name, args) == ("list_node", ())
 
-    assert core.calls[0][0] == "list_node"
 
-
-def test_unknown_kind_is_rejected():
+@pytest.mark.parametrize("kind", ["Job", "Node"])
+def test_kinds_outside_namespaced_list_are_rejected(kind):
     client, *_ = _client()
 
-    with pytest.raises(ValueError, match="Job"):
-        client.list("Job")
+    with pytest.raises(ValueError, match=kind):
+        client.list(kind)
+
+
+def test_methods_take_no_namespace_argument():
+    import inspect
+
+    for method in (K8sClient.list, K8sClient.list_nodes, K8sClient.read_log):
+        assert "namespace" not in inspect.signature(method).parameters
 
 
 def test_api_error_becomes_k8s_call_error_with_status_reason():
@@ -109,7 +117,7 @@ def test_read_log_uses_namespace_and_tail():
 def test_client_has_no_write_methods():
     public = {m for m in dir(K8sClient) if not m.startswith("_")}
 
-    assert public == {"list", "read_log", "from_config", "namespace"}
+    assert public == {"list", "list_nodes", "read_log", "from_config", "namespace"}
 
 
 def test_from_config_uses_target_namespace(monkeypatch):

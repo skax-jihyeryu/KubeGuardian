@@ -15,7 +15,7 @@ from typing import Any, Protocol
 
 from core.error.service_exception import ErrorCode, ServiceException
 from core.guard.redact import redact_mapping, redact_text
-from core.k8s import K8sCallError
+from core.k8s import Items, K8sCallError
 from service.model import ClusterSnapshot, Evidence
 
 # 수집하는 kind (Kubernetes Kind 이름). Node는 Pod가 올라간 노드를 고르므로 Pod 뒤에 둔다
@@ -41,7 +41,13 @@ class KubeReader(Protocol):
     @property
     def namespace(self) -> str: ...
 
-    def list(self, kind: str) -> list[Obj]: ...
+    def list(self, kind: str) -> Items:
+        """네임스페이스 범위 kind (대상 네임스페이스 고정)."""
+        ...
+
+    def list_nodes(self) -> Items:
+        """클러스터 범위 노드 목록."""
+        ...
 
     def read_log(self, pod: str, container: str, *, previous: bool, tail_lines: int) -> str: ...
 
@@ -49,17 +55,16 @@ class KubeReader(Protocol):
 def collect(reader: KubeReader, now: datetime | None = None) -> ClusterSnapshot:
     snapshot = ClusterSnapshot(namespace=reader.namespace, collected_at=now or datetime.now(UTC))
     for kind in COLLECTED_KINDS:
+        if kind == "Node" and snapshot.items("Pod") is None:
+            snapshot.failed[kind] = "Pod 수집에 실패해 대상 노드를 정할 수 없음"
+            continue
         try:
-            raw = reader.list(kind)
+            raw = reader.list_nodes() if kind == "Node" else reader.list(kind)
         except K8sCallError as e:
             snapshot.failed[kind] = redact_text(str(e))
             continue
-        if kind == "Node":
-            pods = snapshot.items("Pod")
-            if pods is None:
-                snapshot.failed[kind] = "Pod 수집에 실패해 대상 노드를 정할 수 없음"
-                continue
-            hosts = {p["spec"].get("nodeName") for p in pods}
+        if kind == "Node":  # 대상 Pod가 올라간 노드만 본다 (05-rules §0)
+            hosts = {p["spec"].get("nodeName") for p in snapshot.items("Pod") or []}
             raw = [n for n in raw if _get(n, "metadata", "name") in hosts]
         snapshot.resources[kind] = [_NORMALIZERS[kind](obj) for obj in raw]
     return snapshot
