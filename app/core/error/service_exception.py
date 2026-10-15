@@ -41,6 +41,12 @@ class ErrorCode(Enum):
         status.HTTP_502_BAD_GATEWAY, 91001, "Kubernetes API에서 수집하지 못했습니다"
     )
     LLM_CALL_FAILED = ErrorInfo(status.HTTP_502_BAD_GATEWAY, 93001, "LLM 호출에 실패했습니다")
+    LLM_OUTPUT_INVALID = ErrorInfo(
+        status.HTTP_502_BAD_GATEWAY, 93002, "LLM 응답을 정해진 형식으로 읽지 못했습니다"
+    )
+    TOOL_SCOPE_VIOLATION = ErrorInfo(
+        status.HTTP_500_INTERNAL_SERVER_ERROR, 94001, "진단 대상 범위 밖을 조회하려 했습니다"
+    )
     NOTIFY_FAILED = ErrorInfo(status.HTTP_502_BAD_GATEWAY, 95001, "Slack 발송에 실패했습니다")
     STORAGE_ERROR = ErrorInfo(
         status.HTTP_500_INTERNAL_SERVER_ERROR, 96001, "저장소 오류가 발생했습니다"

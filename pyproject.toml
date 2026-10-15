@@ -7,6 +7,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.143.0",
     "kubernetes>=37.0.1",
+    "langchain-core>=1.6.10",
     "pydantic-settings>=2.15.0",
     "pyyaml>=6.0.3",
     "sqlalchemy>=2.1.4",
