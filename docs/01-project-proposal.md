@@ -403,7 +403,7 @@ AI의 일반 지식으로는 **그 환경의 사정**을 모른다. 운영자의
 | **W01** | 가용 replicas 부족 | `spec.replicas` > `status.availableReplicas`, 10분간 롤아웃 진행 없음 | 상태 | 15분 지속 | 기본 |
 | **W02** | 롤아웃 정체 | `Progressing` 조건 reason `ProgressDeadlineExceeded` | 상태 | 15분 지속 | A3 |
 | **S01** | selector에 맞는 Pod 0 | `Service.spec.selector` ↔ Pod 라벨 | 선언 | 즉시 | A1 |
-| **S02** | EndpointSlice Ready 0 / 일부 | `endpoints[].conditions.ready` | 상태 | 15분 지속 | A1 |
+| **S02** | EndpointSlice Ready 0 / 일부 | `endpoints[].conditions.ready` | 상태 | 15분 지속 | 기본 (A1은 대상 Pod 0개라 S01이 다룸) |
 | **S03** | targetPort ↔ containerPort 불일치 | Service `targetPort` ↔ 컨테이너 `ports` | 선언 | 즉시 | 기본 |
 | **S04** | env URL이 없는 Service·`localhost`를 가리킴 | `*_SERVICE_URL`·`*_URL` ↔ Service 목록 | 선언 | 즉시 | A5 |
 | **C01** | 참조한 ConfigMap·Secret 또는 키가 없음 | `envFrom`·`valueFrom`·volume 참조 ↔ 실제 객체·키 (`optional` 제외) | 선언 | 즉시 | 기본 |
@@ -452,7 +452,7 @@ AI의 일반 지식으로는 **그 환경의 사정**을 모른다. 운영자의
 
 | ID | Lv | 사용자 증상 | 실제 원인 | 주입 | AI 진입 | 사용자 시나리오 |
 |---|---|---|---|---|---|---|
-| A1 | L1 | agent 관련 기능 전부 실패 | Service selector 오타 | Service 수정 | A (S01·S02) | SC-002 |
+| A1 | L1 | agent 관련 기능 전부 실패 | Service selector 오타 | Service 수정 | A (S01) | SC-002 |
 | A3 | L1 | 신규 배포가 뜨지 않음 | 없는 이미지 tag | 이미지 변경 | A (W02·P03, 적발까지 약 25분) | SC-002 |
 | A5 | L1 | 모든 API 502 | 서비스 주소 설정 누락 (원본 템플릿 상태 = T1, 데모용) | F1 제거 | A (S04) | SC-002 |
 | B1 | L2 | 요청의 약 1/3 실패 | agent Pod 1개만 HTTP 500 | HTTPChaos (Pod 1개) | B (사용자 입력) | SC-003 |

@@ -18,7 +18,7 @@ agent Service의 `spec.selector` 중 `app` 값 끝에 `x`를 붙인다 (`agent` 
 - agent Service의 EndpointSlice가 비고, gateway → agent 호출이 전부 실패한다 (agent 관련 기능 전부 실패).
 - agent Pod는 Ready로 남는다.
 - 규칙 점검: S01 즉시 적발(핵심 경로면 긴급), 게이트 경로 A.
-- S02는 05-rules §5에서 "15분 뒤"로 적었지만, §4 S02 제외 조건("대상 Pod가 0개 (S01이 다룸)")으로 현재 구현에서는 통과(제외)로 나온다. 어느 쪽이 맞는지 확인이 필요하다 (#12 PR).
+- S02는 §4 제외 조건("대상 Pod가 0개 (S01이 다룸)")으로 통과(제외)로 나온다. 기대 신호는 S01 하나다 (#46).
 
 ## 확인 상태
 
