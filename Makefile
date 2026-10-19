@@ -1,4 +1,4 @@
-.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix
+.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix eval
 
 # 진단 대상(템플릿 포크) 위치. 포크 6개 + shared-infra가 이 아래에 있어야 한다.
 TARGET_DIR ?= $(HOME)/Cursor/kg-target
@@ -100,4 +100,9 @@ phoenix:  ## 실행 추적 Phoenix 설치 (kubeguardian 네임스페이스)
 	kubectl apply -f deploy/phoenix/phoenix.yaml
 	kubectl -n kubeguardian rollout status deployment/phoenix --timeout=300s
 
-# 장애 주입·평가 타깃(inject, reset, eval)은 이후 작업에서 추가한다.
+# 평가에 쓸 설정. kubeguardian.yaml이 없으면 예시 설정을 쓴다.
+EVAL_CONFIG ?= $(if $(wildcard kubeguardian.yaml),kubeguardian.yaml,kubeguardian.example.yaml)
+
+eval:  ## 시나리오 하나 평가 (주입 → 증상 확인 → 점검·게이트 → 채점 → 원복). 예: make eval S=A5
+	@test -n "$(S)" || { echo "S=<시나리오 ID>가 필요하다. 예: make eval S=A5"; exit 2; }
+	uv run python eval/run.py $(S) --config $(EVAL_CONFIG)

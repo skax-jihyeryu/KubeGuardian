@@ -31,7 +31,7 @@ dev = [
 line-length = 100
 target-version = "py312"
 # app/이 Python 루트다 (import에 app. 접두사를 쓰지 않는다)
-src = ["app", "tests"]
+src = ["app", "eval", "tests"]
 extend-exclude = [".claude"]  # 에이전트 worktree·로컬 계획 문서
 
 [tool.ruff.lint]
@@ -39,5 +39,5 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["app"]
+pythonpath = ["app", "eval"]
 addopts = "-ra"
