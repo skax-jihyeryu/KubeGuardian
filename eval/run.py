@@ -11,12 +11,12 @@ import json
 import subprocess
 import sys
 import time
+import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app"))
-sys.path.insert(0, str(ROOT / "eval"))
 
 import yaml  # noqa: E402
 
@@ -63,6 +63,14 @@ def run(scenario: str, config_path: str, symptom_timeout_s: int) -> int:
         "started_at": started.isoformat(),
     }
     exit_code = EXIT_INVALID
+
+    # 주입 전에 정상 기준선을 확인한다. 이미 깨져 있으면 증상 확인이 다른 원인으로 통과할 수 있다
+    ok, out = until_ok("H0", "verify_symptom.sh", 60)
+    log("baseline", out)
+    if not ok:
+        result["invalid"] = "주입 전 정상 기준선(H0) 확인 실패"
+        return finish(result, out_dir, exit_code)
+
     try:
         r = sh(scenario, "inject.sh")
         log("inject", (r.stdout + r.stderr).strip())
@@ -84,6 +92,10 @@ def run(scenario: str, config_path: str, symptom_timeout_s: int) -> int:
         )
         result["check_run_id"] = outcome.run_id
         result["collect_failed"] = outcome.snapshot.failed
+        if outcome.snapshot.failed:
+            # 수집이 실패하면 규칙이 "확인하지 못함"이 되고 게이트가 C로 가서 H0이 통과처럼 보인다
+            result["invalid"] = f"수집 실패: {', '.join(outcome.snapshot.failed)}"
+            return exit_code
         result["score"] = score(expected, outcome.signals, outcome.gate.path)
         s = result["score"]
         log(
@@ -96,6 +108,10 @@ def run(scenario: str, config_path: str, symptom_timeout_s: int) -> int:
             f" 기대 밖 {s['unexpected']} 관찰 중 {s['observing']} 확인하지 못함 {s['unknown']}",
         )
         exit_code = EXIT_PASS if s["passed"] else EXIT_FAIL
+    except Exception as e:  # 설정·kubeconfig·저장소 오류 등: 실행 자체를 믿을 수 없다
+        traceback.print_exc()
+        result["invalid"] = f"{type(e).__name__}: {e}"
+        exit_code = EXIT_INVALID
     finally:
         r = sh(scenario, "reset.sh")
         log("reset", (r.stdout + r.stderr).strip())
@@ -107,13 +123,22 @@ def run(scenario: str, config_path: str, symptom_timeout_s: int) -> int:
         if not recovered:
             result["invalid"] = result.get("invalid") or "원복 확인 실패"
             exit_code = EXIT_INVALID
-        result["finished_at"] = datetime.now(UTC).isoformat()
-        result["exit_code"] = exit_code
-        (out_dir / "result.json").write_text(
-            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        verdict = {EXIT_PASS: "통과", EXIT_FAIL: "실패", EXIT_INVALID: "무효"}[exit_code]
-        log("result", f"{scenario} {verdict}  ({out_dir.relative_to(ROOT)}/result.json)")
+        exit_code = finish(result, out_dir, exit_code)
+    return exit_code
+
+
+def finish(result: dict, out_dir: Path, exit_code: int) -> int:
+    result["finished_at"] = datetime.now(UTC).isoformat()
+    result["exit_code"] = exit_code
+    (out_dir / "result.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    verdict = {EXIT_PASS: "통과", EXIT_FAIL: "실패", EXIT_INVALID: "무효"}[exit_code]
+    reason = f" — {result['invalid']}" if result.get("invalid") else ""
+    log(
+        "result",
+        f"{result['scenario']} {verdict}{reason}  ({out_dir.relative_to(ROOT)}/result.json)",
+    )
     return exit_code
 
 
@@ -126,7 +151,11 @@ def main() -> int:
     if not (SCENARIOS / args.scenario / "expected.yaml").is_file():
         print(f"시나리오 없음: scenarios/{args.scenario}/expected.yaml", file=sys.stderr)
         return EXIT_INVALID
-    return run(args.scenario, args.config, args.symptom_timeout)
+    try:
+        return run(args.scenario, args.config, args.symptom_timeout)
+    except Exception as e:  # 설정 파일 오류 등 주입 전에 난 오류
+        print(f"무효: {type(e).__name__}: {e}", file=sys.stderr)
+        return EXIT_INVALID
 
 
 if __name__ == "__main__":
