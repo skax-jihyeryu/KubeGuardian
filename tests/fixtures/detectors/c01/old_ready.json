@@ -1,0 +1,76 @@
+{
+  "_description": "agent Pod 1개만 없는 ConfigMap(envFrom)을 참조. 다른 agent Pod는 Ready",
+  "merge": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-x2k9p"
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "agent",
+              "image": "agent:1.0",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8006
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                },
+                "periodSeconds": 10
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "256Mi"
+                },
+                "limits": {
+                  "cpu": "1",
+                  "memory": "512Mi"
+                }
+              },
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "agent-config-v2"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "status": {
+          "phase": "Pending",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "ContainersNotReady",
+              "message": "containers with unready status: [agent]",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": false,
+              "started": false,
+              "restartCount": 0,
+              "image": "agent:1.0",
+              "state": {
+                "waiting": {
+                  "reason": "CreateContainerConfigError"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "_description": "롤링 업데이트 중 종료 중인 엔드포인트(terminating=true)는 세지 않는다",
+  "merge": {
+    "EndpointSlice": [
+      {
+        "metadata": {
+          "name": "agent-m4q9t"
+        },
+        "endpoints": [
+          {
+            "addresses": [
+              "10.244.0.11"
+            ],
+            "conditions": {
+              "ready": true,
+              "serving": true,
+              "terminating": false
+            },
+            "targetRef": {
+              "kind": "Pod",
+              "name": "agent-7c9f5d6b4-x2k9p",
+              "namespace": "dev"
+            }
+          },
+          {
+            "addresses": [
+              "10.244.0.12"
+            ],
+            "conditions": {
+              "ready": true,
+              "serving": true,
+              "terminating": false
+            },
+            "targetRef": {
+              "kind": "Pod",
+              "name": "agent-7c9f5d6b4-q8w3z",
+              "namespace": "dev"
+            }
+          },
+          {
+            "addresses": [
+              "10.244.0.9"
+            ],
+            "conditions": {
+              "ready": false,
+              "serving": true,
+              "terminating": true
+            },
+            "targetRef": {
+              "kind": "Pod",
+              "name": "agent-6a1b2c3d4-old01",
+              "namespace": "dev"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

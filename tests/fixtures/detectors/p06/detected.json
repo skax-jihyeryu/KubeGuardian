@@ -1,0 +1,46 @@
+{
+  "_description": "agent Pod 1개가 CrashLoopBackOff (직전 종료 Error, exitCode 1)",
+  "merge": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-x2k9p"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "ContainersNotReady",
+              "message": "containers with unready status: [agent]",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": false,
+              "started": false,
+              "restartCount": 5,
+              "image": "agent:1.0",
+              "state": {
+                "waiting": {
+                  "reason": "CrashLoopBackOff",
+                  "message": "back-off 2m40s restarting failed container"
+                }
+              },
+              "lastState": {
+                "terminated": {
+                  "reason": "Error",
+                  "exitCode": 1,
+                  "startedAt": "2026-10-20T00:57:00Z",
+                  "finishedAt": "2026-10-20T00:58:30Z"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "_description": "agent 롤아웃이 progressDeadlineSeconds를 넘김. 새 RS(rev 2) Ready 0, 이전 RS(rev 1) Ready 2",
+  "merge": {
+    "Deployment": [
+      {
+        "metadata": {
+          "name": "agent"
+        },
+        "status": {
+          "updatedReplicas": 1,
+          "conditions": [
+            {
+              "type": "Available",
+              "status": "True",
+              "reason": "MinimumReplicasAvailable",
+              "lastTransitionTime": "2026-10-19T00:01:00Z"
+            },
+            {
+              "type": "Progressing",
+              "status": "False",
+              "reason": "ProgressDeadlineExceeded",
+              "message": "ReplicaSet \"agent-5f8d7c6b9\" has timed out progressing.",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "add": {
+    "ReplicaSet": [
+      {
+        "metadata": {
+          "name": "agent-5f8d7c6b9",
+          "namespace": "dev",
+          "uid": "rs-ag-2",
+          "labels": {
+            "app": "agent",
+            "pod-template-hash": "5f8d7c6b9"
+          },
+          "annotations": {
+            "deployment.kubernetes.io/revision": "2"
+          },
+          "ownerReferences": [
+            {
+              "kind": "Deployment",
+              "name": "agent",
+              "uid": "dep-ag",
+              "controller": true
+            }
+          ]
+        },
+        "spec": {
+          "replicas": 1
+        },
+        "status": {
+          "replicas": 1
+        }
+      }
+    ]
+  }
+}

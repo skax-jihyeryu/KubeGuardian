@@ -1,0 +1,17 @@
+{
+  "_description": "agent 가용 0",
+  "merge": {
+    "Deployment": [
+      {
+        "metadata": {
+          "name": "agent"
+        },
+        "status": {
+          "readyReplicas": null,
+          "availableReplicas": null,
+          "unavailableReplicas": 2
+        }
+      }
+    ]
+  }
+}

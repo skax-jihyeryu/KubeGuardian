@@ -1,0 +1,38 @@
+{
+  "_description": "CrashLoopBackOff 대기는 이미지 받기 실패가 아니다 (P06이 다룸)",
+  "merge": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-x2k9p"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "ContainersNotReady",
+              "message": "containers with unready status: [agent]",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": false,
+              "started": false,
+              "restartCount": 4,
+              "image": "agent:1.0",
+              "state": {
+                "waiting": {
+                  "reason": "CrashLoopBackOff",
+                  "message": "back-off 1m20s restarting failed container"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

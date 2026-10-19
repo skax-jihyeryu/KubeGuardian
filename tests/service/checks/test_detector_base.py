@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from service.checks.detectors.base import detector, evaluate_hold, registered
+from service.checks.detectors.base import detector, evaluate_hold
 from service.checks.detectors.catalog import CATALOG
 
 NOW = datetime(2026, 10, 20, 1, 0, tzinfo=UTC)
@@ -13,13 +13,13 @@ def test_detector_for_unknown_rule_is_rejected():
         detector("X99")(lambda ctx: [])
 
 
-def test_same_rule_cannot_be_registered_twice():
+def test_same_rule_cannot_be_registered_twice(monkeypatch):
+    # 실제 감지기(n01.py) 등록과 섞이지 않도록 빈 등록부로 바꿔서 확인한다
+    monkeypatch.setattr("service.checks.detectors.base._REGISTRY", {})
     detector("N01")(lambda ctx: [])
 
     with pytest.raises(ValueError, match="N01"):
         detector("N01")(lambda ctx: [])
-
-    registered().pop("N01")
 
 
 @pytest.mark.parametrize(

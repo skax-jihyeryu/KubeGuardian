@@ -1,0 +1,25 @@
+{
+  "_description": "A1: agent Service selector 오타 (app: agnet). 맞는 Pod 0개, EndpointSlice 비어 있음",
+  "merge": {
+    "Service": [
+      {
+        "metadata": {
+          "name": "agent"
+        },
+        "spec": {
+          "selector": {
+            "app": "agnet"
+          }
+        }
+      }
+    ],
+    "EndpointSlice": [
+      {
+        "metadata": {
+          "name": "agent-m4q9t"
+        },
+        "endpoints": []
+      }
+    ]
+  }
+}
