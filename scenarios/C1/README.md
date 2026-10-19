@@ -5,6 +5,8 @@
 | `expected.yaml` | 정답 원인, 영향 서비스, 기대 1순위, `k8s_visible` |
 | `inject.sh` · `verify_symptom.sh` · `reset.sh` | **아직 없다.** 아래 "막힌 이유" |
 
+스크립트가 없어 `make eval S=C1`은 무효로 나온다 (inject 실행 실패).
+
 ## 기획서의 의도 (§8.2)
 
 - 증상: 채팅 실패. 원인: llm-gateway 할당량 소진 → 429. 주입: 할당량 하향. 기대 경로 B (API 시나리오).

@@ -3,7 +3,7 @@
 #
 # agent Pod 중 하나를 골라 그 Pod의 HTTP 응답 코드를 전부 500으로 바꾼다. Pod는 Ready로 남는다.
 # Chaos 객체는 진단 대상 밖(chaos-mesh 네임스페이스)에 만든다. 대상 네임스페이스에 정답이 보이지 않게 하기 위해서다.
-# (Chaos Mesh가 대상 Pod 네임스페이스에 PodHttpChaos를 만드는 것은 피할 수 없다. KubeGuardian은 이 kind를 수집하지 않는다)
+# Chaos Mesh는 대상 Pod 네임스페이스에 PodHttpChaos를 만든다. 주입 중에는 남고, reset.sh가 지운다
 #
 # 환경 변수
 #   KG_NAMESPACE      대상 네임스페이스 (기본 dev)
@@ -12,7 +12,7 @@ set -euo pipefail
 
 NS="${KG_NAMESPACE:-dev}"
 CHAOS_NS="${KG_CHAOS_NS:-chaos-mesh}"
-NAME="kg-b1-$NS"
+NAME=kg-http-1  # 시나리오 ID를 넣지 않는다 (이름에 정답이 드러나지 않게)
 
 if kubectl -n "$CHAOS_NS" get httpchaos "$NAME" >/dev/null 2>&1; then
   echo "이미 주입된 상태다 ($CHAOS_NS/HTTPChaos/$NAME 있음). reset.sh를 먼저 실행한다." >&2

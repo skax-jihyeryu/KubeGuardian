@@ -3,7 +3,7 @@
 #
 # 1. agent Pod마다 직접 /api/v1/health를 부르면 정확히 1개만 500이고 나머지는 200이다
 # 2. 모든 agent Pod는 Ready다 (K8s 상태는 정상)
-# 3. front-chat 경유 agent 요청을 동시에 N번(기본 36번, 동시 12개) 보내면 일부만 실패한다
+# 3. front-chat 경유 agent 요청을 동시에 N번(기본 36번, 동시 12개) 보내면 일부만 5xx로 실패한다
 #    gateway는 keep-alive 연결을 재사용해 순차 요청은 한 Pod에 몰린다(전부 성공 또는 전부 실패).
 #    동시 요청이어야 연결이 여러 개 열려 Pod가 나뉜다
 set -euo pipefail
@@ -46,7 +46,7 @@ source "$TEST_ENV"
 TOKEN=$(login "$KG_TEST_USER" "$KG_TEST_PASSWORD")
 codes="$(seq "$N" | xargs -P "$CONCURRENCY" -I{} curl -s -o /dev/null -w '%{http_code}\n' \
   "$BASE/agent/health" -H "Authorization: Bearer $TOKEN" || true)"
-fail="$(grep -cv '^2' <<<"$codes" || true)"
+fail="$(grep -c '^5' <<<"$codes" || true)"  # 5xx만 센다 (연결 실패 000 등은 다른 원인)
 if [[ "$fail" -eq 0 || "$fail" -eq "$N" ]]; then
   echo "증상 없음: front-chat 경유 agent 요청 ${N}번(동시 ${CONCURRENCY}) 중 ${fail}번 실패 (일부만 실패해야 한다)" >&2
   exit 1
