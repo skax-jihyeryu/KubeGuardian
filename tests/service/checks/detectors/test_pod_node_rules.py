@@ -106,7 +106,7 @@ def test_p06_excludes_recovered_past_restarts(obs):
 
 
 def test_p06_without_previous_snapshot_judges_crash_loop_only():
-    # 사용자 확인 필요(임시): 직전 스냅샷이 없으면 restartCount 비교 없이 CrashLoopBackOff만 본다
+    # 05-rules P06: 직전 스냅샷이 없으면 restartCount 비교 없이 CrashLoopBackOff만 본다
     assert one(run("P06", context(snapshot("p06/restarted_running"))), X2K).verdict == "passed"
     assert one(run("P06", context(snapshot("p06/detected"))), X2K).verdict == "observing"
 

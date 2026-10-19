@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from service.checks.detectors._common import (
     Workloads,
-    inputs,
+    grouping_inputs,
     make_signal,
     name_of,
     primary_severity,
@@ -30,8 +30,8 @@ STABLE = timedelta(minutes=10)
 def updated_changed_at(obs: Observation | None, updated: int, now: datetime) -> datetime:
     """updatedReplicas의 마지막 변경 시각.
 
-    사용자 확인 필요(임시 기본값): 첫 관측에서는 이전 값을 모르므로 변경 시각을 지금(최초 관측
-    시각)으로 둔다. 그래서 첫 관측 후 10분이 지나야 "변화 없음"으로 본다 (보수적).
+    05-rules W01 "첫 관측": 이전 값을 모르므로 변경 시각을 지금(최초 관측
+    시각)으로 둔다. 첫 관측 후 10분이 지나야 "변화 없음"이 되고, 그 뒤 15분 지속이면 적발한다.
     """
     if obs is None or obs.values.get("updatedReplicas") != updated:
         return now
@@ -40,7 +40,7 @@ def updated_changed_at(obs: Observation | None, updated: int, now: datetime) -> 
 
 @detector(RULE)
 def detect(ctx: DetectorContext) -> list[Signal]:
-    data = inputs(ctx, *KINDS)
+    data, degraded = grouping_inputs(ctx, KINDS, ("Service",))
     if data is None:
         return [rule_unknown(ctx, RULE, KINDS)]
     wl = Workloads([], None, data["Service"])
@@ -76,5 +76,7 @@ def detect(ctx: DetectorContext) -> list[Signal]:
             ctx.observations.clear(RULE, subj)
         service = wl.service_of_deployment(dep)
         severity = primary_severity(ctx, service, fully_down=available == 0)
-        signals.append(make_signal(RULE, verdict, subj, service, values, severity))
+        signals.append(
+            make_signal(RULE, verdict, subj, service, values, severity, degraded=degraded)
+        )
     return signals

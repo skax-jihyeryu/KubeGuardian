@@ -1,0 +1,9 @@
+# H0 정답 파일 (기획서 §8.2). 정상 기준선: 장애가 없는 상태.
+id: H0
+level: L1
+k8s_visible: true
+gate_path: C              # 장애 신호 없음. 개선 권고(H01 TCP probe 등)만 나온다
+expected_signals: []
+root_cause: ""
+affected_services: []
+expected_top1: ""

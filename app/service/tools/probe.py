@@ -3,6 +3,9 @@
 대상 Service·Pod와 포트는 `ctx.k8s`로 읽고, 호출은 `ctx.http`(대상 네임스페이스에 묶인
 HTTP 클라이언트)로 GET만 한다. Service 경유로 반복 호출하거나, Service가 고르는 Pod(또는 지정한
 Pod)를 직접 호출해 특정 Pod만 실패하는지 가린다. 호출 하나의 실패는 결과에 기록하고 계속한다.
+
+호출 경로는 상태 확인 경로만 허용한다: `HEALTH_PATHS`와, 호출 대상 Pod 컨테이너의
+readinessProbe httpGet 경로. 그 밖의 경로(업무 API 등)는 호출하지 않고 실패로 돌려준다.
 """
 
 import time
@@ -26,6 +29,7 @@ from service.tools.base import Tool, ToolContext, ToolObservation
 
 MAX_PODS = 10  # via=pod로 직접 부르는 Pod 상한
 MAX_CALLS = 20  # 도구 호출 한 번의 HTTP 호출 상한 (Pod 수 × times)
+HEALTH_PATHS = ("/health", "/healthz", "/api/v1/health", "/ready", "/readyz", "/livez")
 DEADLINE_S = 30.0  # 도구 호출 한 번의 전체 시간 상한 (조사 150초 안에 머물기 위함)
 _clock = time.monotonic
 
@@ -43,7 +47,9 @@ class Probe(Tool):
 
     class Input(BaseModel):
         target: K8sName = Field(description="Service 이름 또는 Pod 이름")
-        path: HttpPath = Field(description="예: 상태 확인 경로 /health")
+        path: HttpPath = Field(
+            description="상태 확인 경로만: /health 계열 또는 대상 Pod의 readinessProbe 경로"
+        )
         via: Literal["service", "pod"] = "service"
         times: int = Field(default=3, ge=1, le=10)
 
@@ -54,17 +60,19 @@ class Probe(Tool):
         note = ""
         # 계획: (호출 대상, 포트, Pod 이름) 목록. 실행은 상한·마감 시각을 지키며 한다
         plan: list[tuple[dict[str, str], int, str | None]] = []
+        targets: list[Obj] = []
         if svc is not None:
             kind = "Service"
             ensure_in_namespace(svc)
+            selector = svc["spec"].get("selector") or {}
+            targets = [
+                p for p in pods if selector and matches(p["metadata"].get("labels"), selector)
+            ]
+            _check_path(args.path, targets)
             if args.via == "service":
                 port = service_port(svc)
                 plan = [({"service": args.target}, port, None)] * args.times
             else:
-                selector = svc["spec"].get("selector") or {}
-                targets = [
-                    p for p in pods if selector and matches(p["metadata"].get("labels"), selector)
-                ]
                 if not targets:
                     note = " (selector가 없음)" if not selector else " (selector에 맞는 Pod 없음)"
                 for p in targets[:MAX_PODS]:
@@ -78,6 +86,7 @@ class Probe(Tool):
             if args.via == "service":
                 raise ValueError(f"{args.target}은 Pod다. Pod를 직접 부르려면 via=pod")
             kind = "Pod"
+            _check_path(args.path, [p])
             plan = _pod_plan(p, _pod_port(p, None), args.times)
 
         calls = _execute(ctx, plan[:MAX_CALLS], args.path)
@@ -121,6 +130,18 @@ class Probe(Tool):
             data=data,
             truncated=truncated,
         )
+
+
+def _check_path(path: str, pods: list[Obj]) -> None:
+    """상태 확인 경로가 아니면 거부한다. 쿼리가 붙은 경로도 정확히 같지 않으므로 거부한다."""
+    allowed = set(HEALTH_PATHS)
+    for p in pods:
+        for c in p["spec"].get("containers") or []:
+            ready = (c.get("readinessProbe") or {}).get("httpGet") or {}
+            if ready.get("path"):
+                allowed.add(ready["path"])
+    if path not in allowed:
+        raise ValueError(f"허용하지 않는 경로 {path}. 허용 경로: {', '.join(sorted(allowed))}")
 
 
 def _success(call: Obj) -> bool:
