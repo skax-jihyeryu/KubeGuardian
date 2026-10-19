@@ -1,4 +1,15 @@
-.PHONY: setup lint format test check run doctor
+.PHONY: setup lint format test check run doctor secret build up down
+
+# 진단 대상(템플릿 포크) 위치. 포크 6개 + shared-infra가 이 아래에 있어야 한다.
+TARGET_DIR ?= $(HOME)/Cursor/kg-target
+TARGET_OVERLAY := $(TARGET_DIR)/shared-infra/kubernetes/local
+TARGET_SECRET := $(TARGET_OVERLAY)/secret.env
+TARGET_NS := dev
+TARGET_BACKENDS := gateway admin agent llm-gateway
+TARGET_FRONTENDS := chat admin
+TARGET_DEPLOYS := postgres redis $(TARGET_BACKENDS) $(addprefix front-,$(TARGET_FRONTENDS))
+# minikube docker-env로 빌드하면 베이스 이미지 pull이 시간 초과로 실패해, 노드에서 먼저 받아 둔다.
+TARGET_BASE_IMAGES := python:3.12-slim ghcr.io/astral-sh/uv:0.9.13 node:20 nginx:1.24.0-alpine postgres:16-alpine redis:7-alpine
 
 setup:  ## 의존성 설치 + git 훅 설치
 	uv sync
@@ -26,4 +37,40 @@ doctor:  ## 로컬 도구·자원 확인 (minikube, kubectl, docker, 메모리)
 	done
 	@echo "memory  $$(( $$(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))GB (12GB 이상 필요)"
 
-# 환경·평가 타깃(up, down, inject, reset, eval)은 W1 작업에서 추가한다.
+secret:  ## 진단 대상 로컬 비밀값 생성 (없을 때만, 값은 출력하지 않음)
+	@test -f $(TARGET_SECRET) || { \
+		umask 077; \
+		for k in MASTER_KEY DB_PASSWORD REDIS_ACCESS_KEY; do echo "$$k=$$(openssl rand -hex 24)"; done > $(TARGET_SECRET); \
+		echo "created $(TARGET_SECRET)"; \
+	}
+
+build:  ## 진단 대상 이미지를 minikube 노드의 docker에 빌드
+	@for img in $(TARGET_BASE_IMAGES); do minikube ssh -- docker pull -q $$img >/dev/null || exit 1; done
+	@eval $$(minikube docker-env) && \
+	for s in $(TARGET_BACKENDS); do \
+		echo "build kg-target/$$s:local"; \
+		docker build -q -t kg-target/$$s:local $(TARGET_DIR)/backend-$$s >/dev/null || exit 1; \
+	done && \
+	for s in $(TARGET_FRONTENDS); do \
+		echo "build kg-target/front-$$s:local"; \
+		docker build -q -t kg-target/front-$$s:local -f $(TARGET_DIR)/frontend/$$s/Dockerfile $(TARGET_DIR)/frontend >/dev/null || exit 1; \
+	done
+
+up: secret build  ## 진단 대상 환경 기동 (dev 네임스페이스, 전 Pod Ready까지 대기)
+	@# 이미지 태그(:local)가 같아 다시 빌드해도 Pod가 바뀌지 않으므로, 이미 떠 있던 앱 Deployment는 재시작한다.
+	@existed=$$(kubectl -n $(TARGET_NS) get deployment gateway -o name 2>/dev/null); \
+	kubectl apply -k $(TARGET_OVERLAY) || exit 1; \
+	if [ -n "$$existed" ]; then \
+		kubectl -n $(TARGET_NS) rollout restart $(addprefix deployment/,$(TARGET_BACKENDS) $(addprefix front-,$(TARGET_FRONTENDS))); \
+	fi
+	@for d in $(TARGET_DEPLOYS); do kubectl -n $(TARGET_NS) rollout status deployment/$$d --timeout=300s || exit 1; done
+	kubectl -n $(TARGET_NS) get pods
+
+down: secret  ## 진단 대상 환경 삭제 (dev 네임스페이스의 overlay 리소스, DB 데이터 포함)
+	kubectl delete -k $(TARGET_OVERLAY) --ignore-not-found
+	@if kubectl -n $(TARGET_NS) get pods --no-headers 2>/dev/null | grep -q .; then \
+		kubectl -n $(TARGET_NS) wait --for=delete pod --all --timeout=120s; \
+	fi
+	kubectl -n $(TARGET_NS) get all
+
+# 장애 주입·평가 타깃(inject, reset, eval)은 이후 작업에서 추가한다.
