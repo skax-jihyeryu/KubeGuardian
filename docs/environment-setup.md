@@ -546,6 +546,31 @@ kubectl delete ns chaos-smoke
 
 ---
 
+## 9. Pod 안에서 진단용 Azure OpenAI 호출 (2026-10-19 확인)
+
+진단 에이전트가 클러스터 안에서 LLM을 부를 수 있는지 확인한다 (이슈 #8). 진단 대상 llm-gateway와는 다른 경로다.
+
+### 연결 정보와 모델
+
+- 엔드포인트·키·API 버전은 `.env`의 `AZURE_OPENAI_*`. 클러스터에서는 `kubeguardian` 네임스페이스의 Secret `kg-azure-openai`로 넣는다.
+- 모델(배포) 이름은 `.env`에 두지 않는다. 에이전트 버전의 `config.py`가 역할별로 고르고, `core/llm.py`의 `build_chat_model(model)`이 만든다.
+- 모델마다 다른 API 제약은 `core/llm.py`의 `MODEL_OPTIONS`에 모은다. `gpt-6.1-sol`은 temperature 0을 거부하고(기본값 1만 허용), 도구 호출이 Responses API에서만 되므로 `AZURE_OPENAI_API_VERSION`이 `2025-03-01-preview` 이상이어야 한다 (`2025-04-01-preview`로 확인).
+
+### Pod용 CA 주입
+
+- 사내 CA(`~/.minikube/certs/sk-ca.pem`)를 ConfigMap `kg-ca-bundle`로 마운트한다.
+- 컨테이너 시작 시 공개 CA(certifi)와 사내 CA를 합친 번들을 만들고 `SSL_CERT_FILE`로 지정한다. `SSL_CERT_FILE`은 기본 저장소를 대체하므로 둘을 함께 넣어야 한다.
+- Mac에서는 사내 CA 없이도 호출이 성공했다. Pod에서는 번들을 넣은 상태로만 확인했다.
+
+### 실행
+
+```bash
+scripts/llm-spike/run.sh gpt-6.1-sol
+```
+
+- 성공: `OK <초>s reply='ping'` (Pod 안 약 2~3초)
+- 키 값은 출력하지 않는다. Secret은 `.env`에서 `LLM_PROVIDER`·`AZURE_OPENAI_*`만 골라 만든다.
+
 ## 운영 메모
 
 | 상황 | 명령 |
@@ -560,5 +585,5 @@ Mac의 docker 드라이버에서는 NodePort로 바로 접근할 수 없다. 서
 
 ## 다음 단계 (별도 문서)
 
-1. **Pod 안에서 Azure OpenAI 호출** — Pod용 CA 주입(ConfigMap 마운트 + `SSL_CERT_FILE`), `<리소스명>.openai.azure.com` 가로채기 여부 확인
+1. ~~**Pod 안에서 Azure OpenAI 호출**~~ — 9단계로 완료
 2. **템플릿 포크 배포** — F1·F2·F6, `eval $(minikube docker-env)` 빌드, postgres·redis, Phoenix, `make up`

@@ -4,7 +4,7 @@ build_chat_model로 배포 하나를 호출해 응답과 걸린 시간을 출력
 로컬: uv run --env-file .env python scripts/llm-spike/llm_smoke.py [모델]
 Pod:  scripts/llm-spike/run.sh [모델]
 모델(Azure 배포 이름)은 인자로 받는다. 기본값 gpt-4.1.
-temperature 0을 거부하는 모델이면 두 번째 인자로 none을 준다.
+모델별 제약(temperature, Responses API)은 core/llm.py의 MODEL_OPTIONS가 적용한다.
 """
 
 import os
@@ -22,14 +22,13 @@ for root in (here.parent.parent.parent / "app", here.parent):
 from core.llm import build_chat_model  # noqa: E402
 
 deployment = sys.argv[1] if len(sys.argv) > 1 else "gpt-4.1"
-temperature = None if sys.argv[2:3] == ["none"] else 0
 endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
-print(f"endpoint={endpoint} deployment={deployment} temperature={temperature}")
+print(f"endpoint={endpoint} deployment={deployment}")
 print(f"SSL_CERT_FILE={os.environ.get('SSL_CERT_FILE') or '(기본 인증서 저장소)'}")
 
 started = time.monotonic()
 try:
-    llm = build_chat_model(deployment, temperature=temperature)
+    llm = build_chat_model(deployment)
     reply = llm.invoke("한 단어로만 답하세요: ping")
 except Exception as e:  # 스파이크: 실패 원인(인증서·네트워크·인증)을 그대로 보여준다
     print(f"FAIL {type(e).__name__}: {e}")
@@ -38,4 +37,4 @@ except Exception as e:  # 스파이크: 실패 원인(인증서·네트워크·�
         print(f"  cause {type(cause).__name__}: {cause}")
     sys.exit(1)
 
-print(f"OK {time.monotonic() - started:.1f}s reply={reply.content!r}")
+print(f"OK {time.monotonic() - started:.1f}s reply={reply.text!r}")
