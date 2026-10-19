@@ -22,8 +22,8 @@ agent Deployment의 컨테이너 이미지를 받을 수 없는 이미지(`regis
 
 - 새 ReplicaSet의 Pod 1개가 `ErrImagePull`·`ImagePullBackOff`로 대기한다. 롤링 업데이트의 `maxUnavailable`(25%)이 replicas 3에서 0으로 내림돼 이전 Pod 3개는 Ready로 남는다. 사용자 기능(로그인·채팅)은 정상이다.
 - `progressDeadlineSeconds`(600초)가 지나면 Deployment `Progressing=False`(`ProgressDeadlineExceeded`)가 된다.
-- 규칙 점검: W02가 주입 후 약 25~31분에 적발(🟠 주의, 이전 버전이 서비스 중), P03은 약 1시간 뒤 적발. W01은 적발되지 않는다(`availableReplicas = replicas`, 05-rules §5.1). 게이트 경로 A.
-- `make eval S=A3`는 증상 확인 직후 점검을 한 번만 하므로 W02·P03이 지속 시간 전이다. 결과는 실패(경로 C, P03·S02 관찰 중)로 나온다. 지속 시간을 채우는 반복 점검은 러너의 후속 과제다 (아래 확인 상태).
+- 규칙 점검: W02가 주입 후 약 25~31분에 적발(🟠 주의, 이전 버전이 서비스 중), P03은 약 1시간 뒤 적발. W01은 적발되지 않는다(`availableReplicas = replicas`, 05-rules §5.1). S02는 롤아웃 중인 새 버전 Pod라 제외되어 통과다(05-rules S02 제외). 게이트 경로 A.
+- `make eval S=A3`는 증상 확인 직후 점검을 한 번만 하므로 W02·P03이 지속 시간 전이다. 결과는 실패(경로 C, P03 관찰 중)로 나온다. 지속 시간을 채우는 반복 점검은 러너의 후속 과제다 (아래 확인 상태).
 
 ## 확인 상태
 
@@ -40,6 +40,6 @@ agent Deployment의 컨테이너 이미지를 받을 수 없는 이미지(`regis
   | 12:27:01 | 26분 | 관찰 중 | 적발 | **적발**(주의) | A (warning) |
 
   W01은 계속 통과였다 (05-rules §5.1대로). P03은 1시간을 기다리지 않았다.
-- **기대 밖 신호 S02**: 이미지를 못 받는 새 Pod도 Service selector에 맞아 EndpointSlice에 Ready가 아닌 엔드포인트로 잡힌다. 그래서 S02 "일부"가 15분 규칙으로 W02보다 먼저(약 16분) 적발됐다. 05-rules §5의 A3 행에는 S02가 없다. 기대 신호에 넣을지, S02에서 "롤아웃 중인 새 ReplicaSet의 Pod"를 제외할지는 명세 결정이다 (후속 후보).
+- **S02 (위 표는 제외 반영 전 측정)**: 이미지를 못 받는 새 Pod도 Service selector에 맞아 EndpointSlice에 Ready가 아닌 엔드포인트로 잡혀, S02 "일부"가 15분 규칙으로 W02보다 먼저(약 16분) 적발됐다. 2026-10-20 결정(#53)으로 S02는 이전 버전 Pod가 Ready로 서비스 중일 때 롤아웃 중인 새 버전 Pod의 엔드포인트를 판정에서 뺀다. 지금은 S02가 통과하고 W02가 먼저 적발한다 (픽스처 테스트로 확인, 클러스터 재측정 전).
 - reset → 롤아웃 완료, 새 ReplicaSet 0개, verify_symptom 실패(증상 없음), H0 스모크 성공.
-- `make eval S=A3`: 실패(경로 C, 놓침 W02, 관찰 중 P03·S02). 러너가 증상 확인 직후 한 번만 점검하기 때문이다. 원복·H0 복구는 성공.
+- `make eval S=A3`: 실패(경로 C, 놓침 W02, 관찰 중 P03·S02, S02 제외 반영 전). 러너가 증상 확인 직후 한 번만 점검하기 때문이다. 원복·H0 복구는 성공.
