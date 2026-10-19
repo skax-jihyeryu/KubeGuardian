@@ -208,7 +208,7 @@ flowchart LR
 
 | ID | 수정 | 이유 |
 |---|---|---|
-| F1 | K8s 매니페스트에 서비스 주소 설정 추가 (`AGENT_SERVICE_URL` 등) | T1 수정. 없으면 정상 기준선을 만들 수 없음. 제거하면 A5 시나리오 |
+| F1 | K8s 매니페스트에 서비스 주소 설정 추가 (`AGENT_SERVICE_URL` 등) | T1 수정. 없으면 정상 기준선을 만들 수 없음. A5는 이 값을 `localhost`로 바꿔 같은 동작을 만든다 |
 | F2 | agent 검색을 선택 기능으로 (검색 설정이 없으면 건너뜀) | Azure AI Search 미사용. 기본 경로 rag v1은 원래 검색 설정 없이 동작한다. F2는 검색 설정이 없을 때 rag v2의 검색 판단 LLM 호출(route·grade·rewrite)을 건너뛴다 |
 | F5 | 테스트 사용자 시드 | API 시나리오(로그인 → 채팅) 실행 |
 | F6 | minikube용 postgres·redis 매니페스트, 로컬 이미지 overlay | 원본은 Azure PG·Redis를 가리킴 |
@@ -454,7 +454,7 @@ AI의 일반 지식으로는 **그 환경의 사정**을 모른다. 운영자의
 |---|---|---|---|---|---|---|
 | A1 | L1 | agent 관련 기능 전부 실패 | Service selector 오타 | Service 수정 | A (S01) | SC-002 |
 | A3 | L1 | 신규 배포가 뜨지 않음 | 없는 이미지 tag | 이미지 변경 | A (W02·P03, 적발까지 약 25분) | SC-002 |
-| A5 | L1 | 모든 API 502 | 서비스 주소 설정 누락 (원본 템플릿 상태 = T1, 데모용) | F1 제거 | A (S04) | SC-002 |
+| A5 | L1 | 로그인부터 모든 API 5xx | 서비스 주소 설정 누락 (원본 템플릿과 같은 동작 = T1, 데모용) | gateway 주소 env를 코드 기본값 `localhost`로 바꿈 (env를 지우면 S04가 판정할 값이 없다) | A (S04) | SC-002 |
 | B1 | L2 | 요청의 약 1/3 실패 | agent Pod 1개만 HTTP 500 | HTTPChaos (Pod 1개) | B (사용자 입력) | SC-003 |
 | C1 | L3 | 채팅 실패 (gateway 502) | **llm-gateway 할당량 소진 → 429** | 할당량 하향 | B (API 시나리오) | SC-001 |
 | C2 | L3 | 로그인 불가, Pod 전부 Ready | **admin → Redis 연결 차단** | NetworkChaos (admin↔redis) | B (API 시나리오) | SC-001 |
