@@ -1,0 +1,269 @@
+{
+  "_description": "정상 기준 클러스터 (dev). gateway 1개 → agent 2개. 모든 감지기가 통과해야 한다. Kubernetes API 응답의 items 모양 그대로 쓴다",
+  "Node": [
+    {
+      "metadata": {"name": "minikube", "uid": "node-1", "labels": {"kubernetes.io/hostname": "minikube"}},
+      "spec": {"podCIDR": "10.244.0.0/24"},
+      "status": {
+        "conditions": [
+          {"type": "MemoryPressure", "status": "False", "reason": "KubeletHasSufficientMemory", "lastTransitionTime": "2026-10-19T00:00:00Z"},
+          {"type": "Ready", "status": "True", "reason": "KubeletReady", "message": "kubelet is posting ready status", "lastTransitionTime": "2026-10-19T00:00:00Z"}
+        ]
+      }
+    }
+  ],
+  "Deployment": [
+    {
+      "metadata": {
+        "name": "gateway", "namespace": "dev", "uid": "dep-gw", "generation": 1,
+        "labels": {"app": "gateway"},
+        "annotations": {"deployment.kubernetes.io/revision": "1"},
+        "creationTimestamp": "2026-10-19T00:00:00Z"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {"matchLabels": {"app": "gateway"}},
+        "strategy": {"type": "RollingUpdate", "rollingUpdate": {"maxUnavailable": "25%", "maxSurge": "25%"}},
+        "progressDeadlineSeconds": 600,
+        "template": {
+          "metadata": {"labels": {"app": "gateway"}},
+          "spec": {
+            "containers": [
+              {
+                "name": "gateway",
+                "image": "gateway:1.0",
+                "ports": [{"name": "http", "containerPort": 8000, "protocol": "TCP"}],
+                "env": [{"name": "AGENT_SERVICE_URL", "value": "http://agent:8006"}],
+                "readinessProbe": {"httpGet": {"path": "/health", "port": 8000}, "periodSeconds": 10},
+                "resources": {"requests": {"cpu": "100m", "memory": "128Mi"}, "limits": {"cpu": "500m", "memory": "256Mi"}}
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1, "replicas": 1, "updatedReplicas": 1, "readyReplicas": 1, "availableReplicas": 1,
+        "conditions": [
+          {"type": "Available", "status": "True", "reason": "MinimumReplicasAvailable", "lastTransitionTime": "2026-10-19T00:01:00Z"},
+          {"type": "Progressing", "status": "True", "reason": "NewReplicaSetAvailable", "message": "ReplicaSet \"gateway-6d4b9c7f8\" has successfully progressed.", "lastTransitionTime": "2026-10-19T00:01:00Z"}
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "name": "agent", "namespace": "dev", "uid": "dep-ag", "generation": 1,
+        "labels": {"app": "agent"},
+        "annotations": {"deployment.kubernetes.io/revision": "1"},
+        "creationTimestamp": "2026-10-19T00:00:00Z"
+      },
+      "spec": {
+        "replicas": 2,
+        "selector": {"matchLabels": {"app": "agent"}},
+        "strategy": {"type": "RollingUpdate", "rollingUpdate": {"maxUnavailable": "25%", "maxSurge": "25%"}},
+        "progressDeadlineSeconds": 600,
+        "template": {
+          "metadata": {"labels": {"app": "agent"}},
+          "spec": {
+            "containers": [
+              {
+                "name": "agent",
+                "image": "agent:1.0",
+                "ports": [{"name": "http", "containerPort": 8006, "protocol": "TCP"}],
+                "envFrom": [{"configMapRef": {"name": "agent-config"}}],
+                "env": [{"name": "DB_PASSWORD", "valueFrom": {"secretKeyRef": {"name": "agent-secret", "key": "db-password"}}}],
+                "readinessProbe": {"httpGet": {"path": "/health", "port": "http"}, "periodSeconds": 10},
+                "resources": {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"cpu": "1", "memory": "512Mi"}}
+              }
+            ],
+            "volumes": [{"name": "prompts", "configMap": {"name": "agent-config"}}]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1, "replicas": 2, "updatedReplicas": 2, "readyReplicas": 2, "availableReplicas": 2,
+        "conditions": [
+          {"type": "Available", "status": "True", "reason": "MinimumReplicasAvailable", "lastTransitionTime": "2026-10-19T00:01:00Z"},
+          {"type": "Progressing", "status": "True", "reason": "NewReplicaSetAvailable", "message": "ReplicaSet \"agent-7c9f5d6b4\" has successfully progressed.", "lastTransitionTime": "2026-10-19T00:01:00Z"}
+        ]
+      }
+    }
+  ],
+  "ReplicaSet": [
+    {
+      "metadata": {
+        "name": "gateway-6d4b9c7f8", "namespace": "dev", "uid": "rs-gw-1",
+        "labels": {"app": "gateway", "pod-template-hash": "6d4b9c7f8"},
+        "annotations": {"deployment.kubernetes.io/revision": "1"},
+        "ownerReferences": [{"apiVersion": "apps/v1", "kind": "Deployment", "name": "gateway", "uid": "dep-gw", "controller": true}]
+      },
+      "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "gateway", "pod-template-hash": "6d4b9c7f8"}}},
+      "status": {"replicas": 1, "readyReplicas": 1, "availableReplicas": 1}
+    },
+    {
+      "metadata": {
+        "name": "agent-7c9f5d6b4", "namespace": "dev", "uid": "rs-ag-1",
+        "labels": {"app": "agent", "pod-template-hash": "7c9f5d6b4"},
+        "annotations": {"deployment.kubernetes.io/revision": "1"},
+        "ownerReferences": [{"apiVersion": "apps/v1", "kind": "Deployment", "name": "agent", "uid": "dep-ag", "controller": true}]
+      },
+      "spec": {"replicas": 2, "selector": {"matchLabels": {"app": "agent", "pod-template-hash": "7c9f5d6b4"}}},
+      "status": {"replicas": 2, "readyReplicas": 2, "availableReplicas": 2}
+    }
+  ],
+  "Pod": [
+    {
+      "metadata": {
+        "name": "gateway-6d4b9c7f8-abcde", "namespace": "dev", "uid": "pod-gw-1",
+        "labels": {"app": "gateway", "pod-template-hash": "6d4b9c7f8"},
+        "ownerReferences": [{"apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "gateway-6d4b9c7f8", "uid": "rs-gw-1", "controller": true}],
+        "creationTimestamp": "2026-10-19T00:00:10Z"
+      },
+      "spec": {
+        "nodeName": "minikube",
+        "containers": [
+          {
+            "name": "gateway",
+            "image": "gateway:1.0",
+            "ports": [{"name": "http", "containerPort": 8000, "protocol": "TCP"}],
+            "env": [{"name": "AGENT_SERVICE_URL", "value": "http://agent:8006"}],
+            "readinessProbe": {"httpGet": {"path": "/health", "port": 8000}, "periodSeconds": 10},
+            "resources": {"requests": {"cpu": "100m", "memory": "128Mi"}, "limits": {"cpu": "500m", "memory": "256Mi"}},
+            "terminationMessagePath": "/dev/termination-log"
+          }
+        ],
+        "volumes": [{"name": "kube-api-access-x1", "projected": {"sources": [{"serviceAccountToken": {"path": "token"}}]}}]
+      },
+      "status": {
+        "phase": "Running", "podIP": "10.244.0.10",
+        "conditions": [
+          {"type": "Initialized", "status": "True", "lastTransitionTime": "2026-10-19T00:00:10Z"},
+          {"type": "Ready", "status": "True", "lastTransitionTime": "2026-10-19T00:00:40Z"},
+          {"type": "ContainersReady", "status": "True", "lastTransitionTime": "2026-10-19T00:00:40Z"}
+        ],
+        "containerStatuses": [
+          {"name": "gateway", "ready": true, "started": true, "restartCount": 0, "image": "gateway:1.0", "imageID": "docker://sha256:gw1",
+           "state": {"running": {"startedAt": "2026-10-19T00:00:20Z"}}, "lastState": {}}
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "name": "agent-7c9f5d6b4-x2k9p", "namespace": "dev", "uid": "pod-ag-1",
+        "labels": {"app": "agent", "pod-template-hash": "7c9f5d6b4"},
+        "ownerReferences": [{"apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "agent-7c9f5d6b4", "uid": "rs-ag-1", "controller": true}],
+        "creationTimestamp": "2026-10-19T00:00:10Z"
+      },
+      "spec": {
+        "nodeName": "minikube",
+        "containers": [
+          {
+            "name": "agent",
+            "image": "agent:1.0",
+            "ports": [{"name": "http", "containerPort": 8006, "protocol": "TCP"}],
+            "envFrom": [{"configMapRef": {"name": "agent-config"}}],
+            "env": [{"name": "DB_PASSWORD", "valueFrom": {"secretKeyRef": {"name": "agent-secret", "key": "db-password"}}}],
+            "readinessProbe": {"httpGet": {"path": "/health", "port": "http"}, "periodSeconds": 10},
+            "resources": {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"cpu": "1", "memory": "512Mi"}}
+          }
+        ],
+        "volumes": [
+          {"name": "prompts", "configMap": {"name": "agent-config"}},
+          {"name": "kube-api-access-x2", "projected": {"sources": [{"serviceAccountToken": {"path": "token"}}]}}
+        ]
+      },
+      "status": {
+        "phase": "Running", "podIP": "10.244.0.11",
+        "conditions": [
+          {"type": "Ready", "status": "True", "lastTransitionTime": "2026-10-19T00:00:40Z"},
+          {"type": "ContainersReady", "status": "True", "lastTransitionTime": "2026-10-19T00:00:40Z"}
+        ],
+        "containerStatuses": [
+          {"name": "agent", "ready": true, "started": true, "restartCount": 0, "image": "agent:1.0", "imageID": "docker://sha256:ag1",
+           "state": {"running": {"startedAt": "2026-10-19T00:00:20Z"}}, "lastState": {}}
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "name": "agent-7c9f5d6b4-q8w3z", "namespace": "dev", "uid": "pod-ag-2",
+        "labels": {"app": "agent", "pod-template-hash": "7c9f5d6b4"},
+        "ownerReferences": [{"apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "agent-7c9f5d6b4", "uid": "rs-ag-1", "controller": true}],
+        "creationTimestamp": "2026-10-19T00:00:10Z"
+      },
+      "spec": {
+        "nodeName": "minikube",
+        "containers": [
+          {
+            "name": "agent",
+            "image": "agent:1.0",
+            "ports": [{"name": "http", "containerPort": 8006, "protocol": "TCP"}],
+            "envFrom": [{"configMapRef": {"name": "agent-config"}}],
+            "env": [{"name": "DB_PASSWORD", "valueFrom": {"secretKeyRef": {"name": "agent-secret", "key": "db-password"}}}],
+            "readinessProbe": {"httpGet": {"path": "/health", "port": "http"}, "periodSeconds": 10},
+            "resources": {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"cpu": "1", "memory": "512Mi"}}
+          }
+        ],
+        "volumes": [
+          {"name": "prompts", "configMap": {"name": "agent-config"}},
+          {"name": "kube-api-access-x3", "projected": {"sources": [{"serviceAccountToken": {"path": "token"}}]}}
+        ]
+      },
+      "status": {
+        "phase": "Running", "podIP": "10.244.0.12",
+        "conditions": [
+          {"type": "Ready", "status": "True", "lastTransitionTime": "2026-10-19T00:00:40Z"},
+          {"type": "ContainersReady", "status": "True", "lastTransitionTime": "2026-10-19T00:00:40Z"}
+        ],
+        "containerStatuses": [
+          {"name": "agent", "ready": true, "started": true, "restartCount": 0, "image": "agent:1.0", "imageID": "docker://sha256:ag1",
+           "state": {"running": {"startedAt": "2026-10-19T00:00:20Z"}}, "lastState": {}}
+        ]
+      }
+    }
+  ],
+  "Service": [
+    {
+      "metadata": {"name": "gateway", "namespace": "dev", "uid": "svc-gw", "labels": {"app": "gateway"}},
+      "spec": {"type": "ClusterIP", "clusterIP": "10.96.0.20", "selector": {"app": "gateway"},
+               "ports": [{"name": "http", "port": 8000, "targetPort": 8000, "protocol": "TCP"}]}
+    },
+    {
+      "metadata": {"name": "agent", "namespace": "dev", "uid": "svc-ag", "labels": {"app": "agent"}},
+      "spec": {"type": "ClusterIP", "clusterIP": "10.96.0.21", "selector": {"app": "agent"},
+               "ports": [{"name": "http", "port": 8006, "targetPort": "http", "protocol": "TCP"}]}
+    }
+  ],
+  "EndpointSlice": [
+    {
+      "metadata": {"name": "gateway-k7x2p", "namespace": "dev", "uid": "eps-gw",
+                   "labels": {"kubernetes.io/service-name": "gateway", "endpointslice.kubernetes.io/managed-by": "endpointslice-controller.k8s.io"},
+                   "ownerReferences": [{"kind": "Service", "name": "gateway", "uid": "svc-gw", "controller": true}]},
+      "addressType": "IPv4",
+      "endpoints": [
+        {"addresses": ["10.244.0.10"], "conditions": {"ready": true, "serving": true, "terminating": false}, "nodeName": "minikube",
+         "targetRef": {"kind": "Pod", "name": "gateway-6d4b9c7f8-abcde", "namespace": "dev", "uid": "pod-gw-1"}}
+      ],
+      "ports": [{"name": "http", "port": 8000, "protocol": "TCP"}]
+    },
+    {
+      "metadata": {"name": "agent-m4q9t", "namespace": "dev", "uid": "eps-ag",
+                   "labels": {"kubernetes.io/service-name": "agent", "endpointslice.kubernetes.io/managed-by": "endpointslice-controller.k8s.io"},
+                   "ownerReferences": [{"kind": "Service", "name": "agent", "uid": "svc-ag", "controller": true}]},
+      "addressType": "IPv4",
+      "endpoints": [
+        {"addresses": ["10.244.0.11"], "conditions": {"ready": true, "serving": true, "terminating": false}, "nodeName": "minikube",
+         "targetRef": {"kind": "Pod", "name": "agent-7c9f5d6b4-x2k9p", "namespace": "dev", "uid": "pod-ag-1"}},
+        {"addresses": ["10.244.0.12"], "conditions": {"ready": true, "serving": true, "terminating": false}, "nodeName": "minikube",
+         "targetRef": {"kind": "Pod", "name": "agent-7c9f5d6b4-q8w3z", "namespace": "dev", "uid": "pod-ag-2"}}
+      ],
+      "ports": [{"name": "http", "port": 8006, "protocol": "TCP"}]
+    }
+  ],
+  "ConfigMap": [
+    {"metadata": {"name": "agent-config", "namespace": "dev", "uid": "cm-ag"}, "data": {"LOG_LEVEL": "info", "system.txt": "You are a helpful agent."}}
+  ],
+  "Secret": [
+    {"metadata": {"name": "agent-secret", "namespace": "dev", "uid": "sec-ag"}, "type": "Opaque", "data": {"db-password": "aHVudGVyMg=="}}
+  ],
+  "Event": []
+}

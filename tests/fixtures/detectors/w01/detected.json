@@ -1,0 +1,17 @@
+{
+  "_description": "agent replicas 2, available 1 (updatedReplicas 2로 롤아웃은 끝남)",
+  "merge": {
+    "Deployment": [
+      {
+        "metadata": {
+          "name": "agent"
+        },
+        "status": {
+          "readyReplicas": 1,
+          "availableReplicas": 1,
+          "unavailableReplicas": 1
+        }
+      }
+    ]
+  }
+}

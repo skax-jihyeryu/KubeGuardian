@@ -1,0 +1,35 @@
+{
+  "_description": "agent 컨테이너가 10분 전 OOMKilled로 종료된 뒤 다시 실행 중",
+  "merge": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-x2k9p"
+        },
+        "status": {
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": true,
+              "started": true,
+              "restartCount": 1,
+              "image": "agent:1.0",
+              "state": {
+                "running": {
+                  "startedAt": "2026-10-20T00:50:10Z"
+                }
+              },
+              "lastState": {
+                "terminated": {
+                  "reason": "OOMKilled",
+                  "exitCode": 137,
+                  "finishedAt": "2026-10-20T00:50:00Z"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

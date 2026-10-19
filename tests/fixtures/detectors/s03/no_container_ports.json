@@ -1,0 +1,36 @@
+{
+  "_description": "gateway 컨테이너가 ports를 선언하지 않고 Service는 숫자 targetPort → 확인하지 못함",
+  "merge": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "gateway-6d4b9c7f8-abcde"
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "gateway",
+              "image": "gateway:1.0",
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": 8000
+                }
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "128Mi"
+                },
+                "limits": {
+                  "cpu": "500m",
+                  "memory": "256Mi"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "_description": "재시작 직후 잠깐 Running·Ready (restartCount 4)",
+  "merge": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-x2k9p"
+        },
+        "status": {
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": true,
+              "started": true,
+              "restartCount": 4,
+              "image": "agent:1.0",
+              "state": {
+                "running": {
+                  "startedAt": "2026-10-20T00:59:00Z"
+                }
+              },
+              "lastState": {
+                "terminated": {
+                  "reason": "Error",
+                  "exitCode": 1,
+                  "finishedAt": "2026-10-20T00:58:50Z"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

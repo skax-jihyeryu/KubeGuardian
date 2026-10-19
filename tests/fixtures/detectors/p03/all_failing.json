@@ -1,0 +1,71 @@
+{
+  "_description": "agent Pod 전부 이미지 받기 실패 (InvalidImageName·ErrImagePull). 같은 Deployment에 Ready Pod 없음",
+  "merge": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-x2k9p"
+        },
+        "status": {
+          "phase": "Pending",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "ContainersNotReady",
+              "message": "containers with unready status: [agent]",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": false,
+              "started": false,
+              "restartCount": 0,
+              "image": "agent::bad",
+              "state": {
+                "waiting": {
+                  "reason": "InvalidImageName",
+                  "message": "couldn't parse image name"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-q8w3z"
+        },
+        "status": {
+          "phase": "Pending",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "ContainersNotReady",
+              "message": "containers with unready status: [agent]",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": false,
+              "started": false,
+              "restartCount": 0,
+              "image": "agent:9.9",
+              "state": {
+                "waiting": {
+                  "reason": "ErrImagePull",
+                  "message": "rpc error: not found"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
