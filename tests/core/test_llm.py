@@ -31,6 +31,14 @@ def test_temperature_defaults_to_zero_for_reproducible_diagnosis():
     assert llm.temperature == 0
 
 
+def test_temperature_none_is_not_sent_for_models_that_reject_it():
+    """추론 계열 모델은 temperature 0을 거부한다 (기본값 1만 허용)."""
+    llm = build_chat_model("gpt-6.1-sol", temperature=None, settings=_azure_settings())
+
+    assert llm.temperature is None
+    assert "temperature" not in llm._default_params
+
+
 def test_unknown_provider_is_rejected():
     with pytest.raises(ValueError, match="LLM_PROVIDER"):
         build_chat_model("gpt-4.1", settings=_azure_settings(LLM_PROVIDER="unknown"))

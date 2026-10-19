@@ -4,6 +4,7 @@
 # 키 값은 화면에 출력하지 않는다.
 set -euo pipefail
 MODEL=${1:-gpt-4.1}
+TEMP=${2:-}  # temperature 0을 거부하는 모델이면 none
 cd "$(dirname "$0")/../.."
 NS=kubeguardian
 
@@ -16,7 +17,7 @@ kubectl -n "$NS" create configmap llm-spike-code \
   --from-file=scripts/llm-spike/llm_smoke.py --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 kubectl -n "$NS" delete pod llm-spike --ignore-not-found >/dev/null
-sed "s|python /work/llm_smoke.py|python /work/llm_smoke.py $MODEL|" scripts/llm-spike/pod.yaml | kubectl apply -f - >/dev/null
+sed "s|python /work/llm_smoke.py|python /work/llm_smoke.py $MODEL $TEMP|" scripts/llm-spike/pod.yaml | kubectl apply -f - >/dev/null
 kubectl -n "$NS" wait --for=jsonpath='{.status.phase}'=Succeeded pod/llm-spike --timeout=180s \
   || kubectl -n "$NS" wait --for=jsonpath='{.status.phase}'=Failed pod/llm-spike --timeout=5s || true
 kubectl -n "$NS" logs llm-spike

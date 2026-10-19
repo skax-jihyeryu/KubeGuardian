@@ -14,9 +14,12 @@ from core.config import Settings, get_setting
 
 
 def build_chat_model(
-    model: str, *, temperature: float = 0, settings: Settings | None = None
+    model: str, *, temperature: float | None = 0, settings: Settings | None = None
 ) -> BaseChatModel:
-    """model: Azure OpenAI에서는 배포 이름."""
+    """model: Azure OpenAI에서는 배포 이름.
+
+    temperature=None이면 보내지 않는다 (0을 거부하는 추론 계열 모델).
+    """
     settings = settings or get_setting()
 
     if settings.LLM_PROVIDER == "azure_openai":
