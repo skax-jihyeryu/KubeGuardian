@@ -69,15 +69,26 @@ def detect(ctx: DetectorContext) -> list[Signal]:
 
 
 def _revisions(replicasets: list[dict]) -> dict[str, tuple[str, bool]]:
-    """ReplicaSet 이름 → (Deployment 이름, 그 Deployment에서 revision이 가장 큰지)."""
+    """ReplicaSet 이름 → (Deployment 이름, 그 Deployment에서 revision이 가장 큰지).
+
+    revision 값이 없거나 숫자가 아닌 ReplicaSet이 있는 Deployment는 새 버전을 정할 수 없어 뺀다.
+    """
     owned = {name_of(rs): owner(rs, "Deployment") for rs in replicasets}
     newest: dict[str, tuple[int, str]] = {}
+    unknown = set()
     for rs in replicasets:
         dep = owned[name_of(rs)]
-        if dep:
-            rev = (int((rs["metadata"].get("annotations") or {}).get(_REVISION, 0)), name_of(rs))
-            newest[dep] = max(newest.get(dep, rev), rev)
-    return {rs: (dep, newest[dep][1] == rs) for rs, dep in owned.items() if dep}
+        if not dep:
+            continue
+        value = str((rs["metadata"].get("annotations") or {}).get(_REVISION, ""))
+        if not value.isdecimal():  # int()가 받는 숫자만 (isdigit은 "²"도 참)
+            unknown.add(dep)
+            continue
+        rev = (int(value), name_of(rs))
+        newest[dep] = max(newest.get(dep, rev), rev)
+    return {
+        rs: (dep, newest[dep][1] == rs) for rs, dep in owned.items() if dep and dep not in unknown
+    }
 
 
 def _rollout_excluded(

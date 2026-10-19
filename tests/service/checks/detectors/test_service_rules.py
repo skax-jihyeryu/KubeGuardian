@@ -2,6 +2,8 @@
 
 from datetime import timedelta
 
+import pytest
+
 from service.model import Topology, TopologyEdge
 from service.sensors.collector import collect
 from tests.service.checks.detectors.cases import (
@@ -142,6 +144,60 @@ def test_s02_skips_rollout_exclusion_when_replicasets_unreadable(obs):
     assert (s.values["ready"], s.values["total"]) == (3, 4)
     assert s.values["rollout_excluded"] == []
     assert s.values["failed_kinds"] == {"ReplicaSet": "403 Forbidden"}
+
+
+def test_s02_detects_not_ready_pod_of_other_deployment_not_in_rollout(obs):
+    # 한 Service 뒤에 Deployment 2개. agent만 롤아웃 중이고
+    # agent-canary(revision 하나뿐)의 Pod는 Ready가 아님
+    objects, _ = raw_cluster("s02/rollout")
+    objects["ReplicaSet"].append(
+        {
+            "metadata": {
+                "name": "agent-canary-6d5c4b3a2",
+                "annotations": {"deployment.kubernetes.io/revision": "1"},
+                "ownerReferences": [{"kind": "Deployment", "name": "agent-canary"}],
+            },
+            "spec": {"replicas": 1},
+            "status": {"replicas": 1},
+        }
+    )
+    objects["Pod"].append(
+        {
+            "metadata": {
+                "name": "agent-canary-6d5c4b3a2-c1n2r",
+                "labels": {"app": "agent"},
+                "ownerReferences": [{"kind": "ReplicaSet", "name": "agent-canary-6d5c4b3a2"}],
+            },
+            "spec": {"nodeName": "minikube"},
+            "status": {"conditions": [{"type": "Ready", "status": "False"}]},
+        }
+    )
+    _by_name(objects, "EndpointSlice", "agent-m4q9t")["endpoints"].append(
+        {
+            "addresses": ["10.244.0.15"],
+            "conditions": {"ready": False, "serving": False, "terminating": False},
+            "targetRef": {"kind": "Pod", "name": "agent-canary-6d5c4b3a2-c1n2r"},
+        }
+    )
+    obs.seed("S02", AGENT_SVC, NOW - timedelta(minutes=15))
+    s = one(run("S02", context(_snapshot_of(objects), observations=obs)), AGENT_SVC)
+    assert (s.verdict, s.values["ready"], s.values["total"]) == ("detected", 3, 4)
+    assert s.values["rollout_excluded"] == [NEW_REVISION_POD]
+    assert [p["pod"] for p in s.values["not_ready"]] == ["agent-canary-6d5c4b3a2-c1n2r"]
+
+
+@pytest.mark.parametrize("revision", [None, "abc"])
+def test_s02_skips_rollout_exclusion_when_revision_is_unknown(obs, revision):
+    # 새 버전을 정할 수 없으면 그 Deployment에는 제외를 적용하지 않고 판정을 계속한다
+    objects, _ = raw_cluster("s02/rollout")
+    rs = _by_name(objects, "ReplicaSet", "agent-7c9f5d6b4")  # 이전 버전
+    rs["metadata"]["annotations"] = (
+        {} if revision is None else {"deployment.kubernetes.io/revision": revision}
+    )
+    obs.seed("S02", AGENT_SVC, NOW - timedelta(minutes=15))
+    s = one(run("S02", context(_snapshot_of(objects), observations=obs)), AGENT_SVC)
+    assert (s.verdict, s.values["ready"], s.values["total"]) == ("detected", 3, 4)
+    assert s.values["rollout_excluded"] == []
 
 
 def test_s02_recovery_clears_record(obs):
