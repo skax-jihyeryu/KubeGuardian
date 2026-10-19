@@ -23,7 +23,7 @@ KINDS = ("Pod", "ReplicaSet", "Service")
 def previous_restart_counts(previous: ClusterSnapshot | None) -> dict[tuple[str, str], int]:
     """직전 점검의 (Pod, 컨테이너) → restartCount.
 
-    사용자 확인 필요(임시 기본값): 직전 스냅샷이 없거나 직전에 없던 컨테이너는 비교하지 않고
+    05-rules P06 "직전 스냅샷 없음": 직전 스냅샷이 없거나 직전에 없던 컨테이너는 비교하지 않고
     CrashLoopBackOff만으로 판정한다. 첫 점검에서 과거 재시작을 증가로 오인하지 않기 위함이다.
     """
     pods = previous.items("Pod") if previous is not None else None

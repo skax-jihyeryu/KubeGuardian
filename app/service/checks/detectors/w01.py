@@ -30,8 +30,8 @@ STABLE = timedelta(minutes=10)
 def updated_changed_at(obs: Observation | None, updated: int, now: datetime) -> datetime:
     """updatedReplicas의 마지막 변경 시각.
 
-    사용자 확인 필요(임시 기본값): 첫 관측에서는 이전 값을 모르므로 변경 시각을 지금(최초 관측
-    시각)으로 둔다. 그래서 첫 관측 후 10분이 지나야 "변화 없음"으로 본다 (보수적).
+    05-rules W01 "첫 관측": 이전 값을 모르므로 변경 시각을 지금(최초 관측
+    시각)으로 둔다. 첫 관측 후 10분이 지나야 "변화 없음"이 되고, 그 뒤 15분 지속이면 적발한다.
     """
     if obs is None or obs.values.get("updatedReplicas") != updated:
         return now

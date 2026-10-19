@@ -121,6 +121,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 판정 조건 | 직전 점검 이후 다음 중 하나가 관측됨: 컨테이너 `state.waiting.reason = CrashLoopBackOff`, 또는 `restartCount`가 직전 점검 값보다 증가 |
 | 지속 시간 | 15분 |
 | 제외 | 지금 Ready이고 직전 점검 이후 `restartCount`가 늘지 않은 컨테이너. 이미 회복된 과거 재시작은 장애 신호가 아니다 |
+| 직전 스냅샷 없음 | 직전 점검 스냅샷이 없거나(첫 점검) 직전에 없던 컨테이너는 `restartCount`를 비교하지 않고 `CrashLoopBackOff` 상태만으로 판정한다. 첫 점검에서 과거 재시작을 증가로 오인하지 않기 위함이다 |
 | 1차 심각도 | §3 기준 (가용 Pod 수로 판단) |
 | 근거로 남길 값 | Pod, 컨테이너, `restartCount`(현재·직전), 대기 사유, `lastState.terminated`의 reason·exitCode·종료 시각 |
 | 출처 | mixin `KubePodCrashLooping`: 5분 구간에 CrashLoopBackOff가 한 번이라도 보이면 참(`max_over_time[5m] >= 1`), `for: 15m`. 우리는 재시작 사이에 컨테이너가 잠깐 Running이 되는 것을 놓치지 않도록 `restartCount` 증가로 보정한다. [Runbook](https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubepodcrashlooping/)의 원인 목록(리소스 부족, 의존 서비스 미준비, 설정·ConfigMap·Secret 누락 등)은 지침에 쓴다 |
@@ -143,6 +144,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 판정 조건 | Deployment `spec.replicas` > `status.availableReplicas` **그리고** `status.updatedReplicas`가 최근 10분 동안 바뀌지 않음 |
 | 지속 시간 | 15분 |
 | 제외 | `updatedReplicas`가 바뀌는 중 (롤아웃이 진행되고 있음) |
+| 첫 관측 | replicas 부족을 처음 관측하면 이전 `updatedReplicas` 값을 모르므로 그 시각에 방금 바뀐 것으로 본다. 그래서 10분 뒤에 "바뀌지 않음"이 되고, 그때부터 15분 지속을 재므로 첫 관측 후 약 25분에 적발된다 |
 | 1차 심각도 | `availableReplicas = 0`이면 §3 기준, 일부면 🟠 주의 |
 | 근거로 남길 값 | replicas, availableReplicas, updatedReplicas와 마지막 변경 시각 |
 | 출처 | mixin `KubeDeploymentReplicasMismatch`: 위 두 조건, `for: 15m`. [Runbook](https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubedeploymentreplicasmismatch/) |
@@ -240,7 +242,8 @@ mixin 지속 시간을 따르면 상태 규칙은 장애 후 최소 15분이 지
 | 규칙 | 장애 주입 후 적발까지 (5분 주기 기준) |
 |---|---|
 | 선언 규칙 (S01, S03, S04, C01, H01, H02) | 다음 점검 = 0~6분 |
-| 15분 규칙 (N01, P06, W01, S02) | 약 15~21분 |
+| 15분 규칙 (N01, P06, S02) | 약 15~21분 |
+| W01 | 변화 없음 10분 + 15분 = 약 25~31분 (§4 W01 "첫 관측") |
 | W02 | `progressDeadlineSeconds` 600초 + 15분 = 약 25~31분 |
 | P03 | 약 1시간~1시간 6분 |
 
