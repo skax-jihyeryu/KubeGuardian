@@ -1,6 +1,7 @@
 # KubeGuardian AI — 실행 계획서
 
 > 기획서: [01-project-proposal.md](01-project-proposal.md) v3.2 (2026-10-12 피드백 반영: 보고서 화면·점검 실행·조사 과정, 심각도별 재알림은 W2~W3에 반영)
+> 진행 상황: **2026-10-19 기준 W1 마감, W2 진행 중** (§2 "W1 결과"). 이슈별 진행은 [Project](https://github.com/users/skax-jihyeryu/projects/2)에서 본다.
 > 1인 · **2026-10-12 ~ 11-20** (개발 4주 W1~W4 + 평가 보고서·최종 점검 W5 + 발표 준비) · 주마다 분량을 다르게 배치(주 약 20~30시간). 각 주는 **종료 조건(Exit)** 을 만족해야 다음 주로 넘어간다. 못 채운 분량은 다음 주로 넘겨 채운다.
 
 ## 0. 계획의 기준
@@ -33,14 +34,17 @@
 
 ### 1.1 템플릿 포크
 
-템플릿 조직의 앱 레포 6개와 `shared-infra`를 개인·PoC 조직으로 포크한다. 수정은 기획서 §5.2의 F1·F2·F5·F6·F7에 한정한다.
+템플릿 조직의 앱 레포 6개를 개인 계정(`skax-jihyeryu`)으로 포크했다 (`shared-infra` 포함, 10/19). 로컬 위치는 `~/Cursor/kg-target/`(Makefile `TARGET_DIR`), 수정은 각 포크의 `kg/local` 브랜치에 둔다. 수정은 기획서 §5.2의 F1·F2·F5·F6·F7에 한정한다.
 
 | 포크 레포 | 수정 |
 |---|---|
-| shared-infra | F1 서비스 주소, F6 `kubernetes/local/` overlay (postgres·redis·로컬 이미지) |
-| backend-agent | F2 검색 선택화, F7 v2 이미지 (컬럼 추가) |
-| backend-admin | F5 테스트 사용자 시드 |
-| backend-gateway · backend-llm-gateway · frontend | 없음 (빌드만) |
+| shared-infra | F1 서비스 주소(`kubernetes/components/service-urls`, 빼면 A5와 같은 동작), F6 `kubernetes/local/` overlay (postgres·redis, 로컬 이미지, agent replicas 3, LoadBalancer 제거, llm-gateway 사내 CA 번들) |
+| backend-agent | F2 검색 선택화 (rag v2의 검색 판단 LLM 호출 생략), F7 v2 이미지 (컬럼 추가, W4) |
+| backend-admin | 없음. F5 테스트 사용자 시드는 템플릿 API로 하는 `make seed`(`scripts/target/seed.sh`)로 대체했다 |
+| frontend | `pnpm@9` 고정 (최신 pnpm에서 빌드 실패) |
+| backend-gateway · backend-llm-gateway | 없음 (빌드만) |
+
+F 목록 밖 수정은 기동에 꼭 필요한 것만 했다: frontend `pnpm@9`, 백엔드 `UV_NO_SYNC=1`(기동 때 인터넷에서 패키지를 받다 실패), 원본 디렉터리별 `kustomization.yaml`(kustomize 순환 참조 방지), llm-gateway 사내 CA 번들(사내 프록시 때문에 Azure 호출이 인증서 오류). 템플릿 앱의 LLM 배포는 llm-gateway API로 직접 등록한다 (환경 설치 가이드 10단계).
 
 ### 1.2 KubeGuardian 레포
 
@@ -86,12 +90,13 @@ KubeGuardian/
 ├── Dockerfile                 # KubeGuardian 이미지 (CronJob·Deployment 공용)
 ├── deploy/
 │   ├── kubeguardian/          # SA·ClusterRole, PVC, CronJob, diagnostic-agent Deployment·Service, Secret 예시
+│   ├── phoenix/               # 실행 추적 Phoenix (kubeguardian 네임스페이스)
 │   └── chaos-mesh/            # 평가 환경 전용
 ├── scenarios/                 # H0, A1, A3, A5, B1, C1, C2, C5, E1 (+ 확장 후보)
 │   └── <ID>/{inject.sh, reset.sh, verify_symptom.sh, expected.yaml, README.md}
-├── eval/                      # 평가 러너, 채점, 리포트
-├── scripts/                   # 일회성 스파이크·스모크
-├── Makefile                   # up / down / inject S= / reset S= / eval S= / eval
+├── eval/                      # 평가 러너(run.py), 채점(scoring.py), 리포트
+├── scripts/                   # target/(진단 대상 시드·스모크), llm-spike/(Pod 안 LLM 호출)
+├── Makefile                   # 진단 대상 up / down / seed / smoke, phoenix, eval S=, check-run
 └── docs/
     ├── adr/                   # 설계 결정 기록
     └── learning/              # 주간 학습 노트
@@ -112,7 +117,7 @@ KubeGuardian/
 | 규칙 목록 | `service/checks/detectors/catalog.py` | [규칙 점검 명세](05-rules.md)의 코드 표현. ID·이름·성격·판정 시점(지속 시간)·1차 심각도·관련 지침. **명세는 05-rules.md가 정본**이고, 명세와 목록이 일치하는지 테스트로 확인한다. 감지기 구현, `expected.yaml`의 `expected_signals`, 보고서가 이 ID를 참조한다 | W1 |
 | 감지기 인터페이스 | `service/checks/detectors/` | `ClusterSnapshot` + 관측 기록 → 판정 결과(적발·관찰 중·통과·확인하지 못함)인 결정적 함수 + `@detector("S04")` 등록. 테스트는 `tests/fixtures/`의 스냅샷으로 돌린다 | W1 |
 | 에러 코드 | `core/error/` | 템플릿 방식 `ErrorCode`(HTTP 상태·코드·메시지) + `ServiceException`. 영역: X0 공통·X1 수집·X2 점검·X3 에이전트·LLM·X4 가드레일·X5 알림·X6 저장소·X9 시스템. 화면·CLI 종료 코드·Slack M8에 같은 코드를 쓴다. 진단 규칙(S04 등)과 섞지 않는다 | W1 |
-| LLM 생성 | `core/llm.py` | `build_chat_model(model) -> BaseChatModel`. 어디에 연결할지(`LLM_PROVIDER`, 엔드포인트·키)는 설정, **어떤 모델을 쓸지는 에이전트 버전의 `config.py`**(역할별 모델)가 정한다. 에이전트는 `bind_tools`·`with_structured_output`만 쓴다. 다른 제공사는 이 함수에 분기를 더해 붙인다 | W1 |
+| LLM 생성 | `core/llm.py` | `build_chat_model(model) -> BaseChatModel`. 어디에 연결할지(`LLM_PROVIDER`, 엔드포인트·키·API 버전)는 설정, **어떤 모델을 쓸지는 에이전트 버전의 `config.py`**(역할별 모델)가 정한다. 모델마다 다른 API 제약은 `MODEL_OPTIONS` 표에 모은다 (예: `gpt-6.1-sol`은 temperature 고정, 도구 호출은 Responses API). 에이전트는 `bind_tools`·`with_structured_output`만 쓴다. 다른 제공사는 이 함수에 분기를 더해 붙인다 | W1 |
 | 도구 인터페이스 | `service/tools/base.py` | `name`·`description`(언제 쓰는지 한 줄)·`Input`(Pydantic)·`run(input, ctx) -> ToolResult`. `ctx`가 네임스페이스 고정·마스킹·근거 저장을 강제한다. LangChain 도구로는 `agent/_common`의 어댑터가 바꾼다 (직접 구현 루프·MCP 서버도 같은 도구를 쓴다) | W1 |
 | 에이전트 base | `service/agent/base.py`, `registry.py` | `AgentSpec`(이름·버전·역할별 모델·예산·프롬프트 위치), `BaseAgent.run(InvestigationRequest) -> AgentResult`(보고서·상태·조사 단계·사용량: 토큰·도구 호출·시간). LLM·도구·저장소는 생성자로 주입해 가짜 LLM으로 테스트한다 | W1 (investigator v1보다 먼저) |
 | 설정 파일 | `core/config.py` | `kubeguardian.yaml`: 대상 네임스페이스, 점검 주기, API 시나리오, 앱 API 허용 목록, 알림 대상·허용 사용자 (상세설계 §7.4) | W1 |
@@ -139,7 +144,7 @@ KubeGuardian/
 | 템플릿 포크, F1·F2·F6 적용, 선택 의존성(Milvus, MinIO 등) 없이 기동 확인 | 5 | 포크 브랜치, `make up` | W1 |
 | F5 테스트 사용자 시드, 로그인 → 채팅 E2E 확인 | 2 | 스모크 스크립트 | W1 |
 | metrics-server, Chaos Mesh, Phoenix 설치 ([환경 설치 가이드](environment-setup.md)) | 1.5 | `deploy/chaos-mesh/` | W1 |
-| H0 정의, A5(원본 템플릿 상태) 시나리오 스크립트 | 0.5 | `scenarios/H0`, `A5` | W1 |
+| H0 정의, A5(서비스 주소 누락) 시나리오 스크립트 | 0.5 | `scenarios/H0`, `A5` | W1 |
 | 학습 노트 "원본 템플릿은 왜 클러스터에서 동작하지 않았나" + 환경 설명 초안 | 1 | `docs/learning/w1-*.md`, `service/knowledge/environment.md` | W1 |
 
 **② 기반 계약 + 규칙 점검 계층 (15시간)**
@@ -178,7 +183,34 @@ KubeGuardian/
 - 도구 7종 단위 테스트 통과, `make eval S=A1`이 사람 개입 없이 기준 조건(규칙만)으로 끝까지 돌고 채점 결과 출력
 - Slack 앱 승인 요청 완료
 
-### W2 (10/19~10/25) — 에이전트 + 증상 감지(경로 B) + 조사 품질 (약 19.5시간)
+### W1 결과 (10/19 마감)
+
+W1 이슈 12개 중 10개를 마치고 2개를 W2로 넘겼다. 계획과 달라진 점은 아래 "바뀐 결정"에 모았다.
+
+| Exit 조건 | 결과 |
+|---|---|
+| `make up` 후 전 Pod Ready, 로그인 → 채팅 성공 | ✅ `make up` → LLM 배포 등록 → `make seed` → `make smoke` (#7) |
+| 클러스터 안 `build_chat_model` 호출 | ✅ Pod 안 `gpt-6.1-sol` 호출 성공, 사내 CA 번들 주입 (#8) |
+| 도메인 모델·규칙 목록·에이전트 base 테스트 고정 | ✅ (#10, #14) |
+| A5 inject 시 채팅 실패, reset 시 복구 | ✅ W2로 넘겨 완료 (#16, PR #47) |
+| A1·A5 적발·경로 A, H0 경로 C | ✅ `make eval`: H0 경로 C, A5 S04·경로 A. A1은 S01·경로 A (기대값 정리는 #46) |
+| `kubectl auth can-i`로 쓰기 권한 없음 | ✅ (#13). 권한 범위를 `dev`로 좁힘 (#46) |
+| 도구 7종 테스트, `make eval S=A1` | ✅ 도구 (#15), eval 러너는 W2로 넘겨 완료 (#16) |
+| Slack 앱 승인 요청 | ❌ W2로 넘김 (#9, 사람이 직접 요청) |
+
+**W2로 넘긴 것**: #9 Slack 승인 요청(0.5h), #16 평가 러너(2h, 완료). W1 리뷰에서 나온 명세 결정 8건 반영(#46, 4h)을 W2에 더했다.
+
+**바뀐 결정**
+
+| 항목 | 계획 | 바뀐 내용 | 이유 |
+|---|---|---|---|
+| 진단 모델 | gpt-4.1 기준 | 우선 `gpt-6.1-sol`. 최종 조합은 비교 실험(§4 #8)에서 정한다 | 사용자 결정. temperature가 1로 고정되므로 반복 일관성을 비교 실험에서 함께 본다 |
+| 템플릿 앱 모델 | — | gpt-4.1 (llm-gateway에 직접 등록) | 템플릿 llm-gateway가 chat completions·API 버전 `2024-10-21` 고정 |
+| F5 | backend-admin 포크 수정 | API 시드 스크립트 | 템플릿 API로 충분해 포크를 고치지 않음 |
+| A5 주입 | F1 제거 | gateway 서비스 주소 env를 코드 기본값(`localhost`)으로 바꿈 | S04는 값을 보는 선언 규칙이라 env가 없으면 판정할 값이 없음. 앱 동작은 같다 |
+| 명세 결정 8건 | "사용자 확인 필요" | 추천안으로 확정 (#46): Secret 값 즉시 폐기, RBAC `dev` 한정, probe 경로 제한, API 시나리오 단계 형식, W01·P06 첫 관측 기본값, A1 기대값 `[S01]`, Service 수집 실패 시 Pod 규칙 계속 판정 | W1 PR 리뷰 |
+
+### W2 (10/19~10/25) — 에이전트 + 증상 감지(경로 B) + 조사 품질 (약 19.5시간 + 넘긴 분량 6.5시간)
 
 **학습 초점**: 가설 → 도구 검증 → 판정 루프, 근거 인용 강제, 구조화 출력, Service 라우팅과 Pod 직접 호출, 앱 층 장애가 K8s에서 어떻게 보이는가
 
@@ -195,6 +227,8 @@ KubeGuardian/
 | B1(Pod 1개만 오류) 시나리오 | 1 | `scenarios/B1` | W4 |
 | 보고서 화면 골격(FastAPI·Jinja2·HTMX) + P5 조사 과정 + P3 근거 원문 — 개발 중 에이전트 확인용으로 먼저 만듦 (Chainlit 대체) | 1.5 | `main.py`, `api/routes/`, `api/templates/` | W4 |
 | 기준 조건(규칙만) 결과 기록 + 학습 노트 | 1 | `eval/history/` | W4 |
+| (W1에서 넘김) Slack 앱 승인 요청 #9, 평가 러너 최소판 #16 | 2.5 | | W1 |
+| (W1 리뷰) 명세 결정 8건 반영 #46 | 4 | `docs/05-rules.md`, `service/` | 신규 |
 
 **Exit**
 - L1 3개(A1·A3·A5)에서 **요약 1순위 = 주입 장애**가 3개 모두 (3회 반복 다수결), 모든 보고서가 근거 검증기 통과
@@ -286,7 +320,7 @@ KubeGuardian/
 | 주차 | 기간 | 내용 | 시간 |
 |---|---|---|---|
 | W1 | 10/12~10/18 | 환경 + 기반 계약 + 규칙 점검 계층 + 에이전트 기반·테스트 | 34.5 |
-| W2 | 10/19~10/25 | 에이전트 + 증상 감지 + 조사 품질 (CP2·CP3) | 19.5 |
+| W2 | 10/19~10/25 | 에이전트 + 증상 감지 + 조사 품질 (CP2·CP3) | 19.5 (+ W1에서 넘긴 분량·명세 반영 6.5) |
 | W3 | 10/26~11/1 | 주기 점검 + Slack 알림·명령 + 보고서 화면 | 25 |
 | W4 | 11/2~11/8 | 평가 + 튜닝 + 비교 실험 1 | 17.5 |
 | **개발 합계** | | | **약 96.5** |
@@ -330,7 +364,7 @@ gantt
 
 | # | 비교 실험 | 예상 시간 | 판단 |
 |---|---|---|---|
-| 8 | 조사·선별 모델 조합 비교 (gpt-4.1 / gpt-4.1-mini / gpt-5 계열) | 1.5 | 여유 있으면 진행 (W2 말, 에이전트 골격 직후 L1·C1로) |
+| 8 | 조사·선별 모델 조합 비교 (gpt-6.1-sol / gpt-4.1 / gpt-4.1-mini / gpt-5 계열). 코드 수정 없이 모델 조합을 바꿔 돌리는 기능 포함 | 1.5 | 여유 있으면 진행 (W2 말, 에이전트 골격 직후 L1·C1로) |
 | 2 | 조사 지침 전체 주입 vs 필요한 지침만 불러오기(Skills 방식) | 2 | 여유 있으면 진행 (W2 이후) |
 | 3 | 함수 직접 호출 vs MCP 서버 경유 | 2 | 여유 있으면 진행 (W2 이후) |
 | 4 | 본인 채점 vs LLM-as-judge | 2 | 여유 있으면 진행 (W4, 근거 일치율 검토와 함께) |
@@ -363,9 +397,9 @@ gantt
 
 ## 7. 착수 전 준비물
 
-- [ ] 로컬 머신 여유 메모리 ≥ 12GB, minikube·kubectl·docker 설치
-- [ ] Azure OpenAI 배포 2종 이상 (진단 에이전트용, 진단 대상 서비스용) 및 PoC 사용·비용 승인. 사용 가능 모델: gpt-4.1, gpt-4.1-mini, gpt-4o, gpt-4o-mini, gpt-5, gpt-5-mini, gpt-5.4, gpt-5.6-luna, text-embedding-3-large·small, ada-002. 진단용은 서비스용과 쿼터를 분리하고, 채점용(LLM-as-judge)은 조사 모델과 다른 모델로 배포한다
-- [ ] 사내 SSL 프록시 CA 인증서
-- [ ] 템플릿 레포 포크 권한 (개인 또는 PoC 조직)
+- [x] 로컬 머신 여유 메모리 ≥ 12GB, minikube·kubectl·docker 설치
+- [x] Azure OpenAI 배포 2종 이상 (진단 에이전트용 `gpt-6.1-sol`, 진단 대상 서비스용 `gpt-4.1`, 10/19 확인) 및 PoC 사용·비용 승인. 사용 가능 모델: gpt-4.1, gpt-4.1-mini, gpt-4o, gpt-4o-mini, gpt-5, gpt-5-mini, gpt-5.4, gpt-5.6-luna, text-embedding-3-large·small, ada-002. 진단용은 서비스용과 쿼터를 분리하고, 채점용(LLM-as-judge)은 조사 모델과 다른 모델로 배포한다
+- [x] 사내 SSL 프록시 CA 인증서
+- [x] 템플릿 레포 포크 권한 (개인 계정으로 포크, 10/19)
 - [ ] **Slack 앱 생성 승인** (메시지 발송 `chat:write`, 슬래시 명령 `commands`, Socket Mode 앱 토큰) 및 알림 대상(기존 운영 채널 또는 DM)
-- [ ] 사내망에서 Azure OpenAI·Slack API(slack.com) 통신 허용 여부
+- [ ] 사내망에서 Azure OpenAI·Slack API(slack.com) 통신 허용 여부 (Azure OpenAI는 Pod 안에서 확인, Slack은 미확인)
