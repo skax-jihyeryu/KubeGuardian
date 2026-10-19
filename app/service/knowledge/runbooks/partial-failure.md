@@ -15,7 +15,8 @@
 | 확인할 사실 | 진단 API | 이 결과가 의미하는 것 |
 |---|---|---|
 | 실패 비율 (여러 번 호출) | `run_api_scenario` 반복 | 약 1/N이면 N개 Pod 중 하나일 가능성 |
-| Pod별 직접 호출 결과 | `probe` (Pod 지정) | 특정 Pod만 실패하면 그 Pod 문제 |
+| Pod별 오류 로그 | `get_pod_logs` (Pod 지정) | 특정 Pod 로그에만 요청 오류가 있으면 그 Pod 문제 |
+| Pod별 상태 확인 호출 | `probe` (Pod 지정) | 상태 확인 경로가 특정 Pod만 실패하면 그 Pod 문제 |
 | Pod별 노드·재시작·리소스 | `get_resource` (Pod·Node) | 실패 Pod가 같은 노드에 몰렸는지 |
 | 실패 Pod의 로그 | `get_pod_logs` | 그 Pod에만 있는 오류 |
 
@@ -23,9 +24,9 @@
 
 | 원인 후보 | 지지 근거 | 배제 근거 | 확인에 쓸 진단 API |
 |---|---|---|---|
-| 특정 Pod만 이상 (앱 오류) | 그 Pod 직접 호출만 실패, 그 Pod 로그에만 오류 | 모든 Pod 직접 호출 성공 | `probe`, `get_pod_logs` |
+| 특정 Pod만 이상 (앱 오류) | 그 Pod 로그에만 요청 오류, 그 Pod 상태 확인만 실패 | 모든 Pod 로그에 같은 비율로 오류 | `get_pod_logs`, `probe` |
 | 특정 노드 문제 | 실패 Pod가 한 노드에 몰림, 노드 조건 이상 | 노드가 섞여 있음 | `get_resource` (Node) |
-| 리소스 부족·스로틀링 | 실패 Pod의 CPU·메모리가 limits에 붙음, 지연 증가 | 리소스 여유 | `get_resource` |
+| 리소스 부족 | 실패 Pod의 OOMKilled·재시작, 응답 지연 증가 | 종료 기록 없고 지연 정상 | `get_resource`, `run_api_scenario` |
 | 타임아웃 경계 | 실패가 느린 요청에만, 로그의 timeout | 실패가 빠르게 남 | `run_api_scenario`, `get_pod_logs` |
 | 버전 혼재 (롤아웃 중) | Pod 이미지·ReplicaSet이 둘, 한 버전만 실패 | 모든 Pod가 같은 버전 | `get_resource` |
 
@@ -33,7 +34,8 @@
 
 ## 흔한 함정
 
-- Service 경유 호출은 Pod를 고르게 돌지 않는다. 한두 번 성공했다고 정상이 아니다. Pod를 지정해 직접 호출한다.
+- Service 경유 호출은 Pod를 고르게 돌지 않는다. 한두 번 성공했다고 정상이 아니다.
+- `probe`는 상태 확인 경로만 본다. 상태 확인이 성공해도 업무 API가 정상이라는 뜻은 아니다. Pod별 로그를 주 근거로 쓴다.
 - readinessProbe가 TCP면 앱 오류를 내는 Pod도 Ready로 남아 계속 트래픽을 받는다. "모든 Pod Ready"는 배제 근거가 아니다.
 - 실패 비율이 낮으면 반복 횟수를 늘려야 보인다.
 

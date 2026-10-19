@@ -27,7 +27,7 @@
 | Service selector가 Pod를 고르지 못함 | 엔드포인트 0, selector와 Pod 라벨 불일치 | 엔드포인트가 있음 | `get_resource` |
 | targetPort 불일치 | 엔드포인트는 있으나 포트가 컨테이너 포트와 다름, Pod 직접 호출은 성공 | Service 포트로 호출해도 성공 | `get_resource`, `probe` |
 | 하위 서비스 다운·기동 실패 | 하위 Pod NotReady·재시작, 엔드포인트 not ready | 하위 Pod Ready이고 직접 호출 성공 | `get_resource`, `get_events` |
-| 네트워크 정책 차단 | Pod 직접 호출 시간 초과, NetworkPolicy 존재 | 같은 경로 직접 호출 성공 | `probe`, `get_resource` |
+| 네트워크 차단 | Pod 직접 호출 시간 초과 | 같은 경로 직접 호출 성공 | `probe` |
 
 - 판정 기준: 서로 다른 출처의 근거 2개 이상으로 지지되고 나머지 후보가 배제되면 확정한다.
 
@@ -40,7 +40,7 @@
 ## 확정하지 못할 때
 
 - 주소가 env가 아니라 코드·설정 파일에 있으면 선언으로 확인할 수 없다 → "확인하지 못함"에 적고 로그 근거로만 판단한다.
-- 다른 네임스페이스의 대상은 조회 범위 밖이다.
+- 다른 네임스페이스의 대상과 NetworkPolicy는 조회 범위 밖이다.
 
 ## 권장 조치 방향
 

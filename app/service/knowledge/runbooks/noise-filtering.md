@@ -14,7 +14,7 @@
 | 확인할 사실 | 진단 API | 이 결과가 의미하는 것 |
 |---|---|---|
 | 증상이 시작된 시각 | `run_api_scenario`, 증상 입력 | 원인은 이 시각 직전·동시에 있어야 한다 |
-| 신호의 마지막 발생 시각 | `get_resource` (`lastState.terminated.finishedAt`), `get_events` (`lastTimestamp`) | 증상 시작보다 한참 전이면 관련성이 낮다 |
+| 신호의 마지막 발생 시각 | `get_events` (BackOff·Killing 등의 마지막 시각), `get_pod_logs` (previous의 로그 시각) | 증상 시작보다 한참 전이면 관련성이 낮다 |
 | 신호가 지금도 이어지는지 | `get_resource` (현재 상태), 반복 조회 | 지금 Running·Ready면 이미 회복 |
 | 신호가 난 서비스가 실패 경로에 있는지 | `get_topology` | 실패한 요청이 지나지 않는 서비스면 무관 |
 

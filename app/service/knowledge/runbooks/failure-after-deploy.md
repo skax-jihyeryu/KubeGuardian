@@ -14,7 +14,7 @@
 
 | 확인할 사실 | 진단 API | 이 결과가 의미하는 것 |
 |---|---|---|
-| 새·이전 ReplicaSet의 이미지·Ready 수 | `get_resource` (Deployment·ReplicaSet) | 새 버전만 Ready 0이면 새 버전 문제, 이전 버전이 아직 트래픽을 받는지 |
+| 버전별 Ready 수 | `get_resource` (ReplicaSet의 Ready 수, Pod의 소유 ReplicaSet·이미지) | 새 버전만 Ready 0이면 새 버전 문제, 이전 버전이 아직 트래픽을 받는지 |
 | Pod 상태 사유 | `get_resource` (Pod) | `ImagePullBackOff`·`CrashLoopBackOff`·`CreateContainerConfigError`·`OOMKilled` |
 | 경고 이벤트 | `get_events` | 이미지 받기·설정 참조·스케줄 실패의 직접 메시지 |
 | 직전 컨테이너 로그 | `get_pod_logs` (previous) | 기동 중 예외(설정·DB 연결·마이그레이션) |
@@ -26,7 +26,7 @@
 | 이미지 받기 실패 | `ErrImagePull`·`ImagePullBackOff`, 이벤트의 태그·인증 오류 | 컨테이너가 한 번이라도 시작됨 | `get_resource`, `get_events` |
 | 설정·Secret 참조 누락 | `CreateContainerConfigError`, 이벤트에 없는 ConfigMap·키 | 참조 객체·키가 모두 있음 | `get_resource`, `get_events` |
 | 기동 중 예외 (설정값·의존 서비스) | CrashLoop, previous 로그의 예외 | 재시작 없음 | `get_pod_logs` |
-| 메모리 부족 | 종료 사유 `OOMKilled`, limits 대비 사용량 | 종료 사유가 다름 | `get_resource` |
+| 메모리 부족 | 종료 사유 `OOMKilled` | 종료 사유가 다름 | `get_resource` |
 | DB 스키마·데이터 불일치 | 새 버전에서만 특정 API 500, 로그의 컬럼·테이블 오류 | 이전 버전과 같은 API가 같은 결과 | `get_pod_logs`, `run_api_scenario` |
 | 롤아웃 정체 (리소스·스케줄) | 새 Pod `Pending`, 스케줄 실패 이벤트 | 새 Pod가 스케줄됨 | `get_events` |
 
