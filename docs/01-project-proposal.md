@@ -599,8 +599,10 @@ knowledge:
 
 ## 13. 보안·권한
 
-- 전용 ServiceAccount `kubeguardian` + 최소 권한 ClusterRole (`get/list/watch`만)
-  - core: pods, pods/log, events, services, endpoints, configmaps, nodes, namespaces
+- 전용 ServiceAccount `kubeguardian` + 최소 권한 (`get/list/watch`만)
+  - 네임스페이스 리소스는 진단 대상 네임스페이스(`dev`)의 Role + RoleBinding으로만 준다. 다른 네임스페이스는 조회할 수 없다
+  - 클러스터 범위 권한(ClusterRole)은 nodes 조회만 둔다 (대상 Pod가 올라간 노드 상태 확인)
+  - core: pods, pods/log, events, services, endpoints, configmaps, namespaces · 클러스터 범위: nodes
   - `discovery.k8s.io`: endpointslices · `apps`: deployments, replicasets
   - secrets: 목록을 받되 값은 즉시 버리고 키 이름만 남긴다(C01 키 누락 판정용). RBAC상 값 읽기가 가능하다는 잔여 위험은 문서화
 - `query_app_api`: GET + 허용 목록만. 테스트 계정은 Secret으로 주입

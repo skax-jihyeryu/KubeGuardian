@@ -85,7 +85,7 @@ KubeGuardian/
 ├── tests/                     # app 구조와 같게 + fixtures/(K8s 스냅샷)
 ├── Dockerfile                 # KubeGuardian 이미지 (CronJob·Deployment 공용)
 ├── deploy/
-│   ├── kubeguardian/          # SA·ClusterRole, PVC, CronJob, diagnostic-agent Deployment·Service, Secret 예시
+│   ├── kubeguardian/          # SA·Role(dev)·ClusterRole(Node 조회), PVC, CronJob, diagnostic-agent Deployment·Service, Secret 예시
 │   └── chaos-mesh/            # 평가 환경 전용
 ├── scenarios/                 # H0, A1, A3, A5, B1, C1, C2, C5, E1 (+ 확장 후보)
 │   └── <ID>/{inject.sh, reset.sh, verify_symptom.sh, expected.yaml, README.md}
@@ -154,7 +154,7 @@ KubeGuardian/
 | 감지기 장애 신호 11종 + 개선 권고 2종 ([규칙 점검 명세](05-rules.md) 기준), 관측 기록(지속 시간 판정), 픽스처 단위 테스트 | 3.5 | `service/checks/detectors` | W2 |
 | 게이트 v0 (경로 A·C) | 0.5 | `service/checks/gate.py` | W2 |
 | 마스킹 (로그·이벤트·env) + 단위 테스트 | 1 | `core/guard/redact` | W2 |
-| SA `kubeguardian` + 최소 권한 ClusterRole | 0.5 | `deploy/kubeguardian/rbac.yaml` | W2 |
+| SA `kubeguardian` + 최소 권한 Role(dev)·ClusterRole(Node 조회) | 0.5 | `deploy/kubeguardian/rbac.yaml` | W2 |
 | 점검 실행 흐름 v0 + CLI `kg check` (규칙 결과·게이트 판정 출력) | 0.5 | `service/pipeline/`, `cli.py` | W2 |
 | A1 시나리오 | 0.5 | `scenarios/A1` | W2 |
 | ADR-001 도구 계층과 에이전트 코어의 경계 | 0.5 | `docs/adr/` | W2 |
