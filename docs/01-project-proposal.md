@@ -209,7 +209,7 @@ flowchart LR
 | ID | 수정 | 이유 |
 |---|---|---|
 | F1 | K8s 매니페스트에 서비스 주소 설정 추가 (`AGENT_SERVICE_URL` 등) | T1 수정. 없으면 정상 기준선을 만들 수 없음. 제거하면 A5 시나리오 |
-| F2 | agent 검색을 선택 기능으로 (검색 설정이 없으면 건너뜀) | Azure AI Search 미사용. 없으면 채팅이 동작하지 않음 |
+| F2 | agent 검색을 선택 기능으로 (검색 설정이 없으면 건너뜀) | Azure AI Search 미사용. 기본 경로 rag v1은 원래 검색 설정 없이 동작한다. F2는 검색 설정이 없을 때 rag v2의 검색 판단 LLM 호출(route·grade·rewrite)을 건너뛴다 |
 | F5 | 테스트 사용자 시드 | API 시나리오(로그인 → 채팅) 실행 |
 | F6 | minikube용 postgres·redis 매니페스트, 로컬 이미지 overlay | 원본은 Azure PG·Redis를 가리킴 |
 | F7 | 버전 2 이미지 (DB 컬럼 추가) | C5(스키마 드리프트) 시나리오 전용 |
