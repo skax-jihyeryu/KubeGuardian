@@ -1,4 +1,4 @@
-.PHONY: setup lint format test check run doctor secret ca build up down seed smoke
+.PHONY: setup lint format test check run doctor secret ca build up down seed smoke phoenix
 
 # 진단 대상(템플릿 포크) 위치. 포크 6개 + shared-infra가 이 아래에 있어야 한다.
 TARGET_DIR ?= $(HOME)/Cursor/kg-target
@@ -87,5 +87,9 @@ seed:  ## 진단 대상 테스트 조직·사용자·LLM 할당 (LLM 배포는 �
 
 smoke:  ## 진단 대상 E2E: front-chat 경유 로그인 → 채팅
 	TARGET_DIR=$(TARGET_DIR) TARGET_NS=$(TARGET_NS) bash scripts/target/smoke.sh
+
+phoenix:  ## 실행 추적 Phoenix 설치 (kubeguardian 네임스페이스)
+	kubectl apply -f deploy/phoenix/phoenix.yaml
+	kubectl -n kubeguardian rollout status deployment/phoenix --timeout=300s
 
 # 장애 주입·평가 타깃(inject, reset, eval)은 이후 작업에서 추가한다.

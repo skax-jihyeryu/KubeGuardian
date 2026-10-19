@@ -583,6 +583,13 @@ read -s "KEY?템플릿용 Azure 키: "; echo; curl -s localhost:18000/api/v1/llm
 
 - 키는 명령에 직접 적지 않는다. 적으면 셸 history에 남는다.
 
+### Phoenix (실행 추적)
+
+- `make phoenix`: `kubeguardian` 네임스페이스에 Phoenix(`arizephoenix/phoenix:version-20.23.0`)를 띄운다. 데이터는 emptyDir라 Pod가 다시 뜨면 비워진다.
+- 화면: `kubectl -n kubeguardian port-forward svc/phoenix 6006:6006` → http://localhost:6006
+- 클러스터 안 수집 주소: `http://phoenix.kubeguardian.svc:6006/v1/traces`(HTTP), `phoenix.kubeguardian.svc:4317`(gRPC). 로컬 실행 시 `.env`의 `OTEL_EXPORTER_OTLP_ENDPOINT`는 port-forward한 `http://localhost:6006/v1/traces`
+- Service 이름이 `phoenix`라 K8s가 `PHOENIX_PORT=tcp://...`를 자동 주입한다. 매니페스트에서 `PHOENIX_PORT=6006`으로 덮어쓴다 (없으면 기동 실패)
+
 ### 실패 시
 
 - `토큰 검증에 실패했습니다` → 로그인이 실패해 `TOKEN`이 `null`이다. 로그인 명령의 출력을 확인한다

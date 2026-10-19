@@ -1,0 +1,53 @@
+# Phoenix: 진단 에이전트 실행 추적(OpenTelemetry) 수집·조회. kubeguardian 네임스페이스에 둔다.
+# 수집: OTLP gRPC 4317, HTTP 6006(/v1/traces). 화면: 6006.
+# 데이터는 emptyDir라 Pod가 다시 뜨면 비워진다 (PoC 개발용).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phoenix
+  namespace: kubeguardian
+  labels:
+    app: phoenix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: phoenix
+  template:
+    metadata:
+      labels:
+        app: phoenix
+    spec:
+      containers:
+        - name: phoenix
+          image: arizephoenix/phoenix:version-20.23.0
+          ports:
+            - { name: http, containerPort: 6006 }
+            - { name: otlp-grpc, containerPort: 4317 }
+          env:
+            - { name: PHOENIX_WORKING_DIR, value: /data }
+            # Service 이름이 phoenix라 K8s가 PHOENIX_PORT=tcp://<IP>:<PORT>를 자동 주입한다. 정수로 덮어쓴다
+            - { name: PHOENIX_PORT, value: "6006" }
+            - { name: PHOENIX_GRPC_PORT, value: "4317" }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: phoenix
+  namespace: kubeguardian
+spec:
+  selector:
+    app: phoenix
+  ports:
+    - { name: http, port: 6006, targetPort: http }
+    - { name: otlp-grpc, port: 4317, targetPort: otlp-grpc }
