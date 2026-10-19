@@ -574,7 +574,7 @@ kubectl -n dev port-forward svc/gateway 18000:8000
 다른 터미널에서 superadmin으로 로그인한다. 초기 비밀번호는 `backend-admin/app/main.py`에 있다.
 
 ```bash
-PW=$(sed -nE 's/.*password="([^"]*)".*S106.*/\1/p' ~/Cursor/kg-target/backend-admin/app/main.py); TOKEN=$(curl -s localhost:18000/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"id\":\"superadmin\",\"password\":\"$PW\"}" | jq -r .access_token); [ "$TOKEN" != null ] && echo "로그인 OK" || echo "로그인 실패"
+PW=$(sed -nE 's/.*password="([^"]*)".*S106.*/\1/p' ~/Cursor/kg-target/backend-admin/app/main.py); TOKEN=$(curl -s localhost:18000/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"id\":\"superadmin\",\"password\":\"$PW\"}" | jq -r .access_token); [ -n "$TOKEN" ] && [ "$TOKEN" != null ] && echo "로그인 OK" || echo "로그인 실패"
 ```
 
 ```bash
@@ -582,6 +582,7 @@ read -s "KEY?템플릿용 Azure 키: "; echo; curl -s localhost:18000/api/v1/llm
 ```
 
 - 키는 명령에 직접 적지 않는다. 적으면 셸 history에 남는다.
+- `read -s "KEY?..."`는 zsh 문법이다. bash에서는 `read -rsp '템플릿용 Azure 키: ' KEY`를 쓴다.
 
 ### Phoenix (실행 추적)
 
@@ -595,6 +596,7 @@ read -s "KEY?템플릿용 Azure 키: "; echo; curl -s localhost:18000/api/v1/llm
 - `토큰 검증에 실패했습니다` → 로그인이 실패해 `TOKEN`이 `null`이다. 로그인 명령의 출력을 확인한다
 - 스모크 `LLM Gateway error: 500` + llm-gateway 로그 `CERTIFICATE_VERIFY_FAILED` → 사내 CA 번들이 없다. `make ca` 후 `make up`
 - 스모크 `LLM Gateway error: 403` → 조직에 그 모델이 할당되지 않았다. 배포를 등록한 뒤 `make seed`
+- 스모크 `로그인 실패: kg-tester` → `.env.test-user`를 새로 만들었는데 사용자는 DB에 이전 비밀번호로 남아 있다. `make down` → `make up`부터 다시 하거나, 파일을 지우지 않는다
 
 ## 운영 메모
 

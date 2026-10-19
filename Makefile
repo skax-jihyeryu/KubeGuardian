@@ -10,6 +10,8 @@ CORP_CA ?= $(HOME)/.minikube/certs/sk-ca.pem
 TARGET_NS := dev
 TARGET_BACKENDS := gateway admin agent llm-gateway
 TARGET_FRONTENDS := chat admin
+comma := ,
+space := $(subst ,, )
 TARGET_DEPLOYS := postgres redis $(TARGET_BACKENDS) $(addprefix front-,$(TARGET_FRONTENDS))
 # minikube docker-env로 빌드하면 베이스 이미지 pull이 시간 초과로 실패해, 노드에서 먼저 받아 둔다.
 TARGET_BASE_IMAGES := python:3.12-slim ghcr.io/astral-sh/uv:0.9.13 node:20 nginx:1.24.0-alpine postgres:16-alpine redis:7-alpine
@@ -43,13 +45,15 @@ doctor:  ## 로컬 도구·자원 확인 (minikube, kubectl, docker, 메모리)
 secret:  ## 진단 대상 로컬 비밀값 생성 (없을 때만, 값은 출력하지 않음)
 	@test -f $(TARGET_SECRET) || { \
 		umask 077; \
-		for k in MASTER_KEY DB_PASSWORD REDIS_ACCESS_KEY; do echo "$$k=$$(openssl rand -hex 24)"; done > $(TARGET_SECRET); \
+		for k in MASTER_KEY DB_PASSWORD REDIS_ACCESS_KEY; do v=$$(openssl rand -hex 24) || exit 1; echo "$$k=$$v"; done > $(TARGET_SECRET).tmp \
+			&& mv $(TARGET_SECRET).tmp $(TARGET_SECRET) || { rm -f $(TARGET_SECRET).tmp; exit 1; }; \
 		echo "created $(TARGET_SECRET)"; \
 	}
 
 ca:  ## 진단 대상 llm-gateway용 CA 번들 생성 (공개 CA + 사내 CA, 없을 때만)
 	@test -f $(TARGET_CA) || { \
-		cat "$$(uv run python -c 'import certifi; print(certifi.where())')" $(CORP_CA) > $(TARGET_CA) || exit 1; \
+		certifi=$$(uv run python -c 'import certifi; print(certifi.where())') || exit 1; \
+		cat "$$certifi" $(CORP_CA) > $(TARGET_CA).tmp && mv $(TARGET_CA).tmp $(TARGET_CA) || { rm -f $(TARGET_CA).tmp; exit 1; }; \
 		echo "created $(TARGET_CA)"; \
 	}
 
@@ -66,9 +70,10 @@ build:  ## 진단 대상 이미지를 minikube 노드의 docker에 빌드
 	done
 
 up: secret ca build  ## 진단 대상 환경 기동 (dev 네임스페이스, 전 Pod Ready까지 대기)
+	@# CA 번들 ConfigMap이 커서 client-side apply의 annotation 한도(256KiB)에 가깝다. server-side apply로 적용한다.
 	@# 이미지 태그(:local)가 같아 다시 빌드해도 Pod가 바뀌지 않으므로, 이미 떠 있던 앱 Deployment는 재시작한다.
 	@existed=$$(kubectl -n $(TARGET_NS) get deployment gateway -o name 2>/dev/null); \
-	kubectl apply -k $(TARGET_OVERLAY) || exit 1; \
+	kubectl apply --server-side --force-conflicts -k $(TARGET_OVERLAY) || exit 1; \
 	if [ -n "$$existed" ]; then \
 		kubectl -n $(TARGET_NS) rollout restart $(addprefix deployment/,$(TARGET_BACKENDS) $(addprefix front-,$(TARGET_FRONTENDS))); \
 	fi
@@ -77,8 +82,8 @@ up: secret ca build  ## 진단 대상 환경 기동 (dev 네임스페이스, 전
 
 down: secret ca  ## 진단 대상 환경 삭제 (dev 네임스페이스의 overlay 리소스, DB 데이터 포함)
 	kubectl delete -k $(TARGET_OVERLAY) --ignore-not-found
-	@if kubectl -n $(TARGET_NS) get pods --no-headers 2>/dev/null | grep -q .; then \
-		kubectl -n $(TARGET_NS) wait --for=delete pod --all --timeout=120s; \
+	@if kubectl -n $(TARGET_NS) get pods -l 'app in ($(subst $(space),$(comma),$(TARGET_DEPLOYS)))' --no-headers 2>/dev/null | grep -q .; then \
+		kubectl -n $(TARGET_NS) wait --for=delete pod -l 'app in ($(subst $(space),$(comma),$(TARGET_DEPLOYS)))' --timeout=120s; \
 	fi
 	kubectl -n $(TARGET_NS) get all
 

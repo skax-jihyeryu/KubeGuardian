@@ -12,9 +12,10 @@ TEST_ENV=${TEST_ENV:-.env.test-user}
 kubectl -n "$TARGET_NS" port-forward "svc/${SVC%%:*}" "$PORT:${SVC##*:}" >/dev/null 2>&1 &
 PF_PID=$!
 trap 'kill $PF_PID 2>/dev/null' EXIT
-for _ in $(seq 20); do curl -s -o /dev/null "localhost:$PORT" && break; sleep 0.5; done
-
 die() { echo "FAIL $*" >&2; exit 1; }
+
+for _ in $(seq 20); do curl -s -o /dev/null "localhost:$PORT" && break; sleep 0.5; done
+kill -0 "$PF_PID" 2>/dev/null || die "port-forward 실패: svc/${SVC%%:*} → localhost:$PORT (포트를 다른 프로세스가 쓰는지 확인)"
 
 # login <id> <password> → access token
 login() {
@@ -29,9 +30,10 @@ login() {
 api() {
   local out code
   out=$(curl -s -w '\n%{http_code}' -X "$1" "$BASE$2" -H "Authorization: Bearer $TOKEN" \
-    -H 'Content-Type: application/json' ${3:+-d "$3"})
+    -H 'Content-Type: application/json' ${3:+-d "$3"}) || die "$1 $2 → 연결 실패"
   code=$(tail -n1 <<<"$out")
-  [ "$code" -lt 400 ] || die "$1 $2 → $code $(sed '$d' <<<"$out" | jq -c 'del(.. | .access_key?, .password?)' 2>/dev/null | cut -c1-300)"
+  # 422 오류의 detail[].input에는 보낸 값(비밀번호 등)이 그대로 들어 있어 함께 지운다
+  [[ $code == 2?? ]] || die "$1 $2 → $code $(sed '$d' <<<"$out" | jq -c 'del(.. | .access_key?, .password?, .input?)' 2>/dev/null | cut -c1-300)"
   sed '$d' <<<"$out"
 }
 
