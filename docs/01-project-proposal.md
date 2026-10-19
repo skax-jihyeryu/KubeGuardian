@@ -337,7 +337,7 @@ Report (조사 보고서):
 | 출력 파싱 | 구조화 출력 스키마로 파싱. 코드펜스·비정형·null 응답 방어 |
 | 상한 | 조사 1건: 도구 ≤ 20회·150초. 요약 전체: ≤ 300초. 상한 도달 시 부분 결과 + "조사 미완" 표시 |
 | 결정성 | temperature 0, 평가 시 3회 반복 |
-| 마스킹 | 로그·**이벤트 메시지**·env에서 `password|secret|token|key|Bearer|://user:pass@` 치환. Secret 값은 수집하지 않음. **Slack으로 보내는 내용과 보고서 화면에 표시하는 내용에도 동일하게 적용** |
+| 마스킹 | 로그·**이벤트 메시지**·env에서 `password|secret|token|key|Bearer|://user:pass@` 치환. Secret은 목록을 받되 값은 즉시 버리고 키 이름만 남긴다. **Slack으로 보내는 내용과 보고서 화면에 표시하는 내용에도 동일하게 적용** |
 | 읽기 전용 | RBAC `get/list/watch`만. `query_app_api`는 GET·허용 목록만 |
 
 ### 6.6 주기 점검과 알림
@@ -430,7 +430,7 @@ AI의 일반 지식으로는 **그 환경의 사정**을 모른다. 운영자의
 | 수집 | 내용 |
 |---|---|
 | 수집 방식 | **Kubernetes API(Python `kubernetes` 클라이언트) 읽기 전용 호출**. kubectl CLI는 호출하지 않는다 (출력 파싱·쉘 실행 위험 회피, RBAC 일관 적용) |
-| 리소스 | Deployment·RS·Pod·Service·EndpointSlice·ConfigMap·Secret(메타데이터만)·Node |
+| 리소스 | Deployment·RS·Pod·Service·EndpointSlice·ConfigMap·Secret(값은 즉시 버리고 키 이름만)·Node |
 | 로그·이벤트 | 현재·이전 컨테이너 로그, 네임스페이스 이벤트 (마스킹) |
 | 앱 조회 | llm-gateway 상태·할당량 등 허용 목록 GET |
 
@@ -602,7 +602,7 @@ knowledge:
 - 전용 ServiceAccount `kubeguardian` + 최소 권한 ClusterRole (`get/list/watch`만)
   - core: pods, pods/log, events, services, endpoints, configmaps, nodes, namespaces
   - `discovery.k8s.io`: endpointslices · `apps`: deployments, replicasets
-  - secrets: metadata-only 요청으로만 사용. RBAC상 값 읽기가 가능하다는 잔여 위험은 문서화
+  - secrets: 목록을 받되 값은 즉시 버리고 키 이름만 남긴다(C01 키 누락 판정용). RBAC상 값 읽기가 가능하다는 잔여 위험은 문서화
 - `query_app_api`: GET + 허용 목록만. 테스트 계정은 Secret으로 주입
 - Slack 봇 토큰·앱 토큰은 Secret으로 주입. 권한은 `chat:write`, `commands`, Socket Mode 연결(`connections:write`)만
 - Slack 명령은 허용 채널·허용 사용자만 실행. 명령도 조회만 하므로 클러스터를 바꿀 수 없음
@@ -645,7 +645,7 @@ knowledge:
 | LLM 결과 편차 | 지표 흔들림 | temperature 0, 3회 반복, 구조화 출력 |
 | 앱 층 시나리오(C1 등) 재현 불안정 | 평가 신뢰도 | inject 후 증상 확인 스크립트, 증상이 안 나면 무효 처리 |
 | 지침이 평가 시나리오에 과적합 | 정확도 과대평가 | 장애 유형 단위로 지침 작성, 지침 작성 시 보지 않은 시나리오로 확인 (§9.3) |
-| 민감정보 외부 전송 | 보안 | 마스킹(이벤트·Slack·보고서 화면 포함), Secret 값 미수집, 필드 화이트리스트 |
+| 민감정보 외부 전송 | 보안 | 마스킹(이벤트·Slack·보고서 화면 포함), Secret 값 즉시 폐기(키 이름만 보관), 필드 화이트리스트 |
 | 보고서 화면 구현·접근 제어 | 일정 지연, 보안 | 5페이지 + 점검 실행으로 제한(약 5.5시간, Chainlit 대체분 포함), 상태 조회 기능은 넣지 않음. 접근은 port-forward로만. 일정이 밀리면 점검 실행 버튼 → P1·P2·P4 순으로 줄이고 CLI(`kg report`)로 대체 |
 | 재알림이 알림 피로를 만듦 | 신뢰 하락 | 심각도별 상한(긴급 총 3회, 주의 1회, 참고 없음), 같은 문제는 AI 재호출 없음 |
 | 점검이 조용히 멈춤 | 정상으로 오인 | 점검 중단 알림, 점검 이력 화면에서 최근 점검 시각 확인 (§6.8) |
