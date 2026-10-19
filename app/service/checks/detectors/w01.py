@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from service.checks.detectors._common import (
     Workloads,
-    inputs,
+    grouping_inputs,
     make_signal,
     name_of,
     primary_severity,
@@ -40,7 +40,7 @@ def updated_changed_at(obs: Observation | None, updated: int, now: datetime) -> 
 
 @detector(RULE)
 def detect(ctx: DetectorContext) -> list[Signal]:
-    data = inputs(ctx, *KINDS)
+    data, degraded = grouping_inputs(ctx, KINDS, ("Service",))
     if data is None:
         return [rule_unknown(ctx, RULE, KINDS)]
     wl = Workloads([], None, data["Service"])
@@ -76,5 +76,7 @@ def detect(ctx: DetectorContext) -> list[Signal]:
             ctx.observations.clear(RULE, subj)
         service = wl.service_of_deployment(dep)
         severity = primary_severity(ctx, service, fully_down=available == 0)
-        signals.append(make_signal(RULE, verdict, subj, service, values, severity))
+        signals.append(
+            make_signal(RULE, verdict, subj, service, values, severity, degraded=degraded)
+        )
     return signals

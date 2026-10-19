@@ -9,7 +9,7 @@ from typing import Any
 
 from service.checks.detectors._common import (
     Workloads,
-    inputs,
+    grouping_inputs,
     make_signal,
     name_of,
     primary_severity,
@@ -27,7 +27,7 @@ Ref = dict[str, Any]  # where, kind, name, key?, optional
 
 @detector(RULE)
 def detect(ctx: DetectorContext) -> list[Signal]:
-    data = inputs(ctx, *KINDS)
+    data, degraded = grouping_inputs(ctx, KINDS)
     if data is None:
         return [rule_unknown(ctx, RULE, KINDS)]
     keys = {
@@ -56,7 +56,9 @@ def detect(ctx: DetectorContext) -> list[Signal]:
         severity = primary_severity(ctx, service, fully_down=wl.ready_pods_like(pod) == 0)
         verdict = "detected" if missing else "passed"
         subj = subject(ctx, "Pod", name_of(pod))
-        signals.append(make_signal(RULE, verdict, subj, service, values, severity))
+        signals.append(
+            make_signal(RULE, verdict, subj, service, values, severity, degraded=degraded)
+        )
     return signals
 
 

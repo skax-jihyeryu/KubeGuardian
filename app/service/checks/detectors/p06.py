@@ -5,8 +5,8 @@ from typing import Any
 from service.checks.detectors._common import (
     Workloads,
     container_statuses,
+    grouping_inputs,
     hold_verdict,
-    inputs,
     make_signal,
     name_of,
     primary_severity,
@@ -36,7 +36,7 @@ def previous_restart_counts(previous: ClusterSnapshot | None) -> dict[tuple[str,
 
 @detector(RULE)
 def detect(ctx: DetectorContext) -> list[Signal]:
-    data = inputs(ctx, *KINDS)
+    data, degraded = grouping_inputs(ctx, KINDS)
     if data is None:
         return [rule_unknown(ctx, RULE, KINDS)]
     wl = Workloads(data["Pod"], data["ReplicaSet"], data["Service"])
@@ -63,7 +63,9 @@ def detect(ctx: DetectorContext) -> list[Signal]:
             subj = subject(ctx, "Pod", name_of(pod), name)
             verdict = hold_verdict(ctx, RULE, subj, met)
             severity = primary_severity(ctx, service, fully_down=wl.ready_pods_like(pod) == 0)
-            signals.append(make_signal(RULE, verdict, subj, service, values, severity))
+            signals.append(
+                make_signal(RULE, verdict, subj, service, values, severity, degraded=degraded)
+            )
     return signals
 
 

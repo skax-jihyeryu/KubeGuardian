@@ -35,6 +35,18 @@ mixin은 Prometheus가 15초~1분 간격으로 평가한 결과가 `for` 동안 
 - "확인하지 못함"이면 기록을 그대로 둔다 (판정 보류).
 - 점검 간격 사이에 잠깐 회복됐다 다시 나빠진 경우는 놓칠 수 있다. mixin이 `max_over_time`으로 보정하는 부분은 규칙별로 적었다 (P06).
 
+### 0.3 묶음용 데이터를 수집하지 못했을 때
+
+Service·ReplicaSet은 여러 규칙에서 판정 조건이 아니라 **신호를 서비스로 묶는 데만** 쓴다. 이것을 못 읽었다고 Pod 규칙까지 "확인하지 못함"으로 두면 장애를 놓치므로, 묶음만 바꿔 판정을 계속한다.
+
+| 항목 | 내용 |
+|---|---|
+| 대상 규칙 | Service 실패: P03, P06, P07, C01, H02, W01, W02. ReplicaSet 실패: P03, P06, P07, C01, H02 |
+| 묶음 | Service를 못 읽으면 서비스 이름 대신 Deployment 이름으로 묶는다 (Service가 고르지 않는 Pod를 묶는 방식과 같다). ReplicaSet도 못 읽으면 Pod의 ReplicaSet 소유자 이름(`<Deployment>-<pod-template-hash>`)에서 끝의 해시를 떼어 Deployment 이름으로 쓴다 |
+| 1차 심각도 | 이 상태에서 나온 적발은 🔴 긴급을 🟠 주의로 낮춘다. 서비스 이름이 핵심 경로(§3)와 맞는지 확신할 수 없기 때문이다 |
+| 근거로 남길 값 | 각 신호의 판정에 쓴 값에 `failed_kinds`(못 읽은 kind → 사유)를 넣는다. 묶음을 바꿔 판정했다는 사실이 신호마다 남는다 |
+| 계속 "확인하지 못함" | 판정 조건에 직접 쓰는 kind가 실패한 경우. H01(Service가 고르는 Pod만 봄), W02의 ReplicaSet(새·이전 ReplicaSet의 Ready 수), S 규칙의 Service, Pod·Deployment·ConfigMap·Secret·EndpointSlice·Node |
+
 ## 1. ID 체계
 
 ID는 **대상 리소스 카테고리 접두사 + 번호**다.

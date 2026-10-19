@@ -18,6 +18,25 @@ def inputs(ctx: DetectorContext, *kinds: str) -> dict[str, list[Obj]] | None:
     return None if any(v is None for v in out.values()) else out  # type: ignore[return-value]
 
 
+GROUPING_KINDS = ("Service", "ReplicaSet")
+
+
+def grouping_inputs(
+    ctx: DetectorContext, kinds: tuple[str, ...], grouping: tuple[str, ...] = GROUPING_KINDS
+) -> tuple[dict[str, list[Obj] | None] | None, dict[str, str]]:
+    """묶음에만 쓰는 kind(grouping)는 수집에 실패해도 판정을 계속한다 (05-rules §0.3).
+
+    나머지 kind가 하나라도 없으면 (None, {}). 아니면 (kind → 목록(실패한 묶음용 kind는 None),
+    실패한 묶음용 kind → 사유). 사유가 있으면 신호를 `make_signal(degraded=...)`로 만든다.
+    """
+    required = [k for k in kinds if k not in grouping]
+    if inputs(ctx, *required) is None:
+        return None, {}
+    out = {kind: ctx.snapshot.items(kind) for kind in kinds}
+    degraded = {k: ctx.snapshot.failed.get(k, "수집하지 않음") for k in kinds if out[k] is None}
+    return out, degraded
+
+
 def rule_unknown(
     ctx: DetectorContext, rule_id: str, kinds: tuple[str, ...], message: str = ""
 ) -> Signal:
@@ -44,8 +63,17 @@ def make_signal(
     values: dict[str, Any],
     severity: Severity | None = None,
     message: str = "",
+    degraded: dict[str, str] | None = None,
 ) -> Signal:
-    """severity는 적발일 때만 남긴다."""
+    """severity는 적발일 때만 남긴다.
+
+    degraded(묶음용 kind 수집 실패 → 사유)가 있으면 values의 `failed_kinds`에 남기고,
+    서비스 묶음을 확신할 수 없으므로 긴급을 주의로 낮춘다 (05-rules §0.3).
+    """
+    if degraded:
+        values = {**values, "failed_kinds": degraded}
+        if severity == "critical":
+            severity = "warning"
     return Signal(
         rule_id=rule_id,
         verdict=verdict,
@@ -137,16 +165,22 @@ class Workloads:
 
     서비스 이름은 Pod(또는 Pod 템플릿)를 선택하는 Service 이름(여럿이면 이름순 첫째),
     없으면 Deployment 이름, 그것도 없으면 Pod 이름이다.
+
+    replicasets가 None(수집 실패)이면 Pod의 ReplicaSet 소유자 이름에서 끝의
+    `-<pod-template-hash>`를 떼어 Deployment 이름으로 쓴다 (05-rules §0.3).
     """
 
     def __init__(self, pods: list[Obj], replicasets: list[Obj] | None, services: list[Obj] | None):
         self.pods = pods
+        self._rs_unknown = replicasets is None
         self.replicasets = replicasets or []
         self.services = services or []
         self._rs_owner = {name_of(rs): owner(rs, "Deployment") for rs in self.replicasets}
 
     def deployment_of(self, pod: Obj) -> str | None:
         rs = owner(pod, "ReplicaSet")
+        if rs and self._rs_unknown:
+            return rs.rsplit("-", 1)[0] if "-" in rs else None
         return self._rs_owner.get(rs) if rs else None
 
     def service_for_labels(self, labels: dict[str, str] | None, fallback: str) -> str:

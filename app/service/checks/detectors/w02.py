@@ -5,8 +5,8 @@ from typing import Any
 from service.checks.detectors._common import (
     Workloads,
     condition,
+    grouping_inputs,
     hold_verdict,
-    inputs,
     make_signal,
     name_of,
     owner,
@@ -24,7 +24,7 @@ _REVISION = "deployment.kubernetes.io/revision"
 
 @detector(RULE)
 def detect(ctx: DetectorContext) -> list[Signal]:
-    data = inputs(ctx, *KINDS)
+    data, degraded = grouping_inputs(ctx, KINDS, ("Service",))
     if data is None:
         return [rule_unknown(ctx, RULE, KINDS)]
     wl = Workloads([], None, data["Service"])
@@ -46,7 +46,9 @@ def detect(ctx: DetectorContext) -> list[Signal]:
         # 이전 버전 Pod가 Ready로 남아 있으면 주의, 없으면 §3 기준 (Ready Pod가 하나도 없으면 긴급)
         ready = sum(rs["ready"] for rs in [*([new] if new else []), *old])
         severity = primary_severity(ctx, service, fully_down=ready == 0)
-        signals.append(make_signal(RULE, verdict, subj, service, values, severity))
+        signals.append(
+            make_signal(RULE, verdict, subj, service, values, severity, degraded=degraded)
+        )
     return signals
 
 
