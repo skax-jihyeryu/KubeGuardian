@@ -30,7 +30,9 @@ class GetPodLogs(Tool):
         container: K8sName | None = Field(default=None, description="비우면 첫 번째 컨테이너")
         previous: bool = False
         tail: int = Field(default=100, ge=1, le=MAX_LOG_TAIL)
-        grep: str | None = Field(default=None, min_length=1, max_length=100)
+        grep: str | None = Field(  # 한 줄 요약에 들어가므로 개행은 받지 않는다
+            default=None, min_length=1, max_length=100, pattern=r"^[^\r\n]+$"
+        )
 
     def collect(self, args: Input, ctx: ToolContext) -> ToolObservation:
         container = args.container or _first_container(ctx, args.pod)

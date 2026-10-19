@@ -62,3 +62,10 @@ def service_port(service: dict[str, Any]) -> int:
     if not ports or "port" not in ports[0]:
         raise ValueError(f"Service {service['metadata']['name']}에 포트가 없음")
     return ports[0]["port"]
+
+
+def ensure_in_namespace(service: dict[str, Any]) -> None:
+    """ExternalName Service는 DNS로 네임스페이스 밖을 가리키므로 부르지 않는다."""
+    if service["spec"].get("type") == "ExternalName":
+        name = service["metadata"]["name"]
+        raise ValueError(f"Service {name}은 ExternalName이라 부르지 않는다 (네임스페이스 밖)")

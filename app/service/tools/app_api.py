@@ -18,7 +18,16 @@ from pydantic import BaseModel, Field
 from core.config import ApiScenario
 from core.error.service_exception import ErrorCode, ServiceException
 from core.http import HttpCallError, HttpResponse
-from service.tools._common import HttpPath, K8sName, by_name, clip, read, require, service_port
+from service.tools._common import (
+    HttpPath,
+    K8sName,
+    by_name,
+    clip,
+    ensure_in_namespace,
+    read,
+    require,
+    service_port,
+)
 from service.tools.base import Tool, ToolContext, ToolObservation
 
 MAX_KEYS, MAX_LIST, MAX_DEPTH = 30, 20, 4
@@ -28,11 +37,13 @@ DEFAULT_STEP_TIMEOUT_S = 10.0
 _TOKEN_FIELDS = ("access_token", "accessToken", "token")
 
 
-def _port(ctx: ToolContext, service: str) -> int:
+def _port(ctx: ToolContext, service: str, port: int | None = None) -> int:
+    """대상 네임스페이스의 Service인지(ExternalName 아님) 확인하고 포트를 정한다."""
     svc = by_name(require(read(ctx, "Service"), "Service"), service)
     if svc is None:
         raise ServiceException(ErrorCode.NOT_FOUND, f"Service {service}이 대상 네임스페이스에 없음")
-    return service_port(svc)
+    ensure_in_namespace(svc)
+    return port or service_port(svc)
 
 
 class QueryAppApi(Tool):
@@ -136,18 +147,19 @@ def _run_step(
     if action not in ("login", "call"):
         raise ValueError(f"모르는 시나리오 단계: {action}")
     via, path = spec["via"], spec["path"]
-    port = spec.get("port") or _port(ctx, via)
+    port = _port(ctx, via, spec.get("port"))
     timeout = float(spec.get("timeout_s", DEFAULT_STEP_TIMEOUT_S))
-    method = (
-        "POST" if action == "login" else spec.get("method", "POST" if "body" in spec else "GET")
-    )
+    # call의 기본 메서드는 POST다 (예시 설정의 /agent/invoke). 조회 단계는 method: GET을 적는다
+    method = "POST" if action == "login" else spec.get("method", "POST")
     out: dict[str, Any] = {"action": action, "via": via, "path": path, "method": method}
     try:
         if action == "login":
             account = ctx.http.account(spec["account_secret"])
             resp = ctx.http.post(service=via, port=port, path=path, json=account, timeout_s=timeout)
         elif method == "GET":
-            resp = ctx.http.get(service=via, port=port, path=path, timeout_s=timeout)
+            resp = ctx.http.get(
+                service=via, port=port, path=path, headers=headers or None, timeout_s=timeout
+            )
         elif method == "POST":
             resp = ctx.http.post(
                 service=via,
@@ -171,7 +183,9 @@ def _run_step(
     if action == "login" and ok:
         payload = resp.json()
         if isinstance(payload, dict):
-            token = next((payload[k] for k in _TOKEN_FIELDS if payload.get(k)), None)
+            token = next(
+                (payload[k] for k in _TOKEN_FIELDS if isinstance(payload.get(k), str)), None
+            )
     return out, token
 
 

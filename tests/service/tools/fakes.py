@@ -159,9 +159,11 @@ class FakeHttp:
         self.responses = responses or {}
         self.accounts = accounts or {}
         self.calls: list[tuple] = []
+        self.headers: list = []  # GET에 보낸 헤더 (호출 순서)
 
-    def get(self, *, port, path, service=None, pod_ip=None, timeout_s=None):
+    def get(self, *, port, path, service=None, pod_ip=None, headers=None, timeout_s=None):
         self.calls.append(("GET", service or pod_ip, port, path))
+        self.headers.append(headers)
         return self._respond(service or pod_ip, path)
 
     def post(self, *, service, port, path, json=None, headers=None, timeout_s=None):

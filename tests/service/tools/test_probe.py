@@ -1,5 +1,6 @@
 import pytest
 
+import service.tools.probe as probe_module
 from core.error.service_exception import ServiceException
 from core.http import HttpCallError
 from service.tools.probe import Probe
@@ -109,3 +110,64 @@ def test_probe_pod_target_via_service_is_rejected(make_ctx):
 def test_probe_rejects_bad_input(make_ctx, args):
     with pytest.raises(ServiceException):
         Probe().run(args, make_ctx(_k8s(), FakeHttp()))
+
+
+def test_probe_rejects_external_name_service(make_ctx):
+    external = service("ext")
+    external["spec"] = {"type": "ExternalName", "externalName": "api.example.com"}
+    k8s = FakeK8s({"Service": [external], "Pod": []})
+    http = FakeHttp()
+
+    result = Probe().run({"target": "ext", "path": "/"}, make_ctx(k8s, http))
+
+    assert not result.ok
+    assert "ExternalName" in result.summary
+    assert http.calls == []
+
+
+def test_probe_via_pod_keeps_pod_and_port_per_call(make_ctx):
+    result = Probe().run(
+        {"target": "gateway", "path": "/", "via": "pod", "times": 1}, make_ctx(_k8s(), FakeHttp())
+    )
+
+    assert result.data["calls"][0] == {
+        "pod": "gateway-1",
+        "port": 8080,
+        "status": 200,
+        "latency_ms": 12.0,
+    }
+
+
+def test_probe_total_calls_are_capped(make_ctx):
+    pods = [pod(f"gateway-{i}", ip=f"10.0.1.{i}") for i in range(5)]
+    k8s = FakeK8s({"Service": [service("gateway")], "Pod": pods})
+    http = FakeHttp()
+
+    result = Probe().run(
+        {"target": "gateway", "path": "/", "via": "pod", "times": 10}, make_ctx(k8s, http)
+    )
+
+    assert len(http.calls) == probe_module.MAX_CALLS
+    assert result.truncated
+    assert "멈춤" in result.summary
+
+
+def test_probe_stops_at_deadline(make_ctx, monkeypatch):
+    ticks = iter([0.0, 0.0, 10.0, 31.0])
+    monkeypatch.setattr(probe_module, "_clock", lambda: next(ticks))
+    http = FakeHttp()
+
+    result = Probe().run({"target": "gateway", "path": "/", "times": 5}, make_ctx(_k8s(), http))
+
+    assert len(http.calls) == 2
+    assert result.truncated
+
+
+def test_probe_service_without_selector_says_why(make_ctx):
+    k8s = FakeK8s({"Service": [service("gateway", selector={})], "Pod": [pod("gateway-1")]})
+
+    result = Probe().run(
+        {"target": "gateway", "path": "/", "via": "pod"}, make_ctx(k8s, FakeHttp())
+    )
+
+    assert "selector가 없음" in result.summary

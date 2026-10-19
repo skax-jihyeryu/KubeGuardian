@@ -1,6 +1,8 @@
+from pathlib import Path
+
 import pytest
 
-from core.config import ApiScenario
+from core.config import ApiScenario, load_kubeguardian_config
 from core.error.service_exception import ServiceException
 from core.http import HttpCallError, HttpResponse
 from service.tools.app_api import QueryAppApi, RunApiScenario
@@ -195,3 +197,51 @@ def test_scenario_rejects_unknown_step_action(make_ctx):
 def test_scenario_name_validation(make_ctx):
     with pytest.raises(ServiceException):
         RunApiScenario(SCENARIOS).run({"name": "a b"}, make_ctx(_k8s(), FakeHttp()))
+
+
+def test_query_app_api_rejects_external_name_service(make_ctx):
+    external = service("llm-gateway")
+    external["spec"] = {"type": "ExternalName", "externalName": "x.other-ns.svc.cluster.local"}
+    http = FakeHttp()
+
+    result = QueryAppApi(ALLOW).run(
+        {"app": "llm-gateway", "path": "/api/v1/health"},
+        make_ctx(FakeK8s({"Service": [external]}), http),
+    )
+
+    assert not result.ok
+    assert http.calls == []
+
+
+def test_example_config_scenario_posts_with_login_token(make_ctx):
+    example = Path(__file__).parents[3] / "kubeguardian.example.yaml"
+    scenarios = load_kubeguardian_config(example).api_scenarios
+    http = _scenario_http(HttpResponse(200, 1.0, "{}"))
+
+    result = RunApiScenario(scenarios).run({"name": "chat"}, make_ctx(_k8s(), http))
+
+    assert result.data["failed_step"] is None
+    login, invoke = http.calls
+    assert invoke[:4] == ("POST", "gateway", 80, "/api/v1/agent/invoke")
+    assert invoke[5] == {"Authorization": "Bearer tok-abcdefgh12345678"}
+
+
+def test_get_step_sends_login_token_and_ignores_non_string_token(make_ctx):
+    steps = [
+        {"login": {"via": "gateway", "path": "/login", "account_secret": "kg-test-user"}},
+        {"call": {"via": "gateway", "path": "/me", "method": "GET"}},
+    ]
+    scenarios = [ApiScenario(name="me", steps=steps)]
+    ok_http = FakeHttp(
+        {("gateway", "/login"): HttpResponse(200, 1.0, '{"token": "tok-abcdefgh12345678"}')},
+        accounts=ACCOUNTS,
+    )
+    odd_http = FakeHttp(
+        {("gateway", "/login"): HttpResponse(200, 1.0, '{"token": {"v": 1}}')}, accounts=ACCOUNTS
+    )
+
+    RunApiScenario(scenarios).run({"name": "me"}, make_ctx(_k8s(), ok_http))
+    RunApiScenario(scenarios).run({"name": "me"}, make_ctx(_k8s(), odd_http))
+
+    assert ok_http.headers == [{"Authorization": "Bearer tok-abcdefgh12345678"}]
+    assert odd_http.headers == [None]

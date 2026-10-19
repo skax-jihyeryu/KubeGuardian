@@ -5,16 +5,18 @@ HTTP 클라이언트)로 GET만 한다. Service 경유로 반복 호출하거나
 Pod)를 직접 호출해 특정 Pod만 실패하는지 가린다. 호출 하나의 실패는 결과에 기록하고 계속한다.
 """
 
+import time
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from core.error.service_exception import ErrorCode, ServiceException
-from core.http import HttpCallError
+from core.http import DEFAULT_TIMEOUT_S, HttpCallError
 from service.tools._common import (
     HttpPath,
     K8sName,
     by_name,
+    ensure_in_namespace,
     matches,
     read,
     require,
@@ -23,6 +25,9 @@ from service.tools._common import (
 from service.tools.base import Tool, ToolContext, ToolObservation
 
 MAX_PODS = 10  # via=pod로 직접 부르는 Pod 상한
+MAX_CALLS = 20  # 도구 호출 한 번의 HTTP 호출 상한 (Pod 수 × times)
+DEADLINE_S = 30.0  # 도구 호출 한 번의 전체 시간 상한 (조사 150초 안에 머물기 위함)
+_clock = time.monotonic
 
 Obj = dict[str, Any]
 
@@ -46,22 +51,24 @@ class Probe(Tool):
         snapshot = read(ctx, "Service", "Pod")
         svc = by_name(require(snapshot, "Service"), args.target)
         pods = require(snapshot, "Pod")
-        calls: list[Obj] = []
+        note = ""
+        # 계획: (호출 대상, 포트, Pod 이름) 목록. 실행은 상한·마감 시각을 지키며 한다
+        plan: list[tuple[dict[str, str], int, str | None]] = []
         if svc is not None:
             kind = "Service"
+            ensure_in_namespace(svc)
             if args.via == "service":
                 port = service_port(svc)
-                calls = [
-                    _call(ctx, port, args.path, service=args.target) for _ in range(args.times)
-                ]
+                plan = [({"service": args.target}, port, None)] * args.times
             else:
                 selector = svc["spec"].get("selector") or {}
                 targets = [
                     p for p in pods if selector and matches(p["metadata"].get("labels"), selector)
                 ]
-                port = None
+                if not targets:
+                    note = " (selector가 없음)" if not selector else " (selector에 맞는 Pod 없음)"
                 for p in targets[:MAX_PODS]:
-                    calls += _pod_calls(ctx, p, _pod_port(p, svc), args.path, args.times)
+                    plan += _pod_plan(p, _pod_port(p, svc), args.times)
         else:
             p = by_name(pods, args.target)
             if p is None:
@@ -70,29 +77,33 @@ class Probe(Tool):
                 )
             if args.via == "service":
                 raise ValueError(f"{args.target}은 Pod다. Pod를 직접 부르려면 via=pod")
-            kind, port = "Pod", None
-            calls = _pod_calls(ctx, p, _pod_port(p, None), args.path, args.times)
+            kind = "Pod"
+            plan = _pod_plan(p, _pod_port(p, None), args.times)
 
+        calls = _execute(ctx, plan[:MAX_CALLS], args.path)
+        truncated = len(calls) < len(plan) or (
+            svc is not None and args.via == "pod" and len(targets) > MAX_PODS
+        )
         ok = sum(1 for c in calls if _success(c))
         data: Obj = {
             "target": args.target,
             "via": args.via,
             "path": args.path,
-            "port": port,
             "ok": ok,
             "fail": len(calls) - ok,
             "calls": calls,
         }
         summary = f"{kind} {args.target} {args.path} "
         if args.via == "service":
-            summary += f"서비스 경유 {args.times}회"
+            data["port"] = plan[0][1]
+            summary += f"서비스 경유 {len(calls)}회"
         else:
             per_pod: dict[str, Obj] = {}
             for c in calls:
-                counts = per_pod.setdefault(c.pop("pod"), {"ok": 0, "fail": 0})
+                counts = per_pod.setdefault(c["pod"], {"ok": 0, "fail": 0})
                 counts["ok" if _success(c) else "fail"] += 1
             data["pods"] = per_pod
-            summary += f"Pod 직접 {len(per_pod)}개×{args.times}회"
+            summary += f"Pod 직접 {len(per_pod)}개×{args.times}회{note}"
         summary += f": 성공 {ok}·실패 {len(calls) - ok}"
         latencies = [c["latency_ms"] for c in calls if c["latency_ms"] is not None]
         if latencies:
@@ -100,12 +111,15 @@ class Probe(Tool):
         failed_pods = [name for name, n in data.get("pods", {}).items() if n["fail"]]
         if failed_pods:
             summary += f", 실패 Pod: {', '.join(failed_pods)}"
+        if truncated:
+            summary += f" (호출 상한 {MAX_CALLS}회·{DEADLINE_S:g}초에서 멈춤)"
         return ToolObservation(
             kind="probe_result",
             subject=f"{ctx.namespace}/{kind}/{args.target}",
             source=f"GET {args.path} via={args.via} x{args.times}",
             summary=summary,
             data=data,
+            truncated=truncated,
         )
 
 
@@ -113,19 +127,32 @@ def _success(call: Obj) -> bool:
     return call["status"] is not None and call["status"] < 400
 
 
-def _call(ctx: ToolContext, port: int, path: str, **target: str) -> Obj:
-    try:
-        resp = ctx.http.get(port=port, path=path, **target)
-    except HttpCallError as e:
-        return {"status": None, "latency_ms": None, "error": str(e)}
-    return {"status": resp.status, "latency_ms": resp.elapsed_ms}
-
-
-def _pod_calls(ctx: ToolContext, pod: Obj, port: int, path: str, times: int) -> list[Obj]:
+def _pod_plan(pod: Obj, port: int, times: int) -> list[tuple[dict[str, str], int, str | None]]:
     name, ip = pod["metadata"]["name"], pod["status"].get("podIP")
-    if not ip:
-        return [{"pod": name, "status": None, "latency_ms": None, "error": "Pod IP 없음"}]
-    return [{"pod": name, **_call(ctx, port, path, pod_ip=ip)} for _ in range(times)]
+    return [({"pod_ip": ip} if ip else {}, port, name)] * times
+
+
+def _execute(ctx: ToolContext, plan: list, path: str) -> list[Obj]:
+    """계획한 호출을 차례로 한다. 마감 시각(DEADLINE_S)을 넘기면 남은 호출을 하지 않는다."""
+    deadline = _clock() + DEADLINE_S
+    calls = []
+    for target, port, pod in plan:
+        left = deadline - _clock()
+        if left <= 0:
+            break
+        call: Obj = {"pod": pod, "port": port} if pod else {}
+        if not target:
+            calls.append({**call, "status": None, "latency_ms": None, "error": "Pod IP 없음"})
+            continue
+        try:
+            resp = ctx.http.get(
+                port=port, path=path, timeout_s=min(DEFAULT_TIMEOUT_S, left), **target
+            )
+            call.update(status=resp.status, latency_ms=resp.elapsed_ms)
+        except HttpCallError as e:
+            call.update(status=None, latency_ms=None, error=str(e))
+        calls.append(call)
+    return calls
 
 
 def _pod_port(pod: Obj, svc: Obj | None) -> int:

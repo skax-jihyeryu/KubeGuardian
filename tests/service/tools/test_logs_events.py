@@ -91,7 +91,10 @@ def test_pod_logs_unknown_pod_fails(make_ctx):
     assert "nope" in result.summary
 
 
-@pytest.mark.parametrize("args", [{"pod": "a", "tail": 201}, {"pod": "a", "tail": 0}])
+@pytest.mark.parametrize(
+    "args",
+    [{"pod": "a", "tail": 201}, {"pod": "a", "tail": 0}, {"pod": "a", "grep": "a\nb"}],
+)
 def test_pod_logs_tail_limit(make_ctx, args):
     with pytest.raises(ServiceException):
         GetPodLogs().run(args, make_ctx(_k8s()))
@@ -167,3 +170,12 @@ def test_events_are_limited(make_ctx):
     assert len(result.data["events"]) == 20
     assert result.data["count"] == 30
     assert result.truncated
+
+
+def test_events_without_reason_are_named_in_summary(make_ctx):
+    e = event("x", "Pod", "p", "2026-10-20T00:55:00Z")
+    del e["reason"]
+
+    result = GetEvents().run({}, make_ctx(FakeK8s({"Event": [e]})))
+
+    assert "사유 없음 1" in result.summary

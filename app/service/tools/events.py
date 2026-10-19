@@ -45,7 +45,7 @@ class GetEvents(Tool):
         events = [_event(e) for _, e in found[:MAX_ITEMS]]
 
         warnings = sum(1 for _, e in found if e.get("type") == "Warning")
-        reasons = Counter(e.get("reason") for _, e in found).most_common(3)
+        reasons = Counter(e.get("reason") or "사유 없음" for _, e in found).most_common(3)
         summary = f"이벤트 {len(found)}건 (Warning {warnings}) 최근 {args.since_minutes}분"
         if reasons:
             summary += ": " + ", ".join(f"{r} {n}" for r, n in sorted(reasons, key=_by_count))

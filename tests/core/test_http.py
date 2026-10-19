@@ -62,6 +62,10 @@ def test_post_sends_json_and_headers():
         {"service": "gateway", "port": 80, "path": "/a b"},
         {"service": "gateway", "port": 0, "path": "/"},
         {"pod_ip": "evil.com", "port": 80, "path": "/"},
+        {"pod_ip": "127.0.0.1", "port": 80, "path": "/"},
+        {"pod_ip": "169.254.169.254", "port": 80, "path": "/"},
+        {"pod_ip": "0.0.0.0", "port": 80, "path": "/"},
+        {"pod_ip": "::1", "port": 80, "path": "/"},
         {"port": 80, "path": "/"},
         {"service": "gateway", "pod_ip": "10.0.0.5", "port": 80, "path": "/"},
     ],
@@ -105,3 +109,21 @@ def test_account_reads_injected_test_account():
     assert http.account("kg-test-user") == {"username": "u", "password": "p"}
     with pytest.raises(KeyError):
         http.account("other")
+
+
+def test_get_can_send_headers():
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers.get("authorization"))
+        return httpx.Response(200)
+
+    _client(handler).get(service="gateway", port=80, path="/", headers={"Authorization": "x"})
+
+    assert seen == ["x"]
+
+
+def test_proxy_environment_is_ignored(monkeypatch):
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.corp:3128")
+
+    assert NamespacedHttp("dev")._client.trust_env is False
