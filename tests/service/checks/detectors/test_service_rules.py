@@ -168,6 +168,15 @@ def test_s04_excludes_external_hosts():
     assert [a["env"] for a in s.values["addresses"]] == ["AGENT_SERVICE_URL"]
 
 
+def test_s04_keeps_value_per_calling_service():
+    # 리뷰 지적: 같은 env 이름·값을 여러 서비스가 쓰면 값이 근거에서 빠졌다
+    signals = run("S04", context(snapshot("s04/two_callers")))
+    for subj in (GW_SVC, "dev/Deployment/front-chat"):  # front-chat은 선택하는 Service 없음
+        s = one(signals, subj)
+        assert s.verdict == "detected"
+        assert s.values["addresses"][0]["value"] == "http://localhost:8006"
+
+
 def _topology(monkeypatch, topology):
     import service.checks.detectors.s04 as s04
 
@@ -198,3 +207,36 @@ def test_s04_detected_address_wins_over_unchecked(monkeypatch):
 def test_s04_works_without_unchecked_field(monkeypatch):
     _topology(monkeypatch, Topology(services=["gateway"], edges=[]))
     assert run("S04", context(snapshot())) == []
+
+
+def _mutated_snapshot(mutate):
+    from service.sensors.collector import collect
+    from tests.service.checks.detectors.cases import FixtureReader, raw_cluster
+
+    objects, failed = raw_cluster()
+    mutate(objects)
+    return collect(FixtureReader(objects, failed), now=NOW)
+
+
+def _by_name(objects, kind, name):
+    return next(o for o in objects[kind] if o["metadata"]["name"] == name)
+
+
+def test_s02_treats_missing_ready_as_ready():
+    # EndpointSlice API: conditions.ready가 nil이면 true로 해석한다
+    def mutate(objects):
+        for ep in _by_name(objects, "EndpointSlice", "agent-m4q9t")["endpoints"]:
+            ep["conditions"] = {}
+
+    s = one(run("S02", context(_mutated_snapshot(mutate))), AGENT_SVC)
+    assert (s.verdict, s.values["ready"]) == ("passed", 2)
+
+
+def test_s01_lists_closest_pod_labels_first():
+    # agent Pod는 selector 쌍 하나(app)가 맞고 gateway Pod는 0개다. Pod 목록 순서는 gateway가 먼저
+    def mutate(objects):
+        _by_name(objects, "Service", "agent")["spec"]["selector"] = {"app": "agent", "tier": "api"}
+
+    s = one(run("S01", context(_mutated_snapshot(mutate))), AGENT_SVC)
+    assert s.verdict == "detected"
+    assert s.values["similar_pod_labels"][0]["app"] == "agent"

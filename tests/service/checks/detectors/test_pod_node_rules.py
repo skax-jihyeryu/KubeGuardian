@@ -128,3 +128,16 @@ def test_p07_excludes_old_oom_kill():
 
 def test_p07_passes_without_termination():
     assert one(run("P07", context(snapshot())), X2K).verdict == "passed"
+
+
+def test_n01_is_still_observing_at_14_minutes(obs):
+    obs.seed("N01", "Node/minikube", NOW - timedelta(minutes=14))
+    s = one(run("N01", context(snapshot("n01/detected"), observations=obs)), "Node/minikube")
+    assert s.verdict == "observing"
+
+
+def test_p07_ignores_finish_time_without_timezone():
+    from service.checks.detectors.p07 import _parse
+
+    assert _parse("2026-10-20T00:50:00") is None  # aware now와 비교할 수 없어 판정에 쓰지 않음
+    assert _parse("2026-10-20T00:50:00Z") is not None

@@ -46,7 +46,8 @@ def detect(ctx: DetectorContext) -> list[Signal]:
             for ep in eps.get("endpoints") or []
             if not (ep.get("conditions") or {}).get("terminating")  # 제외: 종료 중
         ]
-        ready = [ep for ep in endpoints if (ep.get("conditions") or {}).get("ready")]
+        # ready가 비어 있으면 true로 본다 (EndpointSlice API: nil은 true로 해석)
+        ready = [ep for ep in endpoints if (ep.get("conditions") or {}).get("ready", True)]
         values = {
             "ready": len(ready),
             "total": len(endpoints),

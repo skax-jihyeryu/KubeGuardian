@@ -44,8 +44,8 @@ def _run_one(rule_id: str, detect, ctx: DetectorContext) -> list[Signal]:
         for s in result:
             if s.rule_id != rule_id:
                 raise ValueError(f"다른 규칙의 결과: {s.rule_id}")
-            if s.verdict == "detected" and s.severity is None:
-                raise ValueError(f"적발인데 1차 심각도가 없음: {s.subject}")
+            if s.verdict == "detected" and s.severity not in CATALOG[rule_id].severities:
+                raise ValueError(f"규칙 목록에 없는 1차 심각도 {s.severity}: {s.subject}")
         return result
     except Exception as e:  # 감지기 결함이 점검 전체를 멈추지 않게 한다
         message = redact_text(f"감지기 오류 {type(e).__name__}: {e}")

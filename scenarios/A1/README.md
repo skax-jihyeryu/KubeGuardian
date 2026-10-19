@@ -11,7 +11,7 @@
 
 ## 주입 내용
 
-agent Service의 `spec.selector` 중 `app` 값 끝에 `x`를 붙인다 (`agent` → `agentx`). 원래 selector는 Service annotation `kubeguardian.io/a1-original-selector`에 저장하고 `reset.sh`가 되돌린다.
+agent Service의 `spec.selector` 중 `app` 값 끝에 `x`를 붙인다 (`agent` → `agentx`). 원래 selector는 진단 대상 밖인 `scenarios/A1/.state/<네임스페이스>-<Service>.selector.json`(커밋하지 않음)에 저장하고 `reset.sh`가 되돌린다. 대상 객체에 흔적(annotation 등)을 남기면 조사 에이전트가 정답을 읽을 수 있어서다.
 
 ## 기대 증상
 

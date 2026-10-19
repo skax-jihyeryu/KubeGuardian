@@ -76,3 +76,15 @@ def test_detected_signal_without_severity_is_rejected(monkeypatch):
     )
     s = next(s for s in runner.run_detectors(context(snapshot())) if s.rule_id == "S01")
     assert s.verdict == "unknown"  # 감지기 결함은 확인하지 못함으로 둔다
+
+
+def test_severity_outside_catalog_is_rejected(monkeypatch):
+    monkeypatch.setitem(
+        registered(),
+        "H01",
+        lambda ctx: [
+            Signal(rule_id="H01", verdict="detected", subject="dev/x", severity="critical")
+        ],
+    )
+    s = next(s for s in runner.run_detectors(context(snapshot())) if s.rule_id == "H01")
+    assert s.verdict == "unknown"

@@ -35,7 +35,11 @@ def detect(ctx: DetectorContext) -> list[Signal]:
         values = {"selector": selector, "matched_pods": matched}
         if matched == 0:
             # 비교용: selector 키를 하나라도 가진 Pod의 라벨 (오타 확인)
-            similar = [lb for lb in labels if set(lb) & set(selector)]
+            # 맞는 selector 쌍이 많은 라벨부터 보여 준다 (오타 하나만 다른 Pod가 앞으로 옴)
+            similar = sorted(
+                (lb for lb in labels if set(lb) & set(selector)),
+                key=lambda lb: -sum(lb.get(k) == v for k, v in selector.items()),
+            )
             values["similar_pod_labels"] = _unique(similar)[:MAX_SIMILAR]
         verdict = "detected" if matched == 0 else "passed"
         # 대상 서비스가 요청을 받을 수 없음 → §3 기준

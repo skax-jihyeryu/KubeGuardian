@@ -1,0 +1,16 @@
+{
+  "_description": "gateway와 front-chat이 같은 env 이름·같은 값으로 localhost를 가리킴 (값은 호출 서비스마다 남겨야 함)",
+  "merge": {"Deployment": [{"metadata": {"name": "gateway"}, "spec": {"template": {"spec": {"containers": [
+    {"name": "gateway", "image": "gateway:1.0", "ports": [{"name": "http", "containerPort": 8000}],
+     "env": [{"name": "AGENT_SERVICE_URL", "value": "http://localhost:8006"}]}
+  ]}}}}]},
+  "add": {"Deployment": [{
+    "metadata": {"name": "front-chat", "namespace": "dev", "uid": "dep-fc", "labels": {"app": "front-chat"}},
+    "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "front-chat"}},
+      "template": {"metadata": {"labels": {"app": "front-chat"}}, "spec": {"containers": [
+        {"name": "front-chat", "image": "front-chat:1.0", "env": [{"name": "AGENT_SERVICE_URL", "value": "http://localhost:8006"}]}
+      ]}}},
+    "status": {"replicas": 1, "updatedReplicas": 1, "readyReplicas": 1, "availableReplicas": 1,
+      "conditions": [{"type": "Progressing", "status": "True", "reason": "NewReplicaSetAvailable"}]}
+  }]}
+}

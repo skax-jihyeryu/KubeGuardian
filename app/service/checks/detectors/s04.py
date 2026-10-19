@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from service.checks.detectors._common import (
+    Workloads,
     inputs,
     make_signal,
     name_of,
@@ -32,7 +33,7 @@ def detect(ctx: DetectorContext) -> list[Signal]:
     if data is None or topology is None:
         return [rule_unknown(ctx, RULE, KINDS)]
     unchecked: dict[str, list[str]] = getattr(topology, "unchecked", None) or {}
-    env_values = _env_values(data["Deployment"])
+    env_values = _env_values(data["Deployment"], Workloads([], None, data["Service"]))
     by_source: dict[str, list[TopologyEdge]] = {}
     for edge in topology.edges:
         by_source.setdefault(edge.source, []).append(edge)
@@ -42,7 +43,7 @@ def detect(ctx: DetectorContext) -> list[Signal]:
         edges = by_source.get(source, [])
         values: dict[str, Any] = {
             "service": source,
-            "addresses": [_address(e, env_values) for e in edges],
+            "addresses": [_address(e, env_values.get(source, {})) for e in edges],
         }
         if source in unchecked:
             values["unchecked"] = unchecked[source]
@@ -61,24 +62,30 @@ def detect(ctx: DetectorContext) -> list[Signal]:
     return signals
 
 
-def _env_values(deployments: list[dict[str, Any]]) -> dict[str, list[str]]:
-    """env 이름 → 값 목록 (수집기가 마스킹한 값). 근거 표시용."""
-    out: dict[str, list[str]] = {}
+def _env_values(
+    deployments: list[dict[str, Any]], wl: Workloads
+) -> dict[str, dict[str, list[str]]]:
+    """호출 서비스 → env 이름 → 값 목록 (수집기가 마스킹한 값). 근거 표시용.
+
+    호출 서비스 이름은 토폴로지와 같게 정한다 (Pod 템플릿을 선택하는 Service, 없으면 Deployment).
+    """
+    out: dict[str, dict[str, list[str]]] = {}
     for dep in deployments:
+        by_env = out.setdefault(wl.service_of_deployment(dep), {})
         spec = ((dep["spec"].get("template") or {}).get("spec")) or {}
         for c in spec.get("containers") or []:
             for env in c.get("env") or []:
                 if env.get("value"):
-                    out.setdefault(env.get("name", ""), []).append(env["value"])
+                    by_env.setdefault(env.get("name", ""), []).append(env["value"])
     return out
 
 
 def _address(edge: TopologyEdge, env_values: dict[str, list[str]]) -> dict[str, Any]:
     out: dict[str, Any] = {"env": edge.env_name}
-    # 같은 이름의 env가 여럿이면 이 엣지의 호스트를 가리키는 값만 쓴다 (envFrom 값은 없을 수 있음)
-    values = [v for v in env_values.get(edge.env_name or "", []) if _points_to(v, edge.target)]
+    # 이 엣지의 호스트를 가리키는 값만 쓴다. envFrom 값은 여기 없어 생략될 수 있다
+    values = {v for v in env_values.get(edge.env_name or "", []) if _points_to(v, edge.target)}
     if len(values) == 1:
-        out["value"] = values[0]
+        out["value"] = values.pop()
     return out | {"target": edge.target, "port": edge.port, "status": edge.status}
 
 

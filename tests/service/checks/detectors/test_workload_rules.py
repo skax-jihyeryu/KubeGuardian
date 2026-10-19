@@ -93,3 +93,9 @@ def test_w02_is_critical_when_no_old_pod_serves(obs):
     obs.seed("W02", AGENT, NOW - timedelta(minutes=20))
     s = one(run("W02", context(snapshot("w02/no_old_ready"), observations=obs)), AGENT)
     assert (s.verdict, s.severity) == ("detected", "critical")
+
+
+def test_w02_is_still_observing_at_14_minutes(obs):
+    obs.seed("W02", AGENT, NOW - timedelta(minutes=14))
+    s = one(run("W02", context(snapshot("w02/detected"), observations=obs)), AGENT)
+    assert s.verdict == "observing"

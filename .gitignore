@@ -32,6 +32,7 @@ build/
 eval/history/
 eval/runs/
 eval/blind/answers/
+scenarios/*/.state/
 
 # Node (제품 화면)
 node_modules/
