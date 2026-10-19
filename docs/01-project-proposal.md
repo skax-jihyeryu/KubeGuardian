@@ -571,8 +571,7 @@ target:
   namespace: dev
 schedule: "*/5 * * * *"
 llm:
-  provider: azure_openai
-  deployment: <진단용 배포명>
+  provider: azure_openai   # 연결 정보(엔드포인트·키)는 Secret, 모델은 에이전트 버전 설정에서 고른다
 topology:
   url_env_patterns: ["*_SERVICE_URL", "*_URL"]
 api_scenarios:
