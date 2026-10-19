@@ -1,0 +1,252 @@
+{
+  "_description": "A3처럼 롤아웃 중 새 ReplicaSet(revision 2)의 agent Pod 1개가 ErrImagePull로 Ready가 아님. 이전 버전 Pod 3개는 Ready",
+  "merge": {
+    "Deployment": [
+      {
+        "metadata": {
+          "name": "agent",
+          "generation": 2,
+          "annotations": {
+            "deployment.kubernetes.io/revision": "2"
+          }
+        },
+        "spec": {
+          "replicas": 3
+        },
+        "status": {
+          "observedGeneration": 2,
+          "replicas": 4,
+          "updatedReplicas": 1,
+          "readyReplicas": 3,
+          "availableReplicas": 3
+        }
+      }
+    ],
+    "ReplicaSet": [
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4"
+        },
+        "spec": {
+          "replicas": 3
+        },
+        "status": {
+          "replicas": 3,
+          "readyReplicas": 3,
+          "availableReplicas": 3
+        }
+      }
+    ],
+    "EndpointSlice": [
+      {
+        "metadata": {
+          "name": "agent-m4q9t"
+        },
+        "endpoints": [
+          {
+            "addresses": [
+              "10.244.0.11"
+            ],
+            "conditions": {
+              "ready": true,
+              "serving": true,
+              "terminating": false
+            },
+            "targetRef": {
+              "kind": "Pod",
+              "name": "agent-7c9f5d6b4-x2k9p",
+              "namespace": "dev"
+            }
+          },
+          {
+            "addresses": [
+              "10.244.0.12"
+            ],
+            "conditions": {
+              "ready": true,
+              "serving": true,
+              "terminating": false
+            },
+            "targetRef": {
+              "kind": "Pod",
+              "name": "agent-7c9f5d6b4-q8w3z",
+              "namespace": "dev"
+            }
+          },
+          {
+            "addresses": [
+              "10.244.0.13"
+            ],
+            "conditions": {
+              "ready": true,
+              "serving": true,
+              "terminating": false
+            },
+            "targetRef": {
+              "kind": "Pod",
+              "name": "agent-7c9f5d6b4-r5t6y",
+              "namespace": "dev"
+            }
+          },
+          {
+            "addresses": [
+              "10.244.0.14"
+            ],
+            "conditions": {
+              "ready": false,
+              "serving": false,
+              "terminating": false
+            },
+            "targetRef": {
+              "kind": "Pod",
+              "name": "agent-5f8d7c6b9-n7v2c",
+              "namespace": "dev"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "add": {
+    "ReplicaSet": [
+      {
+        "metadata": {
+          "name": "agent-5f8d7c6b9",
+          "namespace": "dev",
+          "uid": "rs-ag-2",
+          "labels": {
+            "app": "agent",
+            "pod-template-hash": "5f8d7c6b9"
+          },
+          "annotations": {
+            "deployment.kubernetes.io/revision": "2"
+          },
+          "ownerReferences": [
+            {
+              "kind": "Deployment",
+              "name": "agent",
+              "uid": "dep-ag",
+              "controller": true
+            }
+          ]
+        },
+        "spec": {
+          "replicas": 1
+        },
+        "status": {
+          "replicas": 1
+        }
+      }
+    ],
+    "Pod": [
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-r5t6y",
+          "namespace": "dev",
+          "uid": "pod-ag-4",
+          "labels": {
+            "app": "agent",
+            "pod-template-hash": "7c9f5d6b4"
+          },
+          "ownerReferences": [
+            {
+              "kind": "ReplicaSet",
+              "name": "agent-7c9f5d6b4",
+              "uid": "rs-ag-1",
+              "controller": true
+            }
+          ]
+        },
+        "spec": {
+          "nodeName": "minikube",
+          "containers": [
+            {
+              "name": "agent",
+              "image": "agent:1.0"
+            }
+          ]
+        },
+        "status": {
+          "phase": "Running",
+          "podIP": "10.244.0.13",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True",
+              "lastTransitionTime": "2026-10-19T00:00:40Z"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": true,
+              "started": true,
+              "restartCount": 0,
+              "image": "agent:1.0",
+              "state": {
+                "running": {
+                  "startedAt": "2026-10-19T00:00:20Z"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "agent-5f8d7c6b9-n7v2c",
+          "namespace": "dev",
+          "uid": "pod-ag-3",
+          "labels": {
+            "app": "agent",
+            "pod-template-hash": "5f8d7c6b9"
+          },
+          "ownerReferences": [
+            {
+              "kind": "ReplicaSet",
+              "name": "agent-5f8d7c6b9",
+              "uid": "rs-ag-2",
+              "controller": true
+            }
+          ]
+        },
+        "spec": {
+          "nodeName": "minikube",
+          "containers": [
+            {
+              "name": "agent",
+              "image": "registry.invalid/kg-target/agent:1.4.2"
+            }
+          ]
+        },
+        "status": {
+          "phase": "Pending",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "ContainersNotReady",
+              "message": "containers with unready status: [agent]",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": false,
+              "started": false,
+              "restartCount": 0,
+              "image": "registry.invalid/kg-target/agent:1.4.2",
+              "state": {
+                "waiting": {
+                  "reason": "ErrImagePull",
+                  "message": "failed to resolve reference \"registry.invalid/kg-target/agent:1.4.2\": dial tcp: lookup registry.invalid: no such host"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -191,9 +191,10 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 |---|---|
 | 판정 조건 | Service의 EndpointSlice에서 `conditions.ready = true`인 엔드포인트가 0개(없음) 또는 전체보다 적음(일부) |
 | 지속 시간 | 15분 |
-| 제외 | selector가 없는 Service, `terminating = true`인 엔드포인트(종료 중), 대상 Pod가 0개 (S01이 다룸) |
+| 제외 | selector가 없는 Service, `terminating = true`인 엔드포인트(종료 중), 대상 Pod가 0개 (S01이 다룸), 롤아웃 중인 새 버전 Pod (아래) |
+| 롤아웃 중인 새 버전 Pod | Ready가 아닌 엔드포인트 중 다음을 모두 만족하면 전체에서 뺀다. ① 그 Pod의 소유 ReplicaSet이 같은 Deployment의 ReplicaSet 가운데 `deployment.kubernetes.io/revision`이 가장 크다 (새 버전). ② 같은 Service에 같은 Deployment의 이전 revision ReplicaSet Pod가 Ready 엔드포인트로 남아 있다 (이전 버전이 트래픽을 받는 중). 사용자 영향이 없고, 새 버전이 뜨지 않는 원인은 P03·W02가 다룬다. 이전 버전 Pod가 모두 Ready가 아니면 빼지 않는다. 롤아웃이 끝나면 이전 ReplicaSet은 0으로 줄어 ②가 성립하지 않으므로 Deployment 상태(`updatedReplicas`·`observedGeneration`)는 보지 않는다 (replicas 1에서는 `maxUnavailable`이 0으로 내림돼 롤아웃 중에도 `updatedReplicas = replicas`다). ReplicaSet을 수집하지 못했으면 새 버전인지 알 수 없으므로 이 제외 없이 판정하고, 근거 값에 `failed_kinds`를 남긴다 (§0.3) |
 | 1차 심각도 | 없음은 §3 기준, 일부는 🟠 주의 |
-| 근거로 남길 값 | Ready / 전체 엔드포인트 수, Ready가 아닌 Pod와 그 Pod의 Ready 조건 |
+| 근거로 남길 값 | Ready / 전체 엔드포인트 수, Ready가 아닌 Pod와 그 Pod의 Ready 조건, 롤아웃 중이라 뺀 새 버전 Pod |
 | 출처 | mixin `KubePodNotReady`: Running인데 Ready가 아닌 Pod, `for: 15m`. K8s [EndpointSlice](https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/): `ready`는 "serving이고 terminating이 아님". K8s [Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/): Ready가 아닌 Pod는 Service 트래픽을 받지 않음 |
 
 ### S03 — targetPort 불일치
@@ -262,7 +263,7 @@ mixin 지속 시간을 따르면 상태 규칙은 장애 후 최소 15분이 지
 | 시나리오 | 적발 규칙 | 영향 |
 |---|---|---|
 | A1 (selector 오타) | S01 즉시 (S02는 대상 Pod가 0개라 제외) | 영향 없음 |
-| A3 (없는 이미지 태그) | **W02 약 25분**, P03 약 1시간 | 아래 §5.1 |
+| A3 (없는 이미지 태그) | **W02 약 25분**, P03 약 1시간 (S02는 롤아웃 중인 새 버전 Pod라 제외) | 아래 §5.1 |
 | A5 (서비스 주소 누락) | S04 즉시 | 영향 없음 |
 | E1 (과거 재시작 미끼) | P06은 적발되지 않아야 함 (제외 조건) | 의도대로 |
 | C1·C2·C5 | 규칙 없음, 증상 감지(경로 B) | 장애 감지 시간 KPI는 이 시나리오들로 재므로 영향 없음 |
