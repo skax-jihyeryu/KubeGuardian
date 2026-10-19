@@ -1,0 +1,11 @@
+# A3 정답 파일 (기획서 §8.2). 기능보다 먼저 쓴다.
+id: A3
+level: L1                 # 신호 하나로 원인 확정
+k8s_visible: true         # 새 Pod의 대기 사유(이미지 받기 실패)와 Deployment Progressing 조건만 보면 원인이 드러난다
+gate_path: A
+# W02 약 25~31분, P03 약 1시간 (05-rules §5). 기대 신호는 먼저 적발되는 W02다.
+# W01은 적발되지 않는다 (05-rules §5.1: maxUnavailable이 0으로 내림돼 이전 Pod가 남고 availableReplicas = replicas)
+expected_signals: [W02]
+root_cause: "agent Deployment의 이미지를 레지스트리에 없는 tag로 바꿔 새 Pod가 이미지를 받지 못하고 롤아웃이 멈췄다"
+affected_services: [agent]
+expected_top1: "agent 신규 배포가 없는 이미지 tag 때문에 뜨지 않음 (이전 버전 Pod가 서비스 중이라 사용자 영향 없음)"
