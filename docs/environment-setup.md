@@ -546,6 +546,49 @@ kubectl delete ns chaos-smoke
 
 ---
 
+## 10. 진단 대상 기동과 정상 기준선 (2026-10-19 확인)
+
+템플릿 포크를 `dev`에 띄우고 로그인 → 채팅이 실제 Azure OpenAI 응답으로 성공하는지 확인한다 (이슈 #7, 시나리오 H0).
+
+### 순서
+
+| 단계 | 명령 | 하는 일 |
+|---|---|---|
+| ① 기동 | `make up` | 로컬 비밀값·CA 번들 생성(없을 때만), 이미지 빌드, overlay 적용, 전 Deployment 준비까지 대기 |
+| ② LLM 배포 등록 | 아래 curl (직접 실행) | llm-gateway DB에 템플릿용 Azure OpenAI 배포를 넣는다. 키는 프롬프트로만 입력한다 |
+| ③ 시드 | `make seed` | 조직 `kg-test`, 테스트 사용자 `kg-tester`, 조직에 모델 할당. 여러 번 실행해도 같다 |
+| ④ 스모크 | `make smoke` | front-chat 경유 로그인 → `/api/v1/agent/invoke`. 성공하면 `OK <초>s model=gpt-4.1 answer=...` |
+
+- `make down`은 postgres 데이터까지 지운다. 다시 띄우면 ②부터 다시 한다.
+- 테스트 사용자 계정은 `.env.test-user`(git 제외)에 만들어진다. 비밀번호는 출력하지 않는다.
+- 템플릿 agent는 LLM 호출이 실패해도 HTTP 200에 `오류가 발생했습니다: ...`를 answer로 돌려준다. 스모크는 이 문구를 실패로 본다.
+
+### ② LLM 배포 등록
+
+템플릿 llm-gateway는 chat completions만 쓰고 API 버전이 `2024-10-21`로 고정되어 있어 gpt-4.1 계열을 등록한다. 진단 에이전트용 키(`.env`)와는 별개다.
+
+```bash
+kubectl -n dev port-forward svc/gateway 18000:8000
+```
+
+다른 터미널에서 superadmin으로 로그인한다. 초기 비밀번호는 `backend-admin/app/main.py`에 있다.
+
+```bash
+PW=$(sed -nE 's/.*password="([^"]*)".*S106.*/\1/p' ~/Cursor/kg-target/backend-admin/app/main.py); TOKEN=$(curl -s localhost:18000/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"id\":\"superadmin\",\"password\":\"$PW\"}" | jq -r .access_token); [ "$TOKEN" != null ] && echo "로그인 OK" || echo "로그인 실패"
+```
+
+```bash
+read -s "KEY?템플릿용 Azure 키: "; echo; curl -s localhost:18000/api/v1/llm-gateway/deployments -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "{\"provider\":\"azure-openai\",\"model_name\":\"gpt-4.1\",\"model_version\":\"4.1\",\"deployment_name\":\"gpt-4.1\",\"endpoint\":\"<엔드포인트>\",\"access_key\":\"$KEY\",\"is_active\":true}" | jq 'del(.. | .access_key?)'; unset KEY
+```
+
+- 키는 명령에 직접 적지 않는다. 적으면 셸 history에 남는다.
+
+### 실패 시
+
+- `토큰 검증에 실패했습니다` → 로그인이 실패해 `TOKEN`이 `null`이다. 로그인 명령의 출력을 확인한다
+- 스모크 `LLM Gateway error: 500` + llm-gateway 로그 `CERTIFICATE_VERIFY_FAILED` → 사내 CA 번들이 없다. `make ca` 후 `make up`
+- 스모크 `LLM Gateway error: 403` → 조직에 그 모델이 할당되지 않았다. 배포를 등록한 뒤 `make seed`
+
 ## 운영 메모
 
 | 상황 | 명령 |

@@ -1,9 +1,12 @@
-.PHONY: setup lint format test check run doctor secret build up down
+.PHONY: setup lint format test check run doctor secret ca build up down seed smoke
 
 # 진단 대상(템플릿 포크) 위치. 포크 6개 + shared-infra가 이 아래에 있어야 한다.
 TARGET_DIR ?= $(HOME)/Cursor/kg-target
 TARGET_OVERLAY := $(TARGET_DIR)/shared-infra/kubernetes/local
 TARGET_SECRET := $(TARGET_OVERLAY)/secret.env
+TARGET_CA := $(TARGET_OVERLAY)/ca-bundle.pem
+# 사내 SSL 프록시 CA (환경 설치 가이드 2단계)
+CORP_CA ?= $(HOME)/.minikube/certs/sk-ca.pem
 TARGET_NS := dev
 TARGET_BACKENDS := gateway admin agent llm-gateway
 TARGET_FRONTENDS := chat admin
@@ -44,6 +47,12 @@ secret:  ## 진단 대상 로컬 비밀값 생성 (없을 때만, 값은 출력�
 		echo "created $(TARGET_SECRET)"; \
 	}
 
+ca:  ## 진단 대상 llm-gateway용 CA 번들 생성 (공개 CA + 사내 CA, 없을 때만)
+	@test -f $(TARGET_CA) || { \
+		cat "$$(uv run python -c 'import certifi; print(certifi.where())')" $(CORP_CA) > $(TARGET_CA) || exit 1; \
+		echo "created $(TARGET_CA)"; \
+	}
+
 build:  ## 진단 대상 이미지를 minikube 노드의 docker에 빌드
 	@for img in $(TARGET_BASE_IMAGES); do minikube ssh -- docker pull -q $$img >/dev/null || exit 1; done
 	@eval $$(minikube docker-env) && \
@@ -56,7 +65,7 @@ build:  ## 진단 대상 이미지를 minikube 노드의 docker에 빌드
 		docker build -q -t kg-target/front-$$s:local -f $(TARGET_DIR)/frontend/$$s/Dockerfile $(TARGET_DIR)/frontend >/dev/null || exit 1; \
 	done
 
-up: secret build  ## 진단 대상 환경 기동 (dev 네임스페이스, 전 Pod Ready까지 대기)
+up: secret ca build  ## 진단 대상 환경 기동 (dev 네임스페이스, 전 Pod Ready까지 대기)
 	@# 이미지 태그(:local)가 같아 다시 빌드해도 Pod가 바뀌지 않으므로, 이미 떠 있던 앱 Deployment는 재시작한다.
 	@existed=$$(kubectl -n $(TARGET_NS) get deployment gateway -o name 2>/dev/null); \
 	kubectl apply -k $(TARGET_OVERLAY) || exit 1; \
@@ -66,11 +75,17 @@ up: secret build  ## 진단 대상 환경 기동 (dev 네임스페이스, 전 Po
 	@for d in $(TARGET_DEPLOYS); do kubectl -n $(TARGET_NS) rollout status deployment/$$d --timeout=300s || exit 1; done
 	kubectl -n $(TARGET_NS) get pods
 
-down: secret  ## 진단 대상 환경 삭제 (dev 네임스페이스의 overlay 리소스, DB 데이터 포함)
+down: secret ca  ## 진단 대상 환경 삭제 (dev 네임스페이스의 overlay 리소스, DB 데이터 포함)
 	kubectl delete -k $(TARGET_OVERLAY) --ignore-not-found
 	@if kubectl -n $(TARGET_NS) get pods --no-headers 2>/dev/null | grep -q .; then \
 		kubectl -n $(TARGET_NS) wait --for=delete pod --all --timeout=120s; \
 	fi
 	kubectl -n $(TARGET_NS) get all
+
+seed:  ## 진단 대상 테스트 조직·사용자·LLM 할당 (LLM 배포는 먼저 등록, 환경 설치 가이드 10단계)
+	TARGET_DIR=$(TARGET_DIR) TARGET_NS=$(TARGET_NS) bash scripts/target/seed.sh
+
+smoke:  ## 진단 대상 E2E: front-chat 경유 로그인 → 채팅
+	TARGET_DIR=$(TARGET_DIR) TARGET_NS=$(TARGET_NS) bash scripts/target/smoke.sh
 
 # 장애 주입·평가 타깃(inject, reset, eval)은 이후 작업에서 추가한다.
