@@ -182,6 +182,20 @@ def test_degraded_finding_groups_by_deployment_and_caps_severity_at_warning(kind
     assert {s.service for s in signals} == {"agent", "gateway"}
 
 
+def test_replicaset_only_failure_keeps_critical(obs):
+    """Service를 읽었으면 서비스 이름이 정확하므로 심각도를 낮추지 않는다."""
+    for pod in ("agent-7c9f5d6b4-x2k9p", "agent-7c9f5d6b4-q8w3z"):
+        obs.seed("P03", f"dev/Pod/{pod}/agent", NOW - timedelta(hours=2))
+
+    signals = run(
+        "P03", context(_degraded_snapshot("p03/all_failing", "ReplicaSet"), observations=obs)
+    )
+
+    agent = [s for s in signals if s.service == "agent"]
+    assert {(s.verdict, s.severity) for s in agent} == {("detected", "critical")}
+    assert all(s.values["failed_kinds"] == {"ReplicaSet": "403 Forbidden"} for s in agent)
+
+
 def test_replicaset_failure_still_groups_hygiene_advice_by_deployment():
     signals = run("H02", context(failed_snapshot("ReplicaSet")))
 

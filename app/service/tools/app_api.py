@@ -231,7 +231,7 @@ def _required(payload: Any, path: str) -> Any:
 def _check(check: ResponseCheck, payload: Any) -> None:
     value = _json_path(payload, check.path)
     if not isinstance(value, str):
-        raise _StepFailed(f"응답에 {check.path} 없음")
+        raise _StepFailed(f"응답에 {check.path} 없음 또는 문자열이 아님")
     if value.startswith(check.not_starts_with):
         reason = f"{check.path}가 '{check.not_starts_with}'로 시작"
         raise _StepFailed(reason, clip(value, MAX_ERROR_TEXT))

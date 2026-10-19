@@ -67,12 +67,12 @@ def make_signal(
 ) -> Signal:
     """severity는 적발일 때만 남긴다.
 
-    degraded(묶음용 kind 수집 실패 → 사유)가 있으면 values의 `failed_kinds`에 남기고,
-    서비스 묶음을 확신할 수 없으므로 긴급을 주의로 낮춘다 (05-rules §0.3).
+    degraded(묶음용 kind 수집 실패 → 사유)가 있으면 values의 `failed_kinds`에 남긴다.
+    Service를 못 읽었으면 서비스 묶음을 확신할 수 없으므로 긴급을 주의로 낮춘다 (05-rules §0.3).
     """
     if degraded:
         values = {**values, "failed_kinds": degraded}
-        if severity == "critical":
+        if "Service" in degraded and severity == "critical":
             severity = "warning"
     return Signal(
         rule_id=rule_id,

@@ -42,8 +42,8 @@ Service·ReplicaSet은 여러 규칙에서 판정 조건이 아니라 **신호�
 | 항목 | 내용 |
 |---|---|
 | 대상 규칙 | Service 실패: P03, P06, P07, C01, H02, W01, W02. ReplicaSet 실패: P03, P06, P07, C01, H02 |
-| 묶음 | Service를 못 읽으면 서비스 이름 대신 Deployment 이름으로 묶는다 (Service가 고르지 않는 Pod를 묶는 방식과 같다). ReplicaSet도 못 읽으면 Pod의 ReplicaSet 소유자 이름(`<Deployment>-<pod-template-hash>`)에서 끝의 해시를 떼어 Deployment 이름으로 쓴다 |
-| 1차 심각도 | 이 상태에서 나온 적발은 🔴 긴급을 🟠 주의로 낮춘다. 서비스 이름이 핵심 경로(§3)와 맞는지 확신할 수 없기 때문이다 |
+| 묶음 | Service를 못 읽으면 서비스 이름 대신 Deployment 이름으로 묶는다 (Service가 고르지 않는 Pod를 묶는 방식과 같다). ReplicaSet을 못 읽으면 Pod의 ReplicaSet 소유자 이름(`<Deployment>-<pod-template-hash>`)에서 끝의 해시를 떼어 Deployment 이름으로 쓴다 |
+| 1차 심각도 | Service를 못 읽은 상태에서 나온 적발은 🔴 긴급을 🟠 주의로 낮춘다. 서비스 이름이 핵심 경로(§3)와 맞는지 확신할 수 없기 때문이다. ReplicaSet만 못 읽었으면 서비스 이름은 Service selector로 정해지므로 낮추지 않는다 |
 | 근거로 남길 값 | 각 신호의 판정에 쓴 값에 `failed_kinds`(못 읽은 kind → 사유)를 넣는다. 묶음을 바꿔 판정했다는 사실이 신호마다 남는다 |
 | 계속 "확인하지 못함" | 판정 조건에 직접 쓰는 kind가 실패한 경우. H01(Service가 고르는 Pod만 봄), W02의 ReplicaSet(새·이전 ReplicaSet의 Ready 수), S 규칙의 Service, Pod·Deployment·ConfigMap·Secret·EndpointSlice·Node |
 
