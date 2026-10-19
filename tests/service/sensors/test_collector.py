@@ -498,3 +498,20 @@ def test_log_evidence_records_container_and_previous_flag():
         "GET /api/v1/namespaces/dev/pods/agent-7c9f-x2k/log?container=agent&previous=true"
     )
     assert evidence.data == {"container": "agent", "previous": True, "lines": ["a", "b"]}
+
+
+def test_collect_can_limit_kinds():
+    reader = FakeReader({"Secret": K8sCallError("읽으면 안 됨")})
+
+    snapshot = collect(reader, now=NOW, kinds=("Pod", "Service"))
+
+    assert set(snapshot.resources) == {"Pod", "Service"}
+    assert snapshot.failed == {}
+    assert snapshot.items("Secret") is None
+
+
+def test_collect_node_without_pod_kind_is_unknown():
+    snapshot = collect(FakeReader(), now=NOW, kinds=("Node",))
+
+    assert snapshot.items("Node") is None
+    assert "Node" in snapshot.failed
