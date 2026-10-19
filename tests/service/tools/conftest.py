@@ -21,6 +21,7 @@ def make_ctx(evidence):
             budget=BudgetTracker(Budget()),
             k8s=k8s,
             now=lambda: NOW,
+            http=http,
         )
 
     return make

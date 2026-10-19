@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+from core.http import HttpResponse
 from service.model import Evidence
 
 NOW = datetime(2026, 10, 20, 1, 0, tzinfo=UTC)
@@ -143,4 +144,39 @@ class FakeK8s:
         value = self.logs[(pod, container, previous)]
         if isinstance(value, Exception):
             raise value
+        return value
+
+
+class FakeHttp:
+    """core.http.NamespacedHttp를 흉내 낸다. (host, path) → HttpResponse·상태 코드·예외 목록.
+
+    host는 Service 이름 또는 Pod IP다. 목록이면 호출할 때마다 앞에서 하나씩 꺼낸다.
+    """
+
+    namespace = "dev"
+
+    def __init__(self, responses=None, accounts=None):
+        self.responses = responses or {}
+        self.accounts = accounts or {}
+        self.calls: list[tuple] = []
+
+    def get(self, *, port, path, service=None, pod_ip=None, timeout_s=None):
+        self.calls.append(("GET", service or pod_ip, port, path))
+        return self._respond(service or pod_ip, path)
+
+    def post(self, *, service, port, path, json=None, headers=None, timeout_s=None):
+        self.calls.append(("POST", service, port, path, json, headers))
+        return self._respond(service, path)
+
+    def account(self, secret_name):
+        return dict(self.accounts[secret_name])
+
+    def _respond(self, host, path):
+        value = self.responses.get((host, path), 200)
+        if isinstance(value, list):
+            value = value.pop(0) if len(value) > 1 else value[0]
+        if isinstance(value, Exception):
+            raise value
+        if isinstance(value, int):
+            return HttpResponse(value, 12.0, "")
         return value

@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from core.error.service_exception import ErrorCode, ServiceException
+from core.http import PATH_PATTERN
 from service.model import ClusterSnapshot
 from service.sensors.collector import collect
 from service.tools.base import ToolContext
@@ -19,6 +20,8 @@ LabelSelector = Annotated[
     str,
     Field(pattern=r"^[A-Za-z0-9._/-]+=[A-Za-z0-9._-]*(,[A-Za-z0-9._/-]+=[A-Za-z0-9._-]*)*$"),
 ]
+
+HttpPath = Annotated[str, Field(pattern=PATH_PATTERN, max_length=512)]
 
 
 def read(ctx: ToolContext, *kinds: str) -> ClusterSnapshot:
@@ -47,3 +50,15 @@ def clip(text: Any, limit: int = MAX_TEXT) -> Any:
     if isinstance(text, str) and len(text) > limit:
         return text[:limit] + "…"
     return text
+
+
+def by_name(objs: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    return next((o for o in objs if o["metadata"]["name"] == name), None)
+
+
+def service_port(service: dict[str, Any]) -> int:
+    """Service의 첫 번째 포트 (서비스 경유 호출에 쓴다)."""
+    ports = service["spec"].get("ports") or []
+    if not ports or "port" not in ports[0]:
+        raise ValueError(f"Service {service['metadata']['name']}에 포트가 없음")
+    return ports[0]["port"]
