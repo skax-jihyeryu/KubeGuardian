@@ -85,7 +85,7 @@ KubeGuardian/
 ├── tests/                     # app 구조와 같게 + fixtures/(K8s 스냅샷)
 ├── Dockerfile                 # KubeGuardian 이미지 (CronJob·Deployment 공용)
 ├── deploy/
-│   ├── kubeguardian/          # SA·ClusterRole, PVC, CronJob, diagnostic-agent Deployment·Service, Secret 예시
+│   ├── kubeguardian/          # SA·Role(dev)·ClusterRole(Node 조회), PVC, CronJob, diagnostic-agent Deployment·Service, Secret 예시
 │   └── chaos-mesh/            # 평가 환경 전용
 ├── scenarios/                 # H0, A1, A3, A5, B1, C1, C2, C5, E1 (+ 확장 후보)
 │   └── <ID>/{inject.sh, reset.sh, verify_symptom.sh, expected.yaml, README.md}
@@ -154,7 +154,7 @@ KubeGuardian/
 | 감지기 장애 신호 11종 + 개선 권고 2종 ([규칙 점검 명세](05-rules.md) 기준), 관측 기록(지속 시간 판정), 픽스처 단위 테스트 | 3.5 | `service/checks/detectors` | W2 |
 | 게이트 v0 (경로 A·C) | 0.5 | `service/checks/gate.py` | W2 |
 | 마스킹 (로그·이벤트·env) + 단위 테스트 | 1 | `core/guard/redact` | W2 |
-| SA `kubeguardian` + 최소 권한 ClusterRole | 0.5 | `deploy/kubeguardian/rbac.yaml` | W2 |
+| SA `kubeguardian` + 최소 권한 Role(dev)·ClusterRole(Node 조회) | 0.5 | `deploy/kubeguardian/rbac.yaml` | W2 |
 | 점검 실행 흐름 v0 + CLI `kg check` (규칙 결과·게이트 판정 출력) | 0.5 | `service/pipeline/`, `cli.py` | W2 |
 | A1 시나리오 | 0.5 | `scenarios/A1` | W2 |
 | ADR-001 도구 계층과 에이전트 코어의 경계 | 0.5 | `docs/adr/` | W2 |
@@ -173,7 +173,7 @@ KubeGuardian/
 - `build_chat_model`로 클러스터 안에서 진단용 Azure OpenAI 호출 성공
 - 도메인 모델·규칙 목록·에이전트 base가 단위 테스트로 고정되고, 규칙 목록이 05-rules.md와 일치
 - A5 inject 시 채팅 실패, reset 시 복구
-- A1·A5에서 해당 감지기(S01·S02 / S04)가 장애 신호로 적발, 게이트가 경로 A. H0에서 개선 권고만 나오고 경로 C
+- A1·A5에서 해당 감지기(S01 / S04)가 장애 신호로 적발, 게이트가 경로 A. H0에서 개선 권고만 나오고 경로 C
 - `kubectl auth can-i`로 쓰기 권한 없음 확인
 - 도구 7종 단위 테스트 통과, `make eval S=A1`이 사람 개입 없이 기준 조건(규칙만)으로 끝까지 돌고 채점 결과 출력
 - Slack 앱 승인 요청 완료

@@ -1,9 +1,12 @@
 # KubeGuardian 진단 에이전트의 ServiceAccount와 최소 권한 (기획서 §13).
 # 조회(get/list/watch)만 허용한다. 생성·수정·삭제 권한은 주지 않는다.
 #
-# secrets: 앱은 metadata-only 요청(PartialObjectMetadata)으로만 Secret의 존재·키 이름을 확인하고
-# 값은 수집하지 않는다. 다만 RBAC는 리소스 단위라 이 ClusterRole로도 Secret 값을 읽을 수 있다.
-# ClusterRole이라 이 권한은 kube-system을 포함한 모든 네임스페이스에 미친다.
+# 범위: 네임스페이스 리소스는 진단 대상 네임스페이스 `dev`의 Role + RoleBinding으로만 준다.
+# 클러스터 범위 권한(ClusterRole)은 Node 조회만 남긴다 (대상 Pod가 올라간 노드 상태 확인용).
+# 진단 대상 네임스페이스를 바꾸면 Role·RoleBinding의 namespace도 함께 바꾼다.
+#
+# secrets: 앱은 목록을 받되 값(data·stringData)은 즉시 버리고 키 이름만 남긴다 (C01 키 누락 판정용).
+# 다만 RBAC는 리소스 단위라 이 Role로도 `dev`의 Secret 값을 읽을 수 있다.
 # 이 잔여 위험은 기획서 §13에 문서화했다.
 #
 # 전제: `kubeguardian` 네임스페이스가 먼저 있어야 한다 (`kubectl create namespace kubeguardian`).
@@ -14,9 +17,10 @@ metadata:
   namespace: kubeguardian
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: kubeguardian-readonly
+  namespace: dev
 rules:
   - apiGroups: [""]
     resources:
@@ -26,7 +30,6 @@ rules:
       - services
       - endpoints
       - configmaps
-      - nodes
       - namespaces
       - secrets
     verbs: ["get", "list", "watch"]
@@ -38,13 +41,36 @@ rules:
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: kubeguardian-readonly
+  namespace: dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubeguardian-readonly
+subjects:
+  - kind: ServiceAccount
+    name: kubeguardian
+    namespace: kubeguardian
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubeguardian-nodes-readonly
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubeguardian-nodes-readonly
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: kubeguardian-readonly
+  name: kubeguardian-nodes-readonly
 subjects:
   - kind: ServiceAccount
     name: kubeguardian

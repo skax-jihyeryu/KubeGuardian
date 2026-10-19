@@ -1,6 +1,8 @@
+import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from core.config import ApiScenario, load_kubeguardian_config
 from core.error.service_exception import ServiceException
@@ -186,12 +188,22 @@ def test_scenario_input_is_name_only():
     assert "chat" in RunApiScenario(SCENARIOS).description
 
 
-def test_scenario_rejects_unknown_step_action(make_ctx):
-    bad = [ApiScenario(name="bad", steps=[{"delete": {"via": "gateway", "path": "/x"}}])]
-
-    result = RunApiScenario(bad).run({"name": "bad"}, make_ctx(_k8s(), _scenario_http(200)))
-
-    assert not result.ok
+@pytest.mark.parametrize(
+    "step",
+    [
+        {"delete": {"via": "gateway", "path": "/x"}},
+        {},
+        {
+            "login": {"via": "gateway", "path": "/l", "account_secret": "s"},
+            "call": {"via": "gateway", "path": "/x"},
+        },
+        {"call": {"via": "gateway", "path": "/x", "method": "DELETE"}},
+        {"call": {"via": "gateway", "path": "/x", "check": {"path": "a"}}},
+    ],
+)
+def test_scenario_step_format_is_validated_at_config_load(step):
+    with pytest.raises(ValidationError):
+        ApiScenario(name="bad", steps=[step])
 
 
 def test_scenario_name_validation(make_ctx):
@@ -213,17 +225,124 @@ def test_query_app_api_rejects_external_name_service(make_ctx):
     assert http.calls == []
 
 
-def test_example_config_scenario_posts_with_login_token(make_ctx):
-    example = Path(__file__).parents[3] / "kubeguardian.example.yaml"
-    scenarios = load_kubeguardian_config(example).api_scenarios
-    http = _scenario_http(HttpResponse(200, 1.0, "{}"))
+# 템플릿 API 응답 (scripts/target/smoke.sh와 같은 흐름). 로그인은 success 래퍼가 없다
+TEMPLATE_LOGIN = (
+    '{"access_token": "tok-abcdefgh12345678", "user": {"user_id": "kg",'
+    ' "role": {"organizations": [{"org_id": 7}]}}}'
+)
 
-    result = RunApiScenario(scenarios).run({"name": "chat"}, make_ctx(_k8s(), http))
+
+def _template_http(answer):
+    body = json.dumps({"success": True, "data": {"answer": answer}}, ensure_ascii=False)
+    return FakeHttp(
+        {
+            ("gateway", "/api/v1/auth/login"): HttpResponse(200, 10.0, TEMPLATE_LOGIN),
+            ("gateway", "/api/v1/agent/invoke"): HttpResponse(200, 900.0, body),
+        },
+        accounts={"kg-test-user": {"id": "kg", "password": "hunter2"}},
+    )
+
+
+def _example_scenarios():
+    example = Path(__file__).parents[3] / "kubeguardian.example.yaml"
+    return load_kubeguardian_config(example).api_scenarios
+
+
+def test_example_config_scenario_follows_template_api(make_ctx, evidence):
+    http = _template_http("안녕하세요. 저는 도우미입니다.")
+
+    result = RunApiScenario(_example_scenarios()).run({"name": "chat"}, make_ctx(_k8s(), http))
 
     assert result.data["failed_step"] is None
     login, invoke = http.calls
+    assert login[:5] == (
+        "POST",
+        "gateway",
+        80,
+        "/api/v1/auth/login",
+        {"id": "kg", "password": "hunter2"},
+    )
     assert invoke[:4] == ("POST", "gateway", 80, "/api/v1/agent/invoke")
+    assert invoke[4]["org_id"] == 7  # 로그인 응답에서 꺼낸 값
+    assert set(invoke[4]) == {"query", "model", "org_id"}
     assert invoke[5] == {"Authorization": "Bearer tok-abcdefgh12345678"}
+    dumped = result.model_dump_json() + evidence.saved[0].model_dump_json()
+    assert "hunter2" not in dumped and "tok-abcdefgh" not in dumped
+
+
+def test_example_config_scenario_fails_on_template_error_answer_with_200(make_ctx):
+    http = _template_http("오류가 발생했습니다: Connection error.")
+
+    result = RunApiScenario(_example_scenarios()).run({"name": "chat"}, make_ctx(_k8s(), http))
+
+    assert result.data["failed_step"] == 2
+    bad = result.data["steps"][1]
+    assert bad["status"] == 200 and not bad["ok"]
+    assert "오류가 발생했습니다: Connection error." in bad["error"]
+    assert "data.answer" in result.summary
+
+
+def _steps(*steps):
+    return [ApiScenario(name="s", steps=list(steps))]
+
+
+LOGIN = {"via": "gateway", "path": "/api/v1/auth/login", "account_secret": "kg-test-user"}
+
+
+def test_login_token_is_read_from_json_path(make_ctx):
+    scenarios = _steps(
+        {"login": {**LOGIN, "token": "data.jwt"}},
+        {"call": {"via": "gateway", "path": "/me", "method": "GET"}},
+    )
+    http = _scenario_http(200)
+    http.responses[("gateway", "/api/v1/auth/login")] = HttpResponse(
+        200, 1.0, '{"data": {"jwt": "tok-abcdefgh12345678"}}'
+    )
+
+    result = RunApiScenario(scenarios).run({"name": "s"}, make_ctx(_k8s(), http))
+
+    assert result.data["failed_step"] is None
+    assert http.headers == [{"Authorization": "Bearer tok-abcdefgh12345678"}]
+
+
+def test_login_fails_when_configured_token_path_is_missing(make_ctx):
+    scenarios = _steps({"login": {**LOGIN, "token": "data.jwt"}})
+
+    result = RunApiScenario(scenarios).run({"name": "s"}, make_ctx(_k8s(), _scenario_http(200)))
+
+    assert result.data["failed_step"] == 1
+    assert "data.jwt" in result.data["steps"][0]["error"]
+
+
+def test_missing_extract_path_fails_the_step(make_ctx):
+    scenarios = _steps({"login": {**LOGIN, "extract": {"org_id": "user.role.organizations.0"}}})
+
+    result = RunApiScenario(scenarios).run({"name": "s"}, make_ctx(_k8s(), _scenario_http(200)))
+
+    assert result.data["failed_step"] == 1
+    assert "user.role.organizations.0" in result.data["steps"][0]["error"]
+
+
+def test_unknown_variable_in_body_fails_the_step_without_call(make_ctx):
+    scenarios = _steps({"call": {"via": "gateway", "path": "/x", "body": {"org": "${org_id}"}}})
+    http = _scenario_http(200)
+
+    result = RunApiScenario(scenarios).run({"name": "s"}, make_ctx(_k8s(), http))
+
+    assert result.data["failed_step"] == 1
+    assert "org_id" in result.data["steps"][0]["error"]
+    assert http.calls == []
+
+
+def test_check_fails_when_answer_is_missing(make_ctx):
+    check = {"path": "data.answer", "not_starts_with": "오류가 발생했습니다:"}
+    scenarios = _steps({"call": {"via": "gateway", "path": "/x", "check": check}})
+    http = _scenario_http(200)
+    http.responses[("gateway", "/x")] = HttpResponse(200, 1.0, '{"success": true}')
+
+    result = RunApiScenario(scenarios).run({"name": "s"}, make_ctx(_k8s(), http))
+
+    assert result.data["failed_step"] == 1
 
 
 def test_get_step_sends_login_token_and_ignores_non_string_token(make_ctx):

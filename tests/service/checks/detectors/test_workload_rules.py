@@ -17,7 +17,7 @@ def test_w01_passes_when_available_matches():
 
 
 def test_w01_first_observation_waits_10_minutes_for_updated_replicas(obs):
-    # 사용자 확인 필요(임시): 첫 관측에서는 updatedReplicas 변경 시각을 최초 관측 시각으로 본다
+    # 05-rules W01: 첫 관측에서는 updatedReplicas 변경 시각을 최초 관측 시각으로 본다
     s = one(run("W01", context(snapshot("w01/detected"), observations=obs)), AGENT)
     assert s.verdict == "passed"
     assert s.values["updatedReplicas_stable"] is False

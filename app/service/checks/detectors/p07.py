@@ -6,7 +6,7 @@ from typing import Any
 from service.checks.detectors._common import (
     Workloads,
     container_statuses,
-    inputs,
+    grouping_inputs,
     make_signal,
     name_of,
     rule_unknown,
@@ -22,7 +22,7 @@ RECENT = timedelta(minutes=15)  # 설계값 (05-rules §6, W4 평가에서 조�
 
 @detector(RULE)
 def detect(ctx: DetectorContext) -> list[Signal]:
-    data = inputs(ctx, *KINDS)
+    data, degraded = grouping_inputs(ctx, KINDS)
     if data is None:
         return [rule_unknown(ctx, RULE, KINDS)]
     wl = Workloads(data["Pod"], data["ReplicaSet"], data["Service"])
@@ -47,7 +47,15 @@ def detect(ctx: DetectorContext) -> list[Signal]:
             subj = subject(ctx, "Pod", name_of(pod), cs.get("name", ""))
             verdict = "detected" if met else "passed"
             signals.append(
-                make_signal(RULE, verdict, subj, wl.service_of_pod(pod), values, "warning")
+                make_signal(
+                    RULE,
+                    verdict,
+                    subj,
+                    wl.service_of_pod(pod),
+                    values,
+                    "warning",
+                    degraded=degraded,
+                )
             )
     return signals
 

@@ -3,8 +3,8 @@
 from service.checks.detectors._common import (
     Workloads,
     container_statuses,
+    grouping_inputs,
     hold_verdict,
-    inputs,
     make_signal,
     name_of,
     owner,
@@ -22,7 +22,7 @@ PULL_FAILURES = {"ErrImagePull", "ImagePullBackOff", "InvalidImageName"}
 
 @detector(RULE)
 def detect(ctx: DetectorContext) -> list[Signal]:
-    data = inputs(ctx, *KINDS)
+    data, degraded = grouping_inputs(ctx, KINDS)
     if data is None:
         return [rule_unknown(ctx, RULE, KINDS)]
     wl = Workloads(data["Pod"], data["ReplicaSet"], data["Service"])
@@ -45,5 +45,7 @@ def detect(ctx: DetectorContext) -> list[Signal]:
             verdict = hold_verdict(ctx, RULE, subj, waiting.get("reason") in PULL_FAILURES)
             # 같은 Deployment에 Ready Pod가 남아 있으면(이전 버전이 서비스 중) 주의
             severity = primary_severity(ctx, service, fully_down=ready_pods == 0)
-            signals.append(make_signal(RULE, verdict, subj, service, values, severity))
+            signals.append(
+                make_signal(RULE, verdict, subj, service, values, severity, degraded=degraded)
+            )
     return signals

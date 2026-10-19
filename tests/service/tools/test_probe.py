@@ -61,18 +61,20 @@ def test_probe_pod_target_uses_container_port(make_ctx, evidence):
     http = FakeHttp()
 
     result = Probe().run(
-        {"target": "agent-1", "path": "/", "via": "pod", "times": 1}, make_ctx(_k8s(), http)
+        {"target": "agent-1", "path": "/health", "via": "pod", "times": 1}, make_ctx(_k8s(), http)
     )
 
-    assert http.calls == [("GET", "10.0.0.7", 9000, "/")]
+    assert http.calls == [("GET", "10.0.0.7", 9000, "/health")]
     assert result.data["pods"] == {"agent-1": {"ok": 1, "fail": 0}}
     assert evidence.saved[0].subject == "dev/Pod/agent-1"
 
 
 def test_probe_call_errors_are_recorded_per_call(make_ctx):
-    http = FakeHttp({("gateway", "/"): HttpCallError("ConnectTimeout: timed out")})
+    http = FakeHttp({("gateway", "/health"): HttpCallError("ConnectTimeout: timed out")})
 
-    result = Probe().run({"target": "gateway", "path": "/", "times": 2}, make_ctx(_k8s(), http))
+    result = Probe().run(
+        {"target": "gateway", "path": "/health", "times": 2}, make_ctx(_k8s(), http)
+    )
 
     assert result.ok
     assert result.data["fail"] == 2
@@ -84,14 +86,14 @@ def test_probe_call_errors_are_recorded_per_call(make_ctx):
 
 
 def test_probe_unknown_target_fails(make_ctx):
-    result = Probe().run({"target": "nope", "path": "/"}, make_ctx(_k8s(), FakeHttp()))
+    result = Probe().run({"target": "nope", "path": "/health"}, make_ctx(_k8s(), FakeHttp()))
 
     assert not result.ok
     assert "nope" in result.summary
 
 
 def test_probe_pod_target_via_service_is_rejected(make_ctx):
-    result = Probe().run({"target": "agent-1", "path": "/"}, make_ctx(_k8s(), FakeHttp()))
+    result = Probe().run({"target": "agent-1", "path": "/health"}, make_ctx(_k8s(), FakeHttp()))
 
     assert not result.ok
     assert "via=pod" in result.summary
@@ -100,11 +102,11 @@ def test_probe_pod_target_via_service_is_rejected(make_ctx):
 @pytest.mark.parametrize(
     "args",
     [
-        {"target": "gateway", "path": "/", "times": 0},
-        {"target": "gateway", "path": "/", "times": 11},
+        {"target": "gateway", "path": "/health", "times": 0},
+        {"target": "gateway", "path": "/health", "times": 11},
         {"target": "gateway", "path": "//evil.com"},
         {"target": "gateway", "path": "health"},
-        {"target": "gateway", "path": "/", "via": "node"},
+        {"target": "gateway", "path": "/health", "via": "node"},
     ],
 )
 def test_probe_rejects_bad_input(make_ctx, args):
@@ -118,7 +120,7 @@ def test_probe_rejects_external_name_service(make_ctx):
     k8s = FakeK8s({"Service": [external], "Pod": []})
     http = FakeHttp()
 
-    result = Probe().run({"target": "ext", "path": "/"}, make_ctx(k8s, http))
+    result = Probe().run({"target": "ext", "path": "/health"}, make_ctx(k8s, http))
 
     assert not result.ok
     assert "ExternalName" in result.summary
@@ -127,7 +129,8 @@ def test_probe_rejects_external_name_service(make_ctx):
 
 def test_probe_via_pod_keeps_pod_and_port_per_call(make_ctx):
     result = Probe().run(
-        {"target": "gateway", "path": "/", "via": "pod", "times": 1}, make_ctx(_k8s(), FakeHttp())
+        {"target": "gateway", "path": "/health", "via": "pod", "times": 1},
+        make_ctx(_k8s(), FakeHttp()),
     )
 
     assert result.data["calls"][0] == {
@@ -144,7 +147,7 @@ def test_probe_total_calls_are_capped(make_ctx):
     http = FakeHttp()
 
     result = Probe().run(
-        {"target": "gateway", "path": "/", "via": "pod", "times": 10}, make_ctx(k8s, http)
+        {"target": "gateway", "path": "/health", "via": "pod", "times": 10}, make_ctx(k8s, http)
     )
 
     assert len(http.calls) == probe_module.MAX_CALLS
@@ -157,7 +160,9 @@ def test_probe_stops_at_deadline(make_ctx, monkeypatch):
     monkeypatch.setattr(probe_module, "_clock", lambda: next(ticks))
     http = FakeHttp()
 
-    result = Probe().run({"target": "gateway", "path": "/", "times": 5}, make_ctx(_k8s(), http))
+    result = Probe().run(
+        {"target": "gateway", "path": "/health", "times": 5}, make_ctx(_k8s(), http)
+    )
 
     assert len(http.calls) == 2
     assert result.truncated
@@ -167,7 +172,76 @@ def test_probe_service_without_selector_says_why(make_ctx):
     k8s = FakeK8s({"Service": [service("gateway", selector={})], "Pod": [pod("gateway-1")]})
 
     result = Probe().run(
-        {"target": "gateway", "path": "/", "via": "pod"}, make_ctx(k8s, FakeHttp())
+        {"target": "gateway", "path": "/health", "via": "pod"}, make_ctx(k8s, FakeHttp())
     )
 
     assert "selector가 없음" in result.summary
+
+
+@pytest.mark.parametrize(
+    "path", ["/health", "/healthz", "/api/v1/health", "/ready", "/readyz", "/livez"]
+)
+def test_probe_allows_health_paths(make_ctx, path):
+    http = FakeHttp()
+
+    result = Probe().run({"target": "gateway", "path": path, "times": 1}, make_ctx(_k8s(), http))
+
+    assert result.ok
+    assert http.calls == [("GET", "gateway", 80, path)]
+
+
+@pytest.mark.parametrize("path", ["/", "/api/v1/agent/invoke", "/health/../admin", "/health?x=1"])
+def test_probe_rejects_paths_outside_health_and_readiness(make_ctx, path):
+    http = FakeHttp()
+
+    result = Probe().run({"target": "gateway", "path": path, "times": 1}, make_ctx(_k8s(), http))
+
+    assert not result.ok
+    assert "허용" in result.summary
+    assert http.calls == []
+
+
+def _with_readiness(p, path):
+    p["spec"]["containers"][0]["readinessProbe"] = {"httpGet": {"path": path, "port": 8080}}
+    return p
+
+
+def test_probe_allows_readiness_probe_path_of_target_pods(make_ctx):
+    k8s = FakeK8s(
+        {
+            "Service": [service("gateway")],
+            "Pod": [_with_readiness(pod("gateway-1"), "/health/ready")],
+        }
+    )
+    http = FakeHttp()
+
+    by_service = Probe().run(
+        {"target": "gateway", "path": "/health/ready", "times": 1}, make_ctx(k8s, http)
+    )
+    by_pod = Probe().run(
+        {"target": "gateway-1", "path": "/health/ready", "via": "pod", "times": 1},
+        make_ctx(k8s, http),
+    )
+
+    assert by_service.ok and by_pod.ok
+    assert len(http.calls) == 2
+
+
+def test_probe_rejects_readiness_path_of_other_pods(make_ctx):
+    k8s = FakeK8s(
+        {
+            "Service": [service("gateway")],
+            "Pod": [
+                pod("gateway-1"),
+                _with_readiness(pod("agent-1", app="agent"), "/agent/ready"),
+            ],
+        }
+    )
+    http = FakeHttp()
+
+    result = Probe().run(
+        {"target": "gateway", "path": "/agent/ready", "times": 1}, make_ctx(k8s, http)
+    )
+
+    assert not result.ok
+    assert http.calls == []

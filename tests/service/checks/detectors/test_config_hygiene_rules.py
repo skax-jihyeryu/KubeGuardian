@@ -1,9 +1,21 @@
 """C01·H01·H02, 그리고 모든 규칙의 수집 실패 → 확인하지 못함 (05-rules §4, §7)."""
 
+from datetime import timedelta
+
 import pytest
 
 from service.checks.detectors.catalog import CATALOG
-from tests.service.checks.detectors.cases import context, failed_snapshot, one, run, snapshot
+from service.sensors.collector import collect
+from tests.service.checks.detectors.cases import (
+    NOW,
+    FixtureReader,
+    context,
+    failed_snapshot,
+    one,
+    raw_cluster,
+    run,
+    snapshot,
+)
 
 X2K, Q8W = "dev/Pod/agent-7c9f5d6b4-x2k9p", "dev/Pod/agent-7c9f5d6b4-q8w3z"
 
@@ -125,3 +137,76 @@ def test_collection_failure_is_unknown_not_passed(rule_id, kind, obs):
     assert [(s.verdict, s.subject) for s in signals] == [("unknown", "dev")]
     assert kind in signals[0].values["failed_kinds"]
     assert obs.rows == {}
+
+
+# ── Service·ReplicaSet 수집 실패: 묶음만 바꿔 판정을 계속한다 (05-rules §0.3) ──
+
+# 규칙 → 수집에 실패해도 판정을 계속하는 묶음용 kind
+DEGRADABLE = {
+    "P03": ("Service", "ReplicaSet"),
+    "P06": ("Service", "ReplicaSet"),
+    "P07": ("Service", "ReplicaSet"),
+    "C01": ("Service", "ReplicaSet"),
+    "H02": ("Service", "ReplicaSet"),
+    "W01": ("Service",),
+    "W02": ("Service",),
+}
+
+
+def _degraded_snapshot(case, *kinds):
+    objects, _ = raw_cluster(case)
+    return collect(FixtureReader(objects, {k: "403 Forbidden" for k in kinds}), now=NOW)
+
+
+@pytest.mark.parametrize(
+    ("rule_id", "kind"), [(r, k) for r, kinds in sorted(DEGRADABLE.items()) for k in kinds]
+)
+def test_grouping_kind_failure_keeps_judging_and_records_it(rule_id, kind, obs):
+    signals = run(rule_id, context(failed_snapshot(kind), observations=obs))
+
+    assert signals
+    assert all(s.verdict != "unknown" for s in signals)
+    assert all(s.values["failed_kinds"] == {kind: "403 Forbidden"} for s in signals)
+
+
+@pytest.mark.parametrize("kinds", [("Service",), ("Service", "ReplicaSet")])
+def test_degraded_finding_groups_by_deployment_and_caps_severity_at_warning(kinds, obs):
+    for pod in ("agent-7c9f5d6b4-x2k9p", "agent-7c9f5d6b4-q8w3z"):
+        obs.seed("P03", f"dev/Pod/{pod}/agent", NOW - timedelta(hours=2))
+
+    signals = run("P03", context(_degraded_snapshot("p03/all_failing", *kinds), observations=obs))
+
+    agent = [s for s in signals if s.service == "agent"]  # Deployment 이름으로 묶음
+    assert {(s.verdict, s.severity) for s in agent} == {("detected", "warning")}  # 원래 긴급
+    assert all(s.values["ready_pods_in_deployment"] == 0 for s in agent)
+    assert {s.service for s in signals} == {"agent", "gateway"}
+
+
+def test_replicaset_only_failure_keeps_critical(obs):
+    """Service를 읽었으면 서비스 이름이 정확하므로 심각도를 낮추지 않는다."""
+    for pod in ("agent-7c9f5d6b4-x2k9p", "agent-7c9f5d6b4-q8w3z"):
+        obs.seed("P03", f"dev/Pod/{pod}/agent", NOW - timedelta(hours=2))
+
+    signals = run(
+        "P03", context(_degraded_snapshot("p03/all_failing", "ReplicaSet"), observations=obs)
+    )
+
+    agent = [s for s in signals if s.service == "agent"]
+    assert {(s.verdict, s.severity) for s in agent} == {("detected", "critical")}
+    assert all(s.values["failed_kinds"] == {"ReplicaSet": "403 Forbidden"} for s in agent)
+
+
+def test_replicaset_failure_still_groups_hygiene_advice_by_deployment():
+    signals = run("H02", context(failed_snapshot("ReplicaSet")))
+
+    assert {s.subject for s in signals} == {
+        "dev/Deployment/gateway/gateway",
+        "dev/Deployment/agent/agent",
+    }
+
+
+@pytest.mark.parametrize(("rule_id", "kind"), [("H01", "Service"), ("W02", "ReplicaSet")])
+def test_kind_needed_for_the_condition_itself_stays_unknown(rule_id, kind):
+    signals = run(rule_id, context(failed_snapshot(kind)))
+
+    assert [s.verdict for s in signals] == ["unknown"]
