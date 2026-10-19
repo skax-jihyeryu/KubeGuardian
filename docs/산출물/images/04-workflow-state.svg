@@ -1,0 +1,262 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1010" viewBox="0 0 1400 1010" font-family="'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic','WenQuanYi Zen Hei',sans-serif" font-size="13">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrLoop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/>
+    </marker>
+    <marker id="arrRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+    <style>
+      .lane { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 1.2; }
+      .laneTitle { font-size: 15px; font-weight: 700; fill: #0f172a; }
+      .code { fill: #ffffff; stroke: #64748b; stroke-width: 1.4; }
+      .llm { fill: #fff7ed; stroke: #ea580c; stroke-width: 1.8; }
+      .out { fill: #ecfdf5; stroke: #059669; stroke-width: 1.4; }
+      .ext { fill: #eff6ff; stroke: #2563eb; stroke-width: 1.4; stroke-dasharray: 5 3; }
+      .note { fill: #fefce8; stroke: #a16207; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .fail { fill: #fef2f2; stroke: #b91c1c; stroke-width: 1.2; }
+      .node { font-family: 'DejaVu Sans Mono',Menlo,Consolas,monospace; font-size: 13px; font-weight: 700; fill: #0f172a; }
+      .t { fill: #1e293b; }
+      .s { font-size: 11.5px; fill: #475569; }
+      .edge { stroke: #334155; stroke-width: 1.4; fill: none; }
+      .loop { stroke: #c2410c; stroke-width: 2.4; fill: none; }
+      .redEdge { stroke: #b91c1c; stroke-width: 1.4; fill: none; stroke-dasharray: 5 3; }
+      .elabel { font-size: 11.5px; fill: #334155; }
+      .loopLabel { font-size: 12px; font-weight: 700; fill: #c2410c; }
+      .stPanel { fill: #faf5ff; stroke: #7c3aed; stroke-width: 1.4; }
+      .stHead { font-size: 12px; font-weight: 700; fill: #6d28d9; }
+      .f { font-family: 'DejaVu Sans Mono',Menlo,Consolas,monospace; font-size: 12px; fill: #1e1b4b; }
+      .w { font-size: 11px; fill: #7c3aed; text-anchor: end; }
+      .d { font-size: 11px; fill: #64748b; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1400" height="1010" fill="#ffffff"/>
+  <text x="20" y="32" font-size="19" font-weight="700" fill="#0f172a">KubeGuardian 처리 흐름과 조사 상태(State)</text>
+  <text x="430" y="32" font-size="12.5" fill="#475569">주황 테두리 = LLM 사용 노드, 회색 = 코드만 실행, 주황 굵은 화살표 = 도구 반복 실행</text>
+
+  <!-- ===== 1. 점검과 판정 ===== -->
+  <rect class="lane" x="10" y="50" width="950" height="244" rx="8"/>
+  <text class="laneTitle" x="26" y="74">1. 점검과 판정 (코드만 실행, LLM 없음)</text>
+
+  <rect class="code" x="30" y="96" width="165" height="88" rx="6"/>
+  <text class="t" x="112" y="122" text-anchor="middle" font-weight="700">입력 (트리거)</text>
+  <text class="s" x="112" y="142" text-anchor="middle">5분 주기 점검</text>
+  <text class="s" x="112" y="158" text-anchor="middle">/kg check (즉시 점검)</text>
+  <text class="s" x="112" y="174" text-anchor="middle">/kg investigate 증상</text>
+
+  <rect class="code" x="225" y="96" width="200" height="88" rx="6"/>
+  <text class="t" x="325" y="122" text-anchor="middle" font-weight="700">수집과 점검</text>
+  <text class="s" x="325" y="142" text-anchor="middle">Kubernetes 상태 수집</text>
+  <text class="s" x="325" y="158" text-anchor="middle">규칙 점검 (장애 신호 11종)</text>
+  <text class="s" x="325" y="174" text-anchor="middle">로그인과 채팅 실제 호출</text>
+
+  <polygon points="545,92 630,140 545,188 460,140" fill="#fefce8" stroke="#a16207" stroke-width="1.6"/>
+  <text class="t" x="545" y="137" text-anchor="middle" font-weight="700">문제 상황인가?</text>
+  <text class="s" x="545" y="154" text-anchor="middle">(오른쪽 조건)</text>
+
+  <rect class="code" x="680" y="96" width="260" height="70" rx="6"/>
+  <text class="t" x="810" y="122" text-anchor="middle" font-weight="700">AI 호출 없음</text>
+  <text class="s" x="810" y="142" text-anchor="middle">정상이면 점검 이력만 기록</text>
+  <text class="s" x="810" y="158" text-anchor="middle">같은 문제가 이어지면 리마인더만</text>
+
+  <rect class="note" x="680" y="180" width="260" height="104" rx="6"/>
+  <text class="t" x="692" y="200" font-weight="700" font-size="12.5">"예"가 되는 조건 (하나라도 맞으면)</text>
+  <text class="s" x="692" y="219">- 장애 신호 규칙이 적발됨 (경로 A)</text>
+  <text class="s" x="692" y="236">- 규칙은 통과, 실제 호출이 실패함 (경로 B)</text>
+  <text class="s" x="692" y="253">- 운영자가 증상 조사를 요청함</text>
+  <text class="s" x="692" y="272">단, 이미 조사한 같은 문제면 "아니오"</text>
+
+  <rect class="out" x="455" y="222" width="180" height="56" rx="6"/>
+  <text class="t" x="545" y="245" text-anchor="middle" font-weight="700">1차 감지 알림 (Slack)</text>
+  <text class="s" x="545" y="264" text-anchor="middle">조사를 기다리지 않고 먼저 보냄</text>
+
+  <line class="edge" x1="195" y1="140" x2="223" y2="140" marker-end="url(#arr)"/>
+  <line class="edge" x1="425" y1="140" x2="458" y2="140" marker-end="url(#arr)"/>
+  <line class="edge" x1="630" y1="131" x2="678" y2="131" marker-end="url(#arr)"/>
+  <text class="elabel" x="636" y="124">아니오</text>
+  <line class="edge" x1="545" y1="188" x2="545" y2="220" marker-end="url(#arr)"/>
+  <text class="elabel" x="552" y="208">예</text>
+
+  <!-- 1차 알림 → load_context -->
+  <path class="edge" d="M545,278 L545,310 L130,310 L130,368" marker-end="url(#arr)"/>
+  <text class="elabel" x="140" y="305">조사 요청 (신호판, 게이트 경로, 증상)</text>
+
+  <!-- ===== 2. AI 조사 ===== -->
+  <rect class="lane" x="10" y="318" width="950" height="500" rx="8"/>
+  <text class="laneTitle" x="26" y="342">2. AI 조사 (LangGraph 그래프, 노드가 끝날 때마다 State 저장)</text>
+
+  <!-- 남은 문제 → plan (위쪽 경로) -->
+  <path class="edge" d="M30,705 L18,705 L18,352 L700,352 L700,360 L790,360 L790,368" marker-end="url(#arr)" stroke-dasharray="6 3"/>
+
+  <!-- row a -->
+  <rect class="code" x="30" y="370" width="200" height="66" rx="6"/>
+  <text class="node" x="130" y="396" text-anchor="middle">load_context</text>
+  <text class="s" x="130" y="416" text-anchor="middle">요청, 호출 관계, 지식 불러오기</text>
+
+  <rect class="code" x="260" y="370" width="200" height="66" rx="6"/>
+  <text class="node" x="360" y="396" text-anchor="middle">preliminary</text>
+  <text class="s" x="360" y="416" text-anchor="middle">가설 없이 확정할 사실 확인</text>
+
+  <rect class="llm" x="490" y="370" width="200" height="66" rx="6"/>
+  <text class="node" x="590" y="396" text-anchor="middle">triage</text>
+  <text class="s" x="590" y="416" text-anchor="middle">중요한 문제 선별 (최대 3건)</text>
+
+  <rect class="llm" x="720" y="370" width="200" height="66" rx="6"/>
+  <text class="node" x="820" y="396" text-anchor="middle">plan</text>
+  <text class="s" x="820" y="416" text-anchor="middle">가설 (최대 3개)과 조사 계획</text>
+
+  <line class="edge" x1="230" y1="403" x2="258" y2="403" marker-end="url(#arr)"/>
+  <line class="edge" x1="460" y1="403" x2="488" y2="403" marker-end="url(#arr)"/>
+  <line class="edge" x1="690" y1="403" x2="718" y2="403" marker-end="url(#arr)"/>
+  <text class="elabel" x="430" y="366">남은 문제가 있으면 다음 문제의 plan으로 (점선)</text>
+
+  <!-- row b: 도구 반복 루프 -->
+  <rect class="llm" x="720" y="510" width="200" height="66" rx="6"/>
+  <text class="node" x="820" y="536" text-anchor="middle">act</text>
+  <text class="s" x="820" y="556" text-anchor="middle">다음에 부를 도구 선택</text>
+
+  <rect class="code" x="490" y="510" width="200" height="66" rx="6"/>
+  <text class="node" x="590" y="536" text-anchor="middle">tools</text>
+  <text class="s" x="590" y="556" text-anchor="middle">실행, 마스킹, 근거 저장</text>
+
+  <rect class="llm" x="260" y="510" width="200" height="66" rx="6"/>
+  <text class="node" x="360" y="536" text-anchor="middle">judge</text>
+  <text class="s" x="360" y="556" text-anchor="middle">가설 판정 (지지, 배제, 보류)</text>
+
+  <line class="edge" x1="820" y1="436" x2="820" y2="508" marker-end="url(#arr)"/>
+  <line class="loop" x1="720" y1="543" x2="693" y2="543" marker-end="url(#arrLoop)"/>
+  <line class="loop" x1="490" y1="543" x2="463" y2="543" marker-end="url(#arrLoop)"/>
+  <path class="loop" d="M360,510 L360,478 L780,478 L780,507" marker-end="url(#arrLoop)"/>
+  <text class="loopLabel" x="380" y="470">반복: 가설이 미해결이고 예산이 남으면 다시 act</text>
+  <text class="elabel" x="380" y="500" fill="#c2410c">상한: 문제당 도구 8회, 전체 20회, 150초</text>
+
+  <!-- 외부 도구 -->
+  <rect class="ext" x="490" y="600" width="430" height="44" rx="6"/>
+  <text class="t" x="705" y="619" text-anchor="middle" font-weight="700" font-size="12.5">LLM이 고르는 도구: 진단 도구 7종 (조회 전용) + 지식 검색 1종</text>
+  <text class="s" x="705" y="636" text-anchor="middle">Kubernetes API, 서비스 HTTP 호출, 지식 기반(RAG)</text>
+  <line class="edge" x1="590" y1="576" x2="590" y2="598" marker-start="url(#arr)" marker-end="url(#arr)"/>
+
+  <!-- row c -->
+  <rect class="code" x="30" y="672" width="200" height="66" rx="6"/>
+  <text class="node" x="130" y="698" text-anchor="middle">next_issue</text>
+  <text class="s" x="130" y="718" text-anchor="middle">다음 문제로, 예산 확인</text>
+
+  <rect class="llm" x="260" y="672" width="200" height="66" rx="6"/>
+  <text class="node" x="360" y="698" text-anchor="middle">write_report</text>
+  <text class="s" x="360" y="718" text-anchor="middle">보고서 작성 (정해진 형식)</text>
+
+  <rect class="code" x="490" y="672" width="200" height="66" rx="6"/>
+  <text class="node" x="590" y="698" text-anchor="middle">validate</text>
+  <text class="s" x="590" y="718" text-anchor="middle">근거 번호 확인, 없으면 추정</text>
+
+  <rect class="code" x="720" y="672" width="200" height="66" rx="6"/>
+  <text class="t" x="820" y="698" text-anchor="middle" font-weight="700">조사 종료</text>
+  <text class="s" x="820" y="718" text-anchor="middle">완료 또는 조사 미완</text>
+
+  <path class="edge" d="M300,576 L300,620 L130,620 L130,670" marker-end="url(#arr)"/>
+  <text class="elabel" x="140" y="612">해결 또는 문제별 예산 소진</text>
+  <line class="edge" x1="230" y1="705" x2="258" y2="705" marker-end="url(#arr)"/>
+  <line class="edge" x1="460" y1="705" x2="488" y2="705" marker-end="url(#arr)"/>
+  <line class="edge" x1="690" y1="705" x2="718" y2="705" marker-end="url(#arr)"/>
+  <text class="elabel" x="695" y="694">통과</text>
+  <path class="edge" d="M590,738 L590,762 L360,762 L360,741" marker-end="url(#arr)"/>
+  <text class="elabel" x="372" y="778">결론에 근거가 없으면 1회만 다시 작성</text>
+  <text class="elabel" x="24" y="756">모든 문제 끝, 또는</text>
+  <text class="elabel" x="24" y="771">전체 예산·시간 소진</text>
+
+  <rect class="fail" x="720" y="752" width="220" height="56" rx="6"/>
+  <text class="t" x="830" y="774" text-anchor="middle" font-weight="700" fill="#b91c1c">failed (LLM 오류)</text>
+  <text class="s" x="830" y="793" text-anchor="middle">어느 LLM 노드에서든 바로 종료</text>
+
+  <!-- ===== 3. 출력과 기록 ===== -->
+  <rect class="lane" x="10" y="838" width="950" height="130" rx="8"/>
+  <text class="laneTitle" x="26" y="862">3. 출력과 기록 (코드만 실행)</text>
+
+  <rect class="out" x="720" y="878" width="220" height="74" rx="6"/>
+  <text class="t" x="830" y="902" text-anchor="middle" font-weight="700">보고서 저장</text>
+  <text class="s" x="830" y="921" text-anchor="middle">보고서 화면 + 파일 (Markdown)</text>
+  <text class="s" x="830" y="938" text-anchor="middle">근거 원문은 화면에서 확인</text>
+
+  <rect class="out" x="490" y="878" width="200" height="74" rx="6"/>
+  <text class="t" x="590" y="902" text-anchor="middle" font-weight="700">알림 갱신 (Slack)</text>
+  <text class="s" x="590" y="921" text-anchor="middle">1차 알림을 원인, 조치,</text>
+  <text class="s" x="590" y="938" text-anchor="middle">보고서 링크로 바꿈</text>
+
+  <rect class="out" x="260" y="878" width="200" height="74" rx="6"/>
+  <text class="t" x="360" y="902" text-anchor="middle" font-weight="700">처리 이력 등록</text>
+  <text class="s" x="360" y="921" text-anchor="middle">복구가 확인된 문제의</text>
+  <text class="s" x="360" y="938" text-anchor="middle">원인, 조치, 재검증 결과</text>
+
+  <rect class="ext" x="30" y="878" width="200" height="74" rx="6"/>
+  <text class="t" x="130" y="902" text-anchor="middle" font-weight="700">지식 기반 (RAG, 공통)</text>
+  <text class="s" x="130" y="921" text-anchor="middle">운영 매뉴얼 + 처리 이력</text>
+  <text class="s" x="130" y="938" text-anchor="middle">다음 조사에서 검색</text>
+
+  <path class="edge" d="M940,705 L950,705 L950,915 L942,915" marker-end="url(#arr)"/>
+  <path class="redEdge" d="M720,795 L705,795 L705,858 L650,858 L650,876" marker-end="url(#arrRed)"/>
+  <text class="elabel" x="470" y="832" fill="#b91c1c">실패: 규칙 결과로 "조사 실패" 갱신</text>
+  <line class="edge" x1="720" y1="915" x2="692" y2="915" marker-end="url(#arr)"/>
+  <line class="edge" x1="490" y1="915" x2="462" y2="915" marker-end="url(#arr)"/>
+  <text class="elabel" x="475" y="872" text-anchor="middle">복구 확인 후</text>
+  <line class="edge" x1="260" y1="915" x2="232" y2="915" marker-end="url(#arr)"/>
+
+  <!-- ===== State 패널 ===== -->
+  <rect class="stPanel" x="978" y="50" width="410" height="918" rx="8"/>
+  <text class="laneTitle" x="994" y="74">조사 상태 (InvestigationState)</text>
+  <text class="d" x="994" y="92">들여쓰기 = 필드 안의 필드(depth). 오른쪽 = 값을 쓰는 노드</text>
+
+  <g>
+    <text class="stHead" x="994" y="120">입력: 조사 요청 (조사 중 바뀌지 않음)</text>
+    <text class="f" x="1000" y="142">run_id, trigger, gate_path</text><text class="w" x="1378" y="142">load_context</text>
+    <text class="f" x="1000" y="162">severity, fingerprint</text><text class="w" x="1378" y="162">load_context</text>
+    <text class="f" x="1000" y="182">signal_board</text><text class="w" x="1378" y="182">load_context</text>
+    <text class="f" x="1018" y="200">services[].signals[]</text><text class="d" x="1210" y="200">서비스별 신호</text>
+    <text class="f" x="1000" y="220">topology, user_symptom</text><text class="w" x="1378" y="220">load_context</text>
+    <text class="f" x="1000" y="240">knowledge</text><text class="w" x="1378" y="240">load_context</text>
+    <text class="f" x="1018" y="258">runbook_index, environment</text>
+
+    <text class="stHead" x="994" y="290">사전 확인</text>
+    <text class="f" x="1000" y="312">preliminary_facts[]</text><text class="w" x="1378" y="312">preliminary</text>
+    <text class="f" x="1018" y="330">statement, evidence_ids[]</text>
+
+    <text class="stHead" x="994" y="362">선별과 계획</text>
+    <text class="f" x="1000" y="384">issues[] (최대 3)</text><text class="w" x="1378" y="384">triage</text>
+    <text class="f" x="1018" y="402">rank, title, impact, evidence_ids[]</text>
+    <text class="f" x="1000" y="422">current_issue</text><text class="w" x="1378" y="422">next_issue</text>
+    <text class="f" x="1000" y="442">plan[]</text><text class="w" x="1378" y="442">plan</text>
+    <text class="f" x="1000" y="462">hypotheses[] (최대 3)</text><text class="w" x="1378" y="462">plan, judge</text>
+    <text class="f" x="1018" y="480">statement, status, reason</text>
+    <text class="f" x="1018" y="498">evidence_ids[]</text><text class="d" x="1150" y="498">지지 / 배제 / 판단 보류</text>
+
+    <text class="stHead" x="994" y="530">도구 반복 (act, tools, judge)</text>
+    <text class="f" x="1000" y="552">messages[]</text><text class="w" x="1378" y="552">act, tools</text>
+    <text class="d" x="1018" y="570">문제가 끝나면 판정 요약으로 압축</text>
+    <text class="f" x="1000" y="590">evidence_ids[]</text><text class="w" x="1378" y="590">tools</text>
+    <text class="d" x="1018" y="608">근거 원문은 DB, State에는 번호만</text>
+    <text class="f" x="1000" y="628">tool_calls_used</text><text class="w" x="1378" y="628">tools</text>
+    <text class="f" x="1018" y="646">total, per_issue</text>
+    <text class="f" x="1000" y="666">deadline</text><text class="w" x="1378" y="666">load_context</text>
+
+    <text class="stHead" x="994" y="698">보고서와 종료</text>
+    <text class="f" x="1000" y="720">report</text><text class="w" x="1378" y="720">write_report</text>
+    <text class="f" x="1018" y="738">conclusion, confidence</text>
+    <text class="f" x="1018" y="756">impact_scope, issues[]</text>
+    <text class="f" x="1018" y="774">hypotheses[], checked_scope</text>
+    <text class="f" x="1036" y="792">checked[], not_checked[]</text>
+    <text class="f" x="1018" y="810">actions[], verification</text>
+    <text class="f" x="1000" y="832">status</text><text class="w" x="1378" y="832">validate, failed</text>
+    <text class="d" x="1018" y="850">running / done / incomplete / failed</text>
+
+    <line x1="994" y1="874" x2="1374" y2="874" stroke="#c4b5fd"/>
+    <text class="d" x="994" y="894">분기는 LLM이 아니라 코드가 State 값으로 정한다:</text>
+    <text class="d" x="994" y="912">hypotheses의 status, tool_calls_used, deadline,</text>
+    <text class="d" x="994" y="930">남은 issues 수. 체크포인트(SQLite)에 노드마다 저장해</text>
+    <text class="d" x="994" y="948">실패 재시작, 평가 재현, 디버깅에 쓴다.</text>
+  </g>
+
+  <text x="20" y="1000" font-size="11.5" fill="#64748b">실선 화살표 = 다음 단계, 점선 = 다음 문제로 되돌아감, 파란 점선 상자 = 에이전트 밖 외부 호출 또는 공통 지식 기반</text>
+</svg>
