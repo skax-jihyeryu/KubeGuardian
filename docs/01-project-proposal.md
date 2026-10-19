@@ -296,7 +296,7 @@ flowchart TB
 | `get_resource(kind, name? \| selector?)` | 정규화된 spec·status (필드 선별), Pod 목록 |
 | `get_pod_logs(pod, previous, tail≤200, grep?)` | 마스킹된 로그 |
 | `get_events(subject, since)` | 이벤트 (마스킹) |
-| `probe(target, path, via=service\|pod, times=1..10)` | HTTP 호출. Service 경유 반복 호출, Pod 직접 호출 |
+| `probe(target, path, via=service\|pod, times=1..10)` | HTTP GET. Service 경유 반복 호출, Pod 직접 호출. 경로는 상태 확인 경로(`/health` 계열, 대상 Pod의 readinessProbe 경로)만 |
 | `run_api_scenario(name)` | API 시나리오 (로그인 → 채팅 등) |
 | `query_app_api(service, endpoint)` | **허용 목록의 GET API만** (llm-gateway 상태·할당량 등) |
 
