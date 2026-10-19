@@ -14,6 +14,8 @@ EXPECTED_INPUTS = {
     "get_pod_logs": {"pod", "container", "previous", "tail", "grep"},
     "get_events": {"kind", "name", "since_minutes"},
     "probe": {"target", "path", "via", "times"},
+    "run_api_scenario": {"name"},
+    "query_app_api": {"app", "path"},
 }
 
 TOOLS = build_tools(CONFIG)
