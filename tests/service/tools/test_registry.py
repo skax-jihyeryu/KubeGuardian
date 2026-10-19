@@ -11,6 +11,8 @@ CONFIG = KubeGuardianConfig.model_validate({"target": {"namespace": "dev"}})
 EXPECTED_INPUTS = {
     "get_topology": set(),
     "get_resource": {"kind", "name", "label_selector"},
+    "get_pod_logs": {"pod", "container", "previous", "tail", "grep"},
+    "get_events": {"kind", "name", "since_minutes"},
 }
 
 TOOLS = build_tools(CONFIG)
