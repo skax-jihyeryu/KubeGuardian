@@ -1,0 +1,22 @@
+{
+  "_description": "agent Service targetPort 8080이 컨테이너 포트(8006)에 없음",
+  "merge": {
+    "Service": [
+      {
+        "metadata": {
+          "name": "agent"
+        },
+        "spec": {
+          "ports": [
+            {
+              "name": "http",
+              "port": 8006,
+              "targetPort": 8080,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

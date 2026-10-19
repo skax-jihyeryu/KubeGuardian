@@ -1,0 +1,72 @@
+{
+  "_description": "optional: true인 참조는 객체·키가 없어도 제외",
+  "merge": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-x2k9p"
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "agent",
+              "image": "agent:1.0",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8006
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                },
+                "periodSeconds": 10
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "256Mi"
+                },
+                "limits": {
+                  "cpu": "1",
+                  "memory": "512Mi"
+                }
+              },
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "agent-extra",
+                    "optional": true
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "MODEL",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "agent-config",
+                      "key": "MODEL_NAME",
+                      "optional": true
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "certs",
+              "secret": {
+                "secretName": "agent-tls",
+                "optional": true
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

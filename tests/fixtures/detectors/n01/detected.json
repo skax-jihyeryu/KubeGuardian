@@ -1,0 +1,23 @@
+{
+  "_description": "노드 kubelet이 응답하지 않아 Ready=Unknown",
+  "merge": {
+    "Node": [
+      {
+        "metadata": {
+          "name": "minikube"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "Unknown",
+              "reason": "NodeStatusUnknown",
+              "message": "Kubelet stopped posting node status.",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

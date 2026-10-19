@@ -96,9 +96,12 @@ class RunContext:
     steps: StepSink = field(default_factory=MemorySteps)
     k8s: Any = None  # 네임스페이스에 묶인 조회 클라이언트 (core.k8s)
     now: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
+    http: Any = None  # 네임스페이스에 묶인 HTTP 클라이언트 (core.http)
 
     def tool_context(self) -> ToolContext:
-        return ToolContext(self.namespace, self.evidence, self.budget, self.k8s, self.now)
+        return ToolContext(
+            self.namespace, self.evidence, self.budget, self.k8s, self.now, http=self.http
+        )
 
 
 LlmFactory = Callable[[str], BaseChatModel]  # 모델 이름 → LLM (core.llm.build_chat_model)

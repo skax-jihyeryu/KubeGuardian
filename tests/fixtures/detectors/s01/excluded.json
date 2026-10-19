@@ -1,0 +1,34 @@
+{
+  "_description": "selector가 없는 Service (ExternalName, 수동 EndpointSlice)는 제외",
+  "add": {
+    "Service": [
+      {
+        "metadata": {
+          "name": "openai",
+          "namespace": "dev",
+          "uid": "svc-ext"
+        },
+        "spec": {
+          "type": "ExternalName",
+          "externalName": "kg.openai.azure.com"
+        }
+      },
+      {
+        "metadata": {
+          "name": "legacy-db",
+          "namespace": "dev",
+          "uid": "svc-man"
+        },
+        "spec": {
+          "type": "ClusterIP",
+          "ports": [
+            {
+              "port": 5432,
+              "targetPort": 5432
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

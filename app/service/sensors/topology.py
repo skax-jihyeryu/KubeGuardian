@@ -1,7 +1,14 @@
 """토폴로지: 서비스 호출 관계와 Service → Deployment → ReplicaSet → Pod 계층 (기획서 §7.1).
 
-호출 관계는 Deployment Pod 템플릿의 env 중 이름이 `topology.url_env_patterns`(glob)에 맞는 값을
-URL로 읽어 대상 네임스페이스의 Service·port와 맞춘다.
+호출 관계는 Deployment Pod 템플릿의 env와 `envFrom` ConfigMap 값 중 이름이
+`topology.url_env_patterns`(glob)에 맞는 값을 URL로 읽어 대상 네임스페이스의 Service·port와 맞춘다.
+우선순위는 Kubernetes 규칙대로 뒤의 envFrom이 앞을 덮고 env가 envFrom을 덮는다.
+- Secret envFrom과 env valueFrom은 값을 읽지 않는다. 대신 같은 이름의 앞선 값을 지운다
+  (덮인 값으로 잘못 판정하지 않기 위해).
+- envFrom이 가리키는 ConfigMap·Secret을 수집하지 못했으면 그 호출 서비스와 객체 이름을
+  `unchecked`에 넣는다 (envFrom 값은 확인하지 못함). 없는 객체 참조는 C01이 다룬다.
+- containers만 본다 (initContainers는 보지 않는다).
+- 마스킹으로 포트가 `***`가 된 값은 포트를 모르는 것으로 보고 호스트만 맞춘다.
 
 - declared: 호스트가 네임스페이스의 Service이고 포트가 그 Service에 있음
   (포트를 알 수 없으면 호스트만 본다)
@@ -30,20 +37,70 @@ def build_topology(snapshot: ClusterSnapshot, config: KubeGuardianConfig) -> Top
     deployments = snapshot.items("Deployment")
     if services is None or deployments is None:
         return None
+    config_maps, secrets = snapshot.items("ConfigMap"), snapshot.items("Secret")
+    sources = _EnvSources(
+        _by_name(config_maps, lambda c: c.get("data") or {}),
+        _by_name(secrets, lambda s: s.get("keys") or []),
+    )
     ports = {s["metadata"]["name"]: _service_ports(s) for s in services}
-    edges = []
+    edges: list[TopologyEdge] = []
+    unchecked: dict[str, set[str]] = {}
     for dep in deployments:
         template = dep["spec"].get("template") or {}
         source = _source_name(dep, template, services)
         for container in (template.get("spec") or {}).get("containers") or []:
-            for env in container.get("env") or []:
-                name, value = env.get("name", ""), env.get("value")
+            values, unread = _container_env(container, sources)
+            if unread:
+                unchecked.setdefault(source, set()).update(unread)
+            for name, value in values.items():
                 if not value or not _matches(name, config.topology.url_env_patterns):
                     continue
                 edge = _edge(source, name, value, snapshot.namespace, ports, config.external_hosts)
                 if edge is not None:
                     edges.append(edge)
-    return Topology(services=sorted(ports), edges=edges)
+    return Topology(
+        services=sorted(ports),
+        edges=edges,
+        unchecked={src: sorted(names) for src, names in sorted(unchecked.items())},
+    )
+
+
+def _by_name(objs: list[Obj] | None, pick) -> dict | None:
+    return None if objs is None else {o["metadata"]["name"]: pick(o) for o in objs}
+
+
+class _EnvSources(NamedTuple):
+    config_maps: dict[str, dict[str, str]] | None  # None = 수집 실패
+    secret_keys: dict[str, list[str]] | None
+
+
+def _container_env(container: Obj, sources: _EnvSources) -> tuple[dict[str, str], set[str]]:
+    """컨테이너가 보는 env 이름 → 값과, 수집 실패로 읽지 못한 envFrom 객체 이름."""
+    values: dict[str, str] = {}
+    unread: set[str] = set()
+    for src in container.get("envFrom") or []:
+        prefix = src.get("prefix") or ""
+        if ref := src.get("configMapRef"):
+            if sources.config_maps is None:
+                unread.add(ref.get("name", ""))
+                values.clear()  # 앞선 값이 덮였는지 알 수 없다
+                continue
+            for key, value in sources.config_maps.get(ref.get("name", ""), {}).items():
+                values[prefix + key] = value
+        elif ref := src.get("secretRef"):
+            if sources.secret_keys is None:
+                unread.add(ref.get("name", ""))
+                values.clear()  # 앞선 값이 덮였는지 알 수 없다
+                continue
+            for key in sources.secret_keys.get(ref.get("name", ""), []):
+                values.pop(prefix + key, None)  # Secret 값은 읽지 않는다. 덮인 값은 쓰지 않는다
+    for env in container.get("env") or []:
+        name = env.get("name", "")
+        if "value" in env:
+            values[name] = env["value"]
+        else:  # valueFrom: 실제 값은 알 수 없지만 envFrom 값을 덮으므로 그 값을 쓰지 않는다
+            values.pop(name, None)
+    return values, unread
 
 
 def _matches(name: str, patterns: list[str]) -> bool:
@@ -71,6 +128,7 @@ def _edge(
     ports: dict[str, set[int]],
     external_hosts: list[str],
 ) -> TopologyEdge | None:
+    value = value.replace(":***", "")  # 마스킹된 포트는 모르는 것으로 본다 (호스트만 맞춘다)
     url = urlsplit(value if "://" in value else f"//{value}")
     host = url.hostname
     if not host:

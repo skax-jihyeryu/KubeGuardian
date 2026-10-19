@@ -1,0 +1,106 @@
+{
+  "_description": "agent Pod 2개 모두 readiness 실패. Ready 0/2",
+  "merge": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-x2k9p"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "ContainersNotReady",
+              "message": "containers with unready status: [agent]",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": false,
+              "started": false,
+              "restartCount": 0,
+              "image": "agent:1.0",
+              "state": {
+                "running": {
+                  "startedAt": "2026-10-19T00:00:20Z"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-q8w3z"
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "ContainersNotReady",
+              "message": "containers with unready status: [agent]",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": false,
+              "started": false,
+              "restartCount": 0,
+              "image": "agent:1.0",
+              "state": {
+                "running": {
+                  "startedAt": "2026-10-19T00:00:20Z"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "EndpointSlice": [
+      {
+        "metadata": {
+          "name": "agent-m4q9t"
+        },
+        "endpoints": [
+          {
+            "addresses": [
+              "10.244.0.11"
+            ],
+            "conditions": {
+              "ready": false,
+              "serving": false,
+              "terminating": false
+            },
+            "targetRef": {
+              "kind": "Pod",
+              "name": "agent-7c9f5d6b4-x2k9p",
+              "namespace": "dev"
+            }
+          },
+          {
+            "addresses": [
+              "10.244.0.12"
+            ],
+            "conditions": {
+              "ready": false,
+              "serving": false,
+              "terminating": false
+            },
+            "targetRef": {
+              "kind": "Pod",
+              "name": "agent-7c9f5d6b4-q8w3z",
+              "namespace": "dev"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

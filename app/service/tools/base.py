@@ -7,7 +7,8 @@ run()이 공통 규칙을 강제한다:
 수집 실패도 근거로 저장하고 ok=False로 돌려준다.
 
 대상 네임스페이스는 도구 입력으로 받지 않고 ToolContext가 정한다.
-도구는 ctx.k8s(네임스페이스에 묶인 조회 클라이언트)만 써서 범위 밖 호출 자체를 하지 않는다.
+도구는 ctx.k8s(네임스페이스에 묶인 조회 클라이언트)와 ctx.http(네임스페이스에 묶인 HTTP
+클라이언트)만 써서 범위 밖 호출 자체를 하지 않는다.
 run()의 범위 확인은 이중 안전장치다.
 """
 
@@ -45,6 +46,8 @@ class ToolContext:
     budget: BudgetTracker | None = None  # 도구 호출 상한·집계
     k8s: Any = None  # 네임스페이스에 묶인 조회 전용 클라이언트 (core.k8s)
     now: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
+    # 네임스페이스에 묶인 HTTP 클라이언트 (core.http). 대상 네임스페이스의 Service·Pod만 부른다
+    http: Any = None
 
 
 class ToolObservation(BaseModel):

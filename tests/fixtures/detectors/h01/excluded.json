@@ -1,0 +1,59 @@
+{
+  "_description": "Service가 선택하지 않는 Pod(배치 작업)는 readinessProbe가 없어도 제외",
+  "add": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "migrate-x1",
+          "namespace": "dev",
+          "uid": "pod-job",
+          "labels": {
+            "job-name": "migrate"
+          }
+        },
+        "spec": {
+          "nodeName": "minikube",
+          "containers": [
+            {
+              "name": "migrate",
+              "image": "migrate:1.0",
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "128Mi"
+                },
+                "limits": {
+                  "cpu": "500m",
+                  "memory": "256Mi"
+                }
+              }
+            }
+          ]
+        },
+        "status": {
+          "phase": "Running",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "migrate",
+              "ready": true,
+              "started": true,
+              "restartCount": 0,
+              "image": "migrate:1.0",
+              "state": {
+                "running": {
+                  "startedAt": "2026-10-19T00:00:20Z"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

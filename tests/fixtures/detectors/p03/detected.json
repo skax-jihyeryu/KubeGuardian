@@ -1,0 +1,115 @@
+{
+  "_description": "새 ReplicaSet의 agent Pod가 없는 이미지 태그로 ImagePullBackOff. 이전 버전 Pod 2개는 Ready",
+  "add": {
+    "ReplicaSet": [
+      {
+        "metadata": {
+          "name": "agent-5f8d7c6b9",
+          "namespace": "dev",
+          "uid": "rs-ag-2",
+          "labels": {
+            "app": "agent",
+            "pod-template-hash": "5f8d7c6b9"
+          },
+          "annotations": {
+            "deployment.kubernetes.io/revision": "2"
+          },
+          "ownerReferences": [
+            {
+              "kind": "Deployment",
+              "name": "agent",
+              "uid": "dep-ag",
+              "controller": true
+            }
+          ]
+        },
+        "spec": {
+          "replicas": 1
+        },
+        "status": {
+          "replicas": 1
+        }
+      }
+    ],
+    "Pod": [
+      {
+        "metadata": {
+          "name": "agent-5f8d7c6b9-n7v2c",
+          "namespace": "dev",
+          "uid": "pod-ag-3",
+          "labels": {
+            "app": "agent",
+            "pod-template-hash": "5f8d7c6b9"
+          },
+          "ownerReferences": [
+            {
+              "kind": "ReplicaSet",
+              "name": "agent-5f8d7c6b9",
+              "uid": "rs-ag-2",
+              "controller": true
+            }
+          ]
+        },
+        "spec": {
+          "nodeName": "minikube",
+          "containers": [
+            {
+              "name": "agent",
+              "image": "agent:9.9-missing",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8006
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                },
+                "periodSeconds": 10
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "256Mi"
+                },
+                "limits": {
+                  "cpu": "1",
+                  "memory": "512Mi"
+                }
+              }
+            }
+          ]
+        },
+        "status": {
+          "phase": "Pending",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "ContainersNotReady",
+              "message": "containers with unready status: [agent]",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": false,
+              "started": false,
+              "restartCount": 0,
+              "image": "agent:9.9-missing",
+              "state": {
+                "waiting": {
+                  "reason": "ImagePullBackOff",
+                  "message": "Back-off pulling image \"agent:9.9-missing\""
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

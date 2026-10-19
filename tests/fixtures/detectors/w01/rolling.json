@@ -1,0 +1,17 @@
+{
+  "_description": "롤아웃 진행 중: updatedReplicas가 1로 바뀜, available 1",
+  "merge": {
+    "Deployment": [
+      {
+        "metadata": {
+          "name": "agent"
+        },
+        "status": {
+          "updatedReplicas": 1,
+          "availableReplicas": 1,
+          "readyReplicas": 1
+        }
+      }
+    ]
+  }
+}

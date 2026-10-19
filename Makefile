@@ -1,4 +1,4 @@
-.PHONY: setup lint format test check run doctor secret ca build up down seed smoke phoenix
+.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix
 
 # 진단 대상(템플릿 포크) 위치. 포크 6개 + shared-infra가 이 아래에 있어야 한다.
 TARGET_DIR ?= $(HOME)/Cursor/kg-target
@@ -35,6 +35,9 @@ check: lint test  ## PR 올리기 전 확인
 
 run:  ## API 서버 로컬 실행
 	cd app && uv run --env-file ../.env python main.py
+
+check-run:  ## 규칙 점검 한 번 실행 (kg check). 예: make check-run ARGS="--config kubeguardian.yaml"
+	uv run python app/cli.py check $(ARGS)
 
 doctor:  ## 로컬 도구·자원 확인 (minikube, kubectl, docker, 메모리)
 	@for t in uv minikube kubectl docker; do \

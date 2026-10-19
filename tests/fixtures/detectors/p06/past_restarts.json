@@ -1,0 +1,35 @@
+{
+  "_description": "지금 Ready이고 과거 재시작 기록만 있는 컨테이너 (E1 미끼)",
+  "merge": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "agent-7c9f5d6b4-x2k9p"
+        },
+        "status": {
+          "containerStatuses": [
+            {
+              "name": "agent",
+              "ready": true,
+              "started": true,
+              "restartCount": 3,
+              "image": "agent:1.0",
+              "state": {
+                "running": {
+                  "startedAt": "2026-10-19T12:00:00Z"
+                }
+              },
+              "lastState": {
+                "terminated": {
+                  "reason": "Error",
+                  "exitCode": 1,
+                  "finishedAt": "2026-10-19T11:59:50Z"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

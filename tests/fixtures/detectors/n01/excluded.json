@@ -1,0 +1,26 @@
+{
+  "_description": "운영자가 cordon한 노드(unschedulable)는 NotReady여도 제외",
+  "merge": {
+    "Node": [
+      {
+        "metadata": {
+          "name": "minikube"
+        },
+        "spec": {
+          "unschedulable": true
+        },
+        "status": {
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "KubeletNotReady",
+              "message": "container runtime is down",
+              "lastTransitionTime": "2026-10-20T00:40:00Z"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

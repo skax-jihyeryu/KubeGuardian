@@ -202,3 +202,16 @@ def test_prompt_dollar_signs_are_reported_clearly(tmp_path):
 
     with pytest.raises(KeyError, match=r"\$\$"):
         load_prompt(tmp_path, "p")
+
+
+def test_tool_context_carries_namespace_bound_clients():
+    k8s, http = object(), object()
+    ctx = RunContext(
+        run_id="r", namespace="dev", evidence=None, budget=BudgetTracker(Budget()), k8s=k8s
+    )
+    ctx.http = http
+
+    tool_ctx = ctx.tool_context()
+
+    assert (tool_ctx.namespace, tool_ctx.k8s, tool_ctx.http) == ("dev", k8s, http)
+    assert tool_ctx.budget is ctx.budget

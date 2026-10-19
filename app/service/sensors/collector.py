@@ -52,9 +52,14 @@ class KubeReader(Protocol):
     def read_log(self, pod: str, container: str, *, previous: bool, tail_lines: int) -> str: ...
 
 
-def collect(reader: KubeReader, now: datetime | None = None) -> ClusterSnapshot:
+def collect(
+    reader: KubeReader,
+    now: datetime | None = None,
+    kinds: tuple[str, ...] = COLLECTED_KINDS,
+) -> ClusterSnapshot:
+    """kinds를 주면 그 kind만 읽는다 (도구가 필요한 것만 조회할 때). Node는 Pod와 함께 줘야 한다."""
     snapshot = ClusterSnapshot(namespace=reader.namespace, collected_at=now or datetime.now(UTC))
-    for kind in COLLECTED_KINDS:
+    for kind in kinds:
         if kind == "Node" and snapshot.items("Pod") is None:
             snapshot.failed[kind] = "Pod 수집에 실패해 대상 노드를 정할 수 없음"
             continue
