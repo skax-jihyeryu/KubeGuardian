@@ -19,10 +19,10 @@ from core.config import Settings, get_setting
 
 
 class ModelOptions(NamedTuple):
-    fixed_temperature: bool = False  # temperature를 지정할 수 없음 (기본값만 허용)
-    responses_api: bool = (
-        False  # 도구 호출이 Responses API에서만 됨 (api-version 2025-03-01-preview 이상)
-    )
+    # temperature를 지정할 수 없음 (기본값만 허용)
+    fixed_temperature: bool = False
+    # 도구 호출이 Responses API에서만 됨 (api-version 2025-03-01-preview 이상)
+    responses_api: bool = False
 
 
 # 표에 없는 모델은 기본값 (temperature 지정 가능, chat completions)

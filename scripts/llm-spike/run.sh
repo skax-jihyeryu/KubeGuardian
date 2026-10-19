@@ -2,6 +2,7 @@
 # 진단용 Azure OpenAI를 minikube Pod 안에서 호출해 본다 (이슈 #8 스파이크).
 # 필요: 레포 루트의 .env (AZURE_OPENAI_*), ~/.minikube/certs/sk-ca.pem (환경 설치 가이드 §2)
 # 키 값은 화면에 출력하지 않는다.
+# .env 값에 따옴표를 쓰지 않는다 (--from-env-file은 따옴표를 그대로 Secret 값에 넣는다).
 set -euo pipefail
 MODEL=${1:-gpt-4.1}
 cd "$(dirname "$0")/../.."

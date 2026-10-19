@@ -16,6 +16,7 @@
 | 6 | 네임스페이스 | dev·kubeguardian·chaos-mesh 존재 | ✅ |
 | 7 | Chaos Mesh 설치 | chaos-mesh Pod 전부 Running | ✅ (차트 2.8.4) |
 | 8 | Chaos Mesh 스모크 테스트 (4종) | 4종 모두 효과 관측 | ⚠️ 3종 성공, TimeChaos 실패 (아래 결과 기록) |
+| 9 | Pod 안 진단용 Azure OpenAI 호출 | `run.sh` `OK` 출력 | ✅ (10-19, gpt-6.1-sol) |
 
 ## 이 환경의 전제 (2026-10-02 확인)
 
