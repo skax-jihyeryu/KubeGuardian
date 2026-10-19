@@ -119,7 +119,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 
 | 항목 | 내용 |
 |---|---|
-| 판정 조건 | 컨테이너 `state.waiting.reason` ∈ {`ErrImagePull`, `ImagePullBackOff`, `InvalidImageName`} |
+| 판정 조건 | 컨테이너 `state.waiting.reason` ∈ {`ErrImagePull`, `ImagePullBackOff`, `ErrImageNeverPull`, `InvalidImageName`}. `ErrImageNeverPull`은 `imagePullPolicy: Never`인데 노드에 이미지가 없는 경우로, 이미지를 받지 못한다는 의미가 같다 |
 | 지속 시간 | 1시간 |
 | 제외 | — |
 | 1차 심각도 | 같은 Deployment에 Ready Pod가 남아 있으면(이전 버전이 서비스 중) 🟠 주의, 없으면 §3 기준 |

@@ -66,6 +66,20 @@ def test_p03_is_critical_on_core_path_without_ready_pods(obs):
     }
 
 
+def test_p03_counts_err_image_never_pull(obs):
+    # imagePullPolicy: Never인데 노드에 이미지가 없음. 이미지를 받지 못한다는 의미가 같다
+    from service.sensors.collector import collect
+    from tests.service.checks.detectors.cases import FixtureReader, raw_cluster
+
+    objects, failed = raw_cluster("p03/detected")
+    pod = next(p for p in objects["Pod"] if p["metadata"]["name"] == "agent-5f8d7c6b9-n7v2c")
+    pod["status"]["containerStatuses"][0]["state"]["waiting"]["reason"] = "ErrImageNeverPull"
+    obs.seed("P03", NEW_POD, NOW - timedelta(hours=1))
+    snap = collect(FixtureReader(objects, failed), now=NOW)
+    s = one(run("P03", context(snap, observations=obs)), NEW_POD)
+    assert (s.verdict, s.values["reason"]) == ("detected", "ErrImageNeverPull")
+
+
 def test_p03_ignores_crash_loop_waiting():
     assert one(run("P03", context(snapshot("p03/excluded"))), X2K).verdict == "passed"
 

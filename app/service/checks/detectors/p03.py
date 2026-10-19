@@ -17,7 +17,7 @@ from service.model import Signal
 
 RULE = "P03"
 KINDS = ("Pod", "ReplicaSet", "Service")
-PULL_FAILURES = {"ErrImagePull", "ImagePullBackOff", "InvalidImageName"}
+PULL_FAILURES = {"ErrImagePull", "ImagePullBackOff", "ErrImageNeverPull", "InvalidImageName"}
 
 
 @detector(RULE)
