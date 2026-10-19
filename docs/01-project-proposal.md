@@ -577,8 +577,11 @@ topology:
 api_scenarios:
   - name: chat
     steps:
-      - login: {via: gateway, path: /api/v1/auth/login, account_secret: kg-test-user}
-      - call:  {via: gateway, path: /api/v1/agent/invoke, expect: 200, timeout_s: 60}
+      - login: {via: gateway, path: /api/v1/auth/login, account_secret: kg-test-user,
+                token: access_token, extract: {org_id: user.role.organizations.0.org_id}}
+      - call:  {via: gateway, path: /api/v1/agent/invoke, expect: 200, timeout_s: 60,
+                body: {query: "...", model: gpt-4.1, org_id: "${org_id}"},
+                check: {path: data.answer, not_starts_with: "오류가 발생했습니다:"}}  # 200이어도 실패 문구면 실패
 app_apis:            # query_app_api 허용 목록 (GET만)
   llm-gateway: [/api/v1/health, /api/v1/quota]
 slack:

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -52,9 +52,58 @@ class TopologyConfig(_Strict):
     url_env_patterns: list[str] = ["*_SERVICE_URL", "*_URL"]
 
 
+# API 시나리오 단계 (run_api_scenario). JSON 경로는 점으로 잇고 목록 위치는 숫자로 쓴다
+# (예: user.role.organizations.0.org_id).
+
+
+class ResponseCheck(_Strict):
+    """응답 JSON의 path 값이 문자열이고 not_starts_with로 시작하지 않아야 성공이다.
+
+    템플릿 agent는 LLM 호출이 실패해도 HTTP 200에 "오류가 발생했습니다: ..."를 answer로 돌려준다.
+    """
+
+    path: str
+    not_starts_with: str
+
+
+class _ScenarioStepBase(_Strict):
+    via: str  # 대상 네임스페이스의 Service 이름
+    path: str
+    port: int | None = None  # 없으면 Service의 첫 번째 포트
+    timeout_s: float = 10.0
+    expect: int | None = None  # 없으면 2xx를 성공으로 본다
+    extract: dict[str, str] = {}  # 변수 이름 → 응답 JSON 경로. 뒤 단계 body에서 "${이름}"으로 쓴다
+
+
+class LoginStep(_ScenarioStepBase):
+    """account_secret Secret의 키·값(예: id, password)을 그대로 JSON 본문으로 POST한다."""
+
+    account_secret: str
+    token: str | None = None  # 토큰의 응답 JSON 경로. 없으면 access_token·accessToken·token
+
+
+class CallStep(_ScenarioStepBase):
+    method: Literal["GET", "POST"] = "POST"
+    body: dict[str, Any] | None = None  # 값이 "${이름}"인 문자열은 앞 단계 extract 값으로 바꾼다
+    check: ResponseCheck | None = None
+
+
+class ApiScenarioStep(_Strict):
+    """YAML에서 `- login: {...}` 또는 `- call: {...}` 한 키만 쓴다."""
+
+    login: LoginStep | None = None
+    call: CallStep | None = None
+
+    @model_validator(mode="after")
+    def _one_action(self) -> "ApiScenarioStep":
+        if (self.login is None) == (self.call is None):
+            raise ValueError("단계는 login·call 중 하나만 쓴다")
+        return self
+
+
 class ApiScenario(_Strict):
     name: str
-    steps: list[dict[str, Any]]  # 단계 형식은 증상 감지(W2)에서 정한다
+    steps: list[ApiScenarioStep]
 
 
 _DURATION = r"^\d+[mh]$"  # 30m, 2h

@@ -5,17 +5,21 @@
 - run_api_scenario: 설정 `api_scenarios`에 등록한 시나리오를 이름으로만 실행한다.
   단계는 설정에서 오고 LLM은 이름만 고른다. 첫 실패 단계에서 멈춘다.
   로그인 단계의 테스트 계정은 `ctx.http.account(<Secret 이름>)`로 받고 결과에 넣지 않는다.
+  단계 형식(`core.config.ApiScenarioStep`): login은 응답 JSON 경로(`token`)에서 토큰을 꺼내
+  뒤 단계에 `Authorization: Bearer`로 붙이고, `extract`로 꺼낸 값은 뒤 단계 body의 "${이름}"에
+  넣는다. `check`는 HTTP 200이어도 응답 값이 실패 문구로 시작하면 실패로 본다.
 
 호출은 `ctx.http`(대상 네임스페이스의 Service만 부르는 클라이언트)로 한다.
 포트는 `ctx.k8s`로 읽은 Service의 첫 번째 포트(단계에 `port`가 있으면 그 값)를 쓴다.
 응답 본문은 필드 수·길이를 줄이고, 마스킹은 Tool.run이 한다.
 """
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from core.config import ApiScenario
+from core.config import ApiScenario, ApiScenarioStep, CallStep, LoginStep, ResponseCheck
 from core.error.service_exception import ErrorCode, ServiceException
 from core.http import HttpCallError, HttpResponse
 from service.tools._common import (
@@ -33,7 +37,6 @@ from service.tools.base import Tool, ToolContext, ToolObservation
 MAX_KEYS, MAX_LIST, MAX_DEPTH = 30, 20, 4
 MAX_BODY_TEXT = 500
 MAX_ERROR_TEXT = 200
-DEFAULT_STEP_TIMEOUT_S = 10.0
 _TOKEN_FIELDS = ("access_token", "accessToken", "token")
 
 
@@ -110,10 +113,10 @@ class RunApiScenario(Tool):
             )
         steps: list[dict[str, Any]] = []
         headers: dict[str, str] = {}
+        variables: dict[str, Any] = {}  # extract로 꺼낸 값. 결과에 넣지 않는다
         failed = None
         for i, step in enumerate(scenario.steps, start=1):
-            [(action, spec)] = step.items()
-            result, token = _run_step(ctx, action, spec, headers)
+            result, token = _run_step(ctx, step, headers, variables)
             steps.append({"step": i, **result})
             if token:
                 headers = {"Authorization": f"Bearer {token}"}
@@ -127,6 +130,8 @@ class RunApiScenario(Tool):
         else:
             bad = steps[-1]
             outcome = bad["status"] if bad["status"] is not None else bad.get("error")
+            if bad.get("reason"):
+                outcome = f"{outcome}, {bad['reason']}"
             summary = (
                 f"시나리오 {args.name}: {len(scenario.steps)}단계 중 {failed}단계 실패 "
                 f"({bad['action']} {bad['path']} → {outcome})"
@@ -140,53 +145,112 @@ class RunApiScenario(Tool):
         )
 
 
+class _StepFailed(Exception):
+    """응답은 받았지만 단계 조건(토큰·extract·check)을 못 채움. reason은 응답 값을 담지 않는다."""
+
+    def __init__(self, reason: str, error: str | None = None):
+        super().__init__(reason)
+        self.reason, self.error = reason, error or reason
+
+
 def _run_step(
-    ctx: ToolContext, action: str, spec: dict[str, Any], headers: dict[str, str]
+    ctx: ToolContext,
+    step: ApiScenarioStep,
+    headers: dict[str, str],
+    variables: dict[str, Any],
 ) -> tuple[dict[str, Any], str | None]:
-    """단계 하나를 실행한다. (결과, 로그인 토큰)을 돌려준다. 토큰은 결과에 넣지 않는다."""
-    if action not in ("login", "call"):
-        raise ValueError(f"모르는 시나리오 단계: {action}")
-    via, path = spec["via"], spec["path"]
-    port = _port(ctx, via, spec.get("port"))
-    timeout = float(spec.get("timeout_s", DEFAULT_STEP_TIMEOUT_S))
+    """단계 하나를 실행한다. (결과, 로그인 토큰)을 돌려준다. 토큰·변수 값은 결과에 넣지 않는다."""
+    spec: LoginStep | CallStep = step.login or step.call  # type: ignore[assignment]
+    action = "login" if step.login else "call"
     # call의 기본 메서드는 POST다 (예시 설정의 /agent/invoke). 조회 단계는 method: GET을 적는다
-    method = "POST" if action == "login" else spec.get("method", "POST")
-    out: dict[str, Any] = {"action": action, "via": via, "path": path, "method": method}
+    method = "POST" if isinstance(spec, LoginStep) else spec.method
+    out: dict[str, Any] = {"action": action, "via": spec.via, "path": spec.path, "method": method}
+    port = _port(ctx, spec.via, spec.port)
+    send = {"service": spec.via, "port": port, "path": spec.path, "timeout_s": spec.timeout_s}
     try:
-        if action == "login":
-            account = ctx.http.account(spec["account_secret"])
-            resp = ctx.http.post(service=via, port=port, path=path, json=account, timeout_s=timeout)
+        if isinstance(spec, LoginStep):
+            account = ctx.http.account(spec.account_secret)
+            resp = ctx.http.post(**send, json=account)
         elif method == "GET":
-            resp = ctx.http.get(
-                service=via, port=port, path=path, headers=headers or None, timeout_s=timeout
-            )
-        elif method == "POST":
-            resp = ctx.http.post(
-                service=via,
-                port=port,
-                path=path,
-                json=spec.get("body"),
-                headers=headers or None,
-                timeout_s=timeout,
-            )
+            resp = ctx.http.get(**send, headers=headers or None)
         else:
-            raise ValueError(f"시나리오 단계는 GET·POST만 쓴다: {method}")
-    except HttpCallError as e:
+            body = _substitute(spec.body, variables)
+            resp = ctx.http.post(**send, json=body, headers=headers or None)
+    except (HttpCallError, _StepFailed) as e:
         return {**out, "status": None, "latency_ms": None, "ok": False, "error": str(e)}, None
 
-    expect = spec.get("expect")
-    ok = resp.status == expect if expect else 200 <= resp.status < 300
+    ok = resp.status == spec.expect if spec.expect else 200 <= resp.status < 300
     out.update(status=resp.status, latency_ms=resp.elapsed_ms, ok=ok)
     if not ok:
         out["error"] = clip(resp.text, MAX_ERROR_TEXT)
-    token = None
-    if action == "login" and ok:
+        return out, None
+    try:
         payload = resp.json()
-        if isinstance(payload, dict):
-            token = next(
-                (payload[k] for k in _TOKEN_FIELDS if isinstance(payload.get(k), str)), None
-            )
+        token = _token(spec, payload) if isinstance(spec, LoginStep) else None
+        for name, path in spec.extract.items():
+            variables[name] = _required(payload, path)
+        if isinstance(spec, CallStep) and spec.check:
+            _check(spec.check, payload)
+    except _StepFailed as e:
+        out.update(ok=False, reason=e.reason, error=e.error)
+        return out, None
     return out, token
+
+
+def _token(spec: LoginStep, payload: Any) -> str | None:
+    if spec.token is None:  # 경로를 적지 않으면 흔한 필드 이름에서 찾고, 없어도 실패로 보지 않는다
+        if not isinstance(payload, dict):
+            return None
+        return next((payload[k] for k in _TOKEN_FIELDS if isinstance(payload.get(k), str)), None)
+    token = _required(payload, spec.token)
+    if not isinstance(token, str):
+        raise _StepFailed(f"응답의 {spec.token}이 문자열이 아님")
+    return token
+
+
+def _json_path(payload: Any, path: str) -> Any:
+    """점으로 이은 경로의 값. 없으면 None. 목록 위치는 숫자로 쓴다."""
+    value = payload
+    for key in path.split("."):
+        if isinstance(value, dict):
+            value = value.get(key)
+        elif isinstance(value, list) and key.isdigit() and int(key) < len(value):
+            value = value[int(key)]
+        else:
+            return None
+    return value
+
+
+def _required(payload: Any, path: str) -> Any:
+    value = _json_path(payload, path)
+    if value is None:
+        raise _StepFailed(f"응답에 {path} 없음")
+    return value
+
+
+def _check(check: ResponseCheck, payload: Any) -> None:
+    value = _json_path(payload, check.path)
+    if not isinstance(value, str):
+        raise _StepFailed(f"응답에 {check.path} 없음")
+    if value.startswith(check.not_starts_with):
+        reason = f"{check.path}가 '{check.not_starts_with}'로 시작"
+        raise _StepFailed(reason, clip(value, MAX_ERROR_TEXT))
+
+
+_VARIABLE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+
+def _substitute(value: Any, variables: dict[str, Any]) -> Any:
+    """값이 "${이름}"인 문자열을 앞 단계 extract 값으로 바꾼다 (타입 유지). 없는 이름은 실패."""
+    if isinstance(value, dict):
+        return {k: _substitute(v, variables) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_substitute(v, variables) for v in value]
+    if isinstance(value, str) and (m := _VARIABLE.match(value)):
+        if m[1] not in variables:
+            raise _StepFailed(f"앞 단계에서 꺼내지 않은 변수: {m[1]}")
+        return variables[m[1]]
+    return value
 
 
 def _body(resp: HttpResponse) -> tuple[Any, bool]:
