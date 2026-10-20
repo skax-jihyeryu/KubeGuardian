@@ -58,3 +58,19 @@ def test_gate_closed_means_no_investigation():
     ai, report, judged = _run(None)
 
     assert ai["status"] == "skipped" and ai["passed"] is False and report is None
+
+
+def test_tracing_is_set_up_before_the_investigation_span_starts(monkeypatch):
+    # 추적 설정이 span 시작 뒤에 되면 span이 no-op이라 trace_id가 항상 비어 버린다
+    import run
+
+    order = []
+    monkeypatch.setattr(run, "setup_tracing", lambda: order.append("setup"))
+
+    def investigate():
+        order.append("investigate")
+        return None
+
+    investigate_and_judge(EXPECTED, investigate=investigate, judge=lambda c: None)
+
+    assert order == ["setup", "investigate"]

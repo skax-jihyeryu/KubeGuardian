@@ -31,6 +31,7 @@ from core.db import create_db_engine  # noqa: E402
 from core.http import NamespacedHttp  # noqa: E402
 from core.k8s import K8sClient  # noqa: E402
 from core.llm import build_chat_model  # noqa: E402
+from core.tracing import setup_tracing  # noqa: E402
 from judge import JUDGE_MODEL, JudgeResult, judge_top1  # noqa: E402
 from scoring import score  # noqa: E402
 from service.agent.base import AgentResult  # noqa: E402
@@ -122,6 +123,7 @@ def investigate_and_judge(
     """
     from opentelemetry import trace
 
+    setup_tracing()  # span을 열기 전에 켜야 span이 기록된다 (여러 번 불러도 한 번만 설정)
     with trace.get_tracer("eval").start_as_current_span("eval.investigation") as span:
         result = investigate()
         ctx = span.get_span_context()
