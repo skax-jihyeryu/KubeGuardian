@@ -2,9 +2,9 @@
 
 기준 조건(규칙만)으로 시나리오 하나를 돈다. AI 조사 단계는 W2에 연결한다.
 점검은 같은 DB로 간격(기본 300초)마다 반복하고, 기대 신호를 모두 적발하거나
-상한(기본 2100초)에 닿으면 마지막 점검으로 채점한다. 기대 신호가 없는 시나리오는 한 번만 점검한다.
+상한(기본 2700초)에 닿으면 마지막 점검으로 채점한다. 기대 신호가 없는 시나리오는 한 번만 점검한다.
 실행: uv run python eval/run.py <시나리오 ID> [--config kubeguardian.yaml]
-      [--check-interval 300] [--check-max 2100]
+      [--check-interval 300] [--check-max 2700]
 종료 코드: 0 통과, 1 실패, 2 무효(증상이 나지 않음·원복 실패 등 실행 자체를 믿을 수 없음)
 결과는 eval/history/<시각>-<ID>/에 result.json과 점검 DB로 남긴다 (커밋하지 않음).
 """
@@ -142,19 +142,27 @@ def run(
         # 같은 DB로 반복 점검한다. 지속 시간 규칙(W02 등)은 앞 점검의 관찰 기록이 있어야 적발된다
         reader = K8sClient.from_config(config)
         engine = create_db_engine(str(out_dir / "kg.db"))
+        result["check_interval_s"] = interval_s
+        result["check_max_s"] = max_s
+        result["checks"] = []
+
+        def on_check(c: dict) -> None:
+            # 바로 쌓아 둔다. 반복 중 예외가 나도 그때까지의 점검이 result.json에 남는다
+            result["checks"].append(c)
+            log(
+                f"check {c['n']}",
+                f"{c['elapsed_s']}s 경로 {c['gate_path']} 적발 {c['detected']}"
+                f" 관찰 중 {c['observing']}",
+            )
+
         outcome, checks, first = check_repeatedly(
             lambda: run_check(reader, config, engine, trigger="check"),
             expected,
             interval_s=interval_s,
             max_s=max_s,
             elapsed=lambda: time.monotonic() - injected_at,
-            on_check=lambda c: log(
-                f"check {c['n']}",
-                f"{c['elapsed_s']}s 경로 {c['gate_path']} 적발 {c['detected']}"
-                f" 관찰 중 {c['observing']}",
-            ),
+            on_check=on_check,
         )
-        result["checks"] = checks
         result["first_detected_s"] = {
             r: first.get(r) for r in sorted(expected.get("expected_signals") or [])
         }
@@ -218,9 +226,11 @@ def main() -> int:
     p.add_argument("--symptom-timeout", type=int, default=180, help="증상 확인 대기 (초)")
     p.add_argument("--check-interval", type=int, default=300, help="반복 점검 간격 (초)")
     p.add_argument(
-        "--check-max", type=int, default=2100, help="반복 점검 상한, 주입 시각 기준 (초)"
+        "--check-max", type=int, default=2700, help="반복 점검 상한, 주입 시각 기준 (초)"
     )
     args = p.parse_args()
+    if args.check_interval <= 0:
+        p.error("--check-interval은 0보다 커야 한다")
     if not (SCENARIOS / args.scenario / "expected.yaml").is_file():
         print(f"시나리오 없음: scenarios/{args.scenario}/expected.yaml", file=sys.stderr)
         return EXIT_INVALID

@@ -1,9 +1,13 @@
 """반복 점검(check_repeatedly) 단위 테스트. 클러스터 없이 가짜 점검·시계로 돈다."""
 
+from datetime import timedelta
 from types import SimpleNamespace
 
+from core.db import create_db_engine
 from run import check_repeatedly
 from service.model import Signal
+from service.pipeline.check import run_check
+from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
 
 
 def _outcome(detected=(), observing=(), gate="C", failed=()):
@@ -126,6 +130,53 @@ def test_stops_at_cap_and_returns_last_outcome():
     assert clock.calls == 3
     assert first == {}
     assert checks[-1]["gate_path"] == "C"
+
+
+def _real_checks(engine_for_each_check):
+    """실제 run_check + SQLite. 점검 시각(now)은 가짜 시계를 따른다 (S02 15분 지속 규칙)."""
+    clock = FakeClock([None], start_s=0.0, check_s=0.0)
+
+    def check():
+        clock.calls += 1
+        return run_check(
+            FixtureReader(*raw_cluster("s02/partial")),
+            CONFIG,
+            engine_for_each_check(),
+            trigger="check",
+            now=NOW + timedelta(seconds=clock.now),
+        )
+
+    return check_repeatedly(
+        check,
+        {"expected_signals": ["S02"], "gate_path": "A"},
+        interval_s=300,
+        max_s=2700,
+        elapsed=clock.elapsed,
+        sleep=clock.sleep,
+    )
+
+
+def test_same_db_lets_hold_rule_mature(tmp_path):
+    """같은 DB면 앞 점검의 관찰 기록이 남아 15분 뒤 점검에서 S02가 observing → detected."""
+    engine = create_db_engine(tmp_path / "kg.db")
+    outcome, checks, first = _real_checks(lambda: engine)
+
+    assert [c["observing"] for c in checks[:3]] == [["S02"]] * 3
+    assert checks[-1]["detected"] == ["S02"] and checks[-1]["elapsed_s"] == 900
+    assert outcome.gate.path == "A"
+    assert first == {"S02": 900}
+
+
+def test_fresh_db_each_check_never_matures(tmp_path):
+    """점검마다 새 DB면 관찰 기록이 없어 상한까지 observing으로 남는다 (예전 러너의 문제)."""
+    counter = iter(range(100))
+    outcome, checks, first = _real_checks(
+        lambda: create_db_engine(tmp_path / f"kg-{next(counter)}.db")
+    )
+
+    assert all(c["observing"] == ["S02"] and c["detected"] == [] for c in checks)
+    assert len(checks) == 10  # 0, 300, ..., 2700초
+    assert first == {}
 
 
 def test_collect_failure_stops_loop():
