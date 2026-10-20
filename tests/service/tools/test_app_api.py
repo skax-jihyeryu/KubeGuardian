@@ -364,3 +364,43 @@ def test_get_step_sends_login_token_and_ignores_non_string_token(make_ctx):
 
     assert ok_http.headers == [{"Authorization": "Bearer tok-abcdefgh12345678"}]
     assert odd_http.headers == [None]
+
+
+def _fastapi_422(password: str) -> str:
+    body = {
+        "detail": [
+            {
+                "type": "missing",
+                "loc": ["body", "email"],
+                "msg": "Field required",
+                "input": {"username": "kg", "password": password, "pin": password},
+            }
+        ]
+    }
+    return json.dumps(body)
+
+
+def test_login_failure_body_is_not_kept(make_ctx, evidence):
+    http = _scenario_http(200)
+    http.responses[("gateway", "/api/v1/auth/login")] = HttpResponse(
+        422, 3.0, _fastapi_422("hunter2")
+    )
+
+    result = RunApiScenario(SCENARIOS).run({"name": "chat"}, make_ctx(_k8s(), http))
+
+    assert result.data["failed_step"] == 1
+    assert result.data["steps"][0]["status"] == 422
+    dumped = result.model_dump_json() + evidence.saved[0].model_dump_json()
+    assert "hunter2" not in dumped and "Field required" not in dumped
+    assert "422" in result.summary
+
+
+def test_call_failure_removes_detail_input_but_keeps_message(make_ctx, evidence):
+    http = _scenario_http(HttpResponse(422, 3.0, _fastapi_422("s3cretvalue")))
+
+    result = RunApiScenario(SCENARIOS).run({"name": "chat"}, make_ctx(_k8s(), http))
+
+    error = result.data["steps"][1]["error"]
+    assert "Field required" in error and "email" in error
+    dumped = result.model_dump_json() + evidence.saved[0].model_dump_json()
+    assert "s3cretvalue" not in dumped

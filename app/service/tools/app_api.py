@@ -14,6 +14,7 @@
 응답 본문은 필드 수·길이를 줄이고, 마스킹은 Tool.run이 한다.
 """
 
+import json
 import re
 from typing import Any
 
@@ -186,7 +187,7 @@ def _run_step(
     ok = resp.status == spec.expect if spec.expect else 200 <= resp.status < 300
     out.update(status=resp.status, latency_ms=resp.elapsed_ms, ok=ok)
     if not ok:
-        out["error"] = clip(resp.text, MAX_ERROR_TEXT)
+        out["error"] = _failure_text(resp, login=isinstance(spec, LoginStep))
         return out, None
     try:
         payload = resp.json()
@@ -199,6 +200,23 @@ def _run_step(
         out.update(ok=False, reason=e.reason, error=e.error)
         return out, None
     return out, token
+
+
+def _failure_text(resp: HttpResponse, *, login: bool) -> str:
+    """실패 응답의 오류 문구. 로그인은 본문을 버린다 (422가 보낸 계정 정보를 되돌려 주기 때문).
+
+    call은 FastAPI 검증 오류의 detail[].input(요청 본문 사본)을 지운 뒤 줄여 쓴다.
+    """
+    if login:
+        return f"HTTP {resp.status}"
+    payload = resp.json()
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    if not isinstance(detail, list):
+        return clip(resp.text, MAX_ERROR_TEXT)
+    cleaned = [
+        {k: v for k, v in d.items() if k != "input"} if isinstance(d, dict) else d for d in detail
+    ]
+    return clip(json.dumps({**payload, "detail": cleaned}, ensure_ascii=False), MAX_ERROR_TEXT)
 
 
 def _token(spec: LoginStep, payload: Any) -> str | None:
