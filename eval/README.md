@@ -37,10 +37,13 @@
 
 ### AI 조건 (`--condition ai`)
 
-반복 점검이 끝난 뒤 게이트가 A·B면 `run_investigation`으로 조사하고, 보고서 결론을 `judge.py`(gpt-4.1, 조사 모델과 다름)가 `expected.yaml`의 `expected_top1`과 같은 원인인지 채점한다. 통과 = 규칙 채점 통과 + 채점 match. 사람이 `[ai]` 줄이나 `report.json`으로 결론·기대를 나란히 확인한다.
+반복 점검이 끝난 뒤 게이트가 A·B면 `run_investigation`으로 조사하고, 보고서 결론을 `judge.py`(gpt-4.1, 조사 모델과 다름)가 `expected.yaml`의 `expected_top1`과 같은 원인인지 채점한다. 통과 = 규칙 채점 통과 + judge match + `conclusion_supported`가 true(결론이 인용한 근거가 있음). 근거 없는 결론이 우연히 맞은 것은 통과가 아니다. 사람이 `[ai]` 줄이나 `report.json`으로 결론·기대를 나란히 확인한다.
 
-- `result.json`의 `ai` 블록: `status`, `conclusion`, `expected_top1`, `judge`(match·reason, 채점 실패는 match null), `usage`(토큰·도구 호출·초), `trace_id`(Phoenix에서 찾는 키, 추적이 꺼져 있으면 null), `passed`
-- 보고서 전체는 `report.json`. Phoenix 추적은 `.env`의 `OTEL_EXPORTER_OTLP_ENDPOINT`로 켜지고 port-forward가 필요하다
+- judge가 판정하지 못하면(match `null`) 무효(2)다
+- 기대 게이트가 C이면 조사를 건너뛰었을 때 통과, 조사가 돌았으면 채점 없이 실패다
+- 판정 우선순위는 무효 > 실패 > 통과다
+- `result.json`의 `ai` 블록: `status`, `conclusion`, `expected_top1`, `judge`(match·reason, 채점 실패는 match null), `usage`(토큰·도구 호출·초), `trace_id`(Phoenix에서 찾는 키, 추적이 꺼져 있으면 null), `passed`, `conclusion_supported`, `demoted`(근거 검증에서 강등된 항목), `fail_reason`(실패 사유), `invalid`(무효 사유)
+- history에는 `report.json`(보고서 전체)과 `steps.json`(조사 단계 기록)을 저장한다. Phoenix 추적은 `.env`의 `OTEL_EXPORTER_OTLP_ENDPOINT`로 켜지고 port-forward가 필요하다
 - 러너가 로컬에서 돌면 클러스터 DNS를 찾지 못해 HTTP 도구(probe·run_api_scenario·query_app_api)가 실패한다. k8s 조회 도구는 동작한다
 
 ### 결과 (`result.json`)
