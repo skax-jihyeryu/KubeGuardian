@@ -103,6 +103,6 @@ phoenix:  ## 실행 추적 Phoenix 설치 (kubeguardian 네임스페이스)
 # 평가에 쓸 설정. kubeguardian.yaml이 없으면 예시 설정을 쓴다.
 EVAL_CONFIG ?= $(if $(wildcard kubeguardian.yaml),kubeguardian.yaml,kubeguardian.example.yaml)
 
-eval:  ## 시나리오 하나 평가 (주입 → 증상 확인 → 점검·게이트 → 채점 → 원복). 예: make eval S=A5
+eval:  ## 시나리오 하나 평가 (주입 → 증상 확인 → 점검·게이트 → 채점 → 원복). 예: make eval S=A5, AI 조건은 make eval S=A5 ARGS="--condition ai"
 	@test -n "$(S)" || { echo "S=<시나리오 ID>가 필요하다. 예: make eval S=A5"; exit 2; }
-	uv run python eval/run.py $(S) --config $(EVAL_CONFIG)
+	uv run python eval/run.py $(S) --config $(EVAL_CONFIG) $(ARGS)
