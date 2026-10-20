@@ -70,10 +70,52 @@ def test_hypothesis_without_evidence_becomes_inconclusive():
 
     h = out.report.hypotheses[0]
     assert (h.status, h.evidence_ids) == ("inconclusive", [])
-    assert h.reason.startswith("(추정) ")
+    assert h.statement == "(추정) selector 오타"
     assert out.demoted == ["selector 오타"]
 
 
 def test_conclusion_without_evidence_is_flagged():
     assert validate_report(_report(evidence_ids=["ev-9"]), known).conclusion_supported is False
     assert validate_report(_report(), known).conclusion_supported is True
+
+
+def test_supported_hypothesis_without_evidence_is_demoted():
+    """지어낸 id만 있던 가설과 처음부터 근거가 빈 가설은 같은 결과여야 한다."""
+    report = _report(
+        hypotheses=[
+            Hypothesis(statement="A", status="supported", evidence_ids=["ev-5"]),
+            Hypothesis(statement="B", status="supported", evidence_ids=[]),
+            Hypothesis(statement="C", status="refuted", evidence_ids=[]),
+            Hypothesis(statement="D", status="inconclusive", evidence_ids=[]),
+        ]
+    )
+
+    out = validate_report(report, known)
+
+    got = [(h.statement, h.status) for h in out.report.hypotheses]
+    assert got == [
+        ("(추정) A", "inconclusive"),
+        ("(추정) B", "inconclusive"),
+        ("(추정) C", "inconclusive"),
+        ("D", "inconclusive"),
+    ]
+    assert out.demoted == ["A", "B", "C"]
+
+
+def test_issue_without_evidence_is_demoted():
+    def issue(rank, ids):
+        return Issue(
+            rank=rank,
+            title=f"t{rank}",
+            impact="core_path_broken",
+            confidence="high",
+            evidence_ids=ids,
+        )
+
+    report = _report(issues=[issue(1, ["ev-9"]), issue(2, []), issue(3, ["ev-1"])])
+
+    out = validate_report(report, known)
+
+    got = [(i.title, i.confidence) for i in out.report.issues]
+    assert got == [("(추정) t1", "low"), ("(추정) t2", "low"), ("t3", "high")]
+    assert out.demoted == ["t1", "t2"]
