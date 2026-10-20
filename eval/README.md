@@ -25,18 +25,22 @@
 
 - 첫 점검은 증상 확인 직후. 이후 첫 점검 시작 시각 기준 `--check-interval`(기본 300초)마다 점검한다
 - **한 점검에서** 기대 신호(`expected_signals`)를 모두 적발하면 멈춘다. 채점은 마지막 점검으로 하기 때문이다
-- 다음 점검 시작이 `--check-max`(기본 2100초 = 35분, 주입 시각 기준)를 넘으면 멈추고 마지막 점검으로 채점한다
+- 다음 점검 시작이 `--check-max`(기본 2700초 = 45분, 주입 시각 기준)를 넘으면 멈추고 마지막 점검으로 채점한다
+  - 기본값을 W02 적발 시점(약 26분)보다 넉넉히 잡은 이유: 첫 점검 시각(증상 확인이 끝나는 시점)에 따라 5분 일정이 밀리고, W02는 Deployment ProgressDeadline(롤아웃 정지 판정)이 지난 뒤부터 15분을 세므로 그 시각과 점검 시각이 엇갈리면 한 주기(5분)가 더 걸린다. 경계에서 몇 초 차이로 지속 시간을 못 채우는 지터도 있다. 35분이면 한 주기만 밀려도 상한에 걸린다
+  - P03(1시간)을 기대 신호로 넣는 시나리오는 `--check-max`를 4000초 이상으로 잡는다 (1시간 + 점검 주기·첫 점검 지연)
 - 기대 신호가 없는 시나리오(H0, B·C 시나리오)는 한 번만 점검한다. 즉시 판정 시나리오(A1·A5)도 첫 점검에서 끝난다
 - 게이트 경로는 마지막 점검의 경로로 비교한다
+- 반복 중 **수집 실패가 한 번이라도 나면** 그 자리에서 멈추고 실행 전체가 무효다 (35분 넘게 돈 실행도 마찬가지)
 - 점검마다 `[check N] <경과>s 경로 <X> 적발 [...] 관찰 중 [...]`을 출력한다
 
-예: `uv run python eval/run.py A3 --config kubeguardian.yaml --check-interval 300 --check-max 2100`
+예: `uv run python eval/run.py A3 --config kubeguardian.yaml --check-interval 300 --check-max 2700`
 
 ### 결과 (`result.json`)
 
 | 키 | 내용 |
 |---|---|
-| `checks` | 점검별 `n`, `elapsed_s`(주입 시각 기준 초, 점검이 끝난 시각), `gate_path`, `detected`(장애 신호), `observing`, `collect_failed` |
+| `check_interval_s` · `check_max_s` | 이 실행의 점검 간격·상한 |
+| `checks` | 점검이 끝날 때마다 바로 쌓는다 (반복 중 예외가 나도 남는다). 점검별 `n`, `elapsed_s`(주입 시각 기준 초, 점검이 끝난 시각), `gate_path`, `detected`(장애 신호), `observing`, `collect_failed` |
 | `first_detected_s` | 기대 신호별 첫 적발 경과 초. 적발하지 못했으면 `null` |
 | `score` | 마지막 점검의 채점 결과 |
 | `check_run_id` | 마지막 점검의 run id (점검 DB `kg.db`) |
