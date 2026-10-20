@@ -230,3 +230,19 @@ def test_list_content_reply_is_read_as_text():
     result, _, _ = _run([listed, AIMessage(content="조사 완료"), _report(["ev-1"])])
 
     assert result.status == "done"
+
+
+def test_parallel_tool_calls_over_budget_mark_incomplete():
+    # 한 응답에 호출 3개, 문제당 상한 2 -> 2회만 실행되고 상한에 걸린 것으로 본다
+    three = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "get_resource", "args": {"kind": "Service", "name": f"s{i}"}, "id": f"c{i}"}
+            for i in range(3)
+        ],
+    )
+    script = [TRIAGE, three, AIMessage(content="조사 완료"), _report(["ev-3"])]
+    result, _, _ = _run(script, Budget(per_issue_tool_calls=2, total_tool_calls=20))
+
+    assert result.usage.tool_calls == 4  # 사전 확인 2 + 조사 2
+    assert result.status == "incomplete"

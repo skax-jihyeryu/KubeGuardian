@@ -137,7 +137,10 @@ def build_graph(agent: "InvestigatorV1"):
     def run_tools(state: InvestigationState) -> InvestigationState:
         messages = list(state["messages"])
         seen = list(state["seen"])
+        limited = state["limited"]
         for call in messages[-1].tool_calls:
+            if not ctx.budget.can_call_tool():
+                limited = True  # 한 응답의 병렬 호출 중 상한에 걸린 것은 Tool.run이 거절한다
             with agent.step("tools") as s:
                 s.tool, s.args = call["name"], dict(call["args"])
                 lc = lc_tools.get(call["name"])
@@ -151,7 +154,7 @@ def build_graph(agent: "InvestigatorV1"):
                         s.evidence_ids = [ev]
                         seen.append(ev)
                 messages.append(ToolMessage(content, tool_call_id=call["id"]))
-        return {"messages": messages, "seen": seen}
+        return {"messages": messages, "seen": seen, "limited": limited}
 
     def write_report(state: InvestigationState) -> InvestigationState:
         attempts = state["report_attempts"] + 1
