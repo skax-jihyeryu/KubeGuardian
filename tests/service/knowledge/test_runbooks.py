@@ -8,7 +8,9 @@ import tiktoken
 
 from service.checks.detectors.catalog import CATALOG
 
-RUNBOOKS = Path(__file__).parents[3] / "app" / "service" / "knowledge" / "runbooks"
+KNOWLEDGE = Path(__file__).parents[3] / "app" / "service" / "knowledge"
+RUNBOOKS = KNOWLEDGE / "runbooks"
+ENVIRONMENT = KNOWLEDGE / "environment.md"
 FILES = sorted(p for p in RUNBOOKS.glob("*.md") if not p.name.startswith("_"))
 # 환경 설명에만 두는 진단 대상 고유 이름·경로·env.
 # 한국어 조사가 붙어도 잡도록 \\b 대신 영숫자 경계를 쓴다
@@ -35,9 +37,23 @@ def test_every_runbook_referenced_by_rules_exists():
     assert referenced <= {p.stem for p in FILES}
 
 
+def _tokens(path: Path) -> int:
+    return len(tiktoken.get_encoding("o200k_base").encode(path.read_text()))
+
+
 @pytest.mark.parametrize("path", FILES, ids=lambda p: p.stem)
 def test_runbook_is_at_most_1000_tokens(path):
-    assert len(tiktoken.get_encoding("o200k_base").encode(path.read_text())) <= 1000
+    assert _tokens(path) <= 1000
+
+
+def test_environment_description_is_at_most_2000_tokens():
+    # 상세 설계 §4.1
+    assert _tokens(ENVIRONMENT) <= 2000
+
+
+def test_runbooks_and_environment_total_at_most_10000_tokens():
+    # 기본 주입 방식은 환경 설명 + 지침 전체를 시스템 프롬프트에 넣는다 (상세 설계 §4.1)
+    assert sum(_tokens(p) for p in [*FILES, ENVIRONMENT]) <= 10000
 
 
 @pytest.mark.parametrize("path", FILES, ids=lambda p: p.stem)
