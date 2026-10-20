@@ -15,4 +15,4 @@ else
 fi
 # Chaos Mesh가 대상 네임스페이스에 만든 Pod별 객체(spec이 빈 채로 남음)도 지운다. 다음 시나리오에서 흔적이 보이지 않게 한다
 kubectl -n "$NS" delete podnetworkchaos,podhttpchaos --all --wait=true >/dev/null
-echo "$NS의 PodNetworkChaos·PodHttpChaos 정리"
+echo "${NS}의 PodNetworkChaos·PodHttpChaos 정리"
