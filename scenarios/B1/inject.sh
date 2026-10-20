@@ -38,7 +38,7 @@ EOF
 
 for _ in $(seq 30); do
   injected="$(kubectl -n "$CHAOS_NS" get httpchaos "$NAME" \
-    -o jsonpath='{.status.conditions[?(@.type=="AllInjected")].status}')"
+    -o jsonpath='{.status.conditions[?(@.type=="AllInjected")].status}' || true)"
   [[ "$injected" == True ]] && break
   sleep 2
 done
