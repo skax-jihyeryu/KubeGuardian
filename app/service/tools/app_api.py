@@ -105,6 +105,10 @@ class RunApiScenario(Tool):
         names = ", ".join(self._scenarios) or "없음"
         self.description = f"{type(self).description} 등록된 시나리오 — {names}"
 
+    @property
+    def scenario_names(self) -> list[str]:
+        return list(self._scenarios)
+
     def collect(self, args: Input, ctx: ToolContext) -> ToolObservation:
         scenario = self._scenarios.get(args.name)
         if scenario is None:
