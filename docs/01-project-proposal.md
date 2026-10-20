@@ -456,7 +456,7 @@ AI의 일반 지식으로는 **그 환경의 사정**을 모른다. 운영자의
 | A3 | L1 | 신규 배포가 뜨지 않음 | 없는 이미지 tag | 이미지 변경 | A (W02·P03, 적발까지 약 25분) | SC-002 |
 | A5 | L1 | 로그인부터 모든 API 5xx | 서비스 주소 설정 누락 (원본 템플릿과 같은 동작 = T1, 데모용) | gateway 주소 env를 코드 기본값 `localhost`로 바꿈 (env를 지우면 S04가 판정할 값이 없다) | A (S04) | SC-002 |
 | B1 | L2 | 요청의 약 1/3 실패 | agent Pod 1개만 HTTP 500 | HTTPChaos (Pod 1개) | B (사용자 입력) | SC-003 |
-| C1 | L3 | 채팅 실패 (gateway 502) | **llm-gateway 할당량 소진 → 429** | HTTPChaos로 llm-gateway 채팅 응답을 429(insufficient_quota)로 바꿈 (템플릿 llm-gateway는 할당량을 강제하지 않아 할당량 하향으로는 429가 나지 않는다) | B (API 시나리오) | SC-001 |
+| C1 | L3 | 채팅 실패 (HTTP 200 + 오류 문구) | **llm-gateway가 채팅 요청에 429(insufficient_quota)** | HTTPChaos로 llm-gateway 채팅 응답을 429(insufficient_quota)로 바꿈 (템플릿 llm-gateway는 할당량을 강제하지 않아 할당량 하향으로는 429가 나지 않는다) | B (API 시나리오) | SC-001 |
 | C2 | L3 | 로그인 불가, Pod 전부 Ready | **admin → Redis 연결 차단** | NetworkChaos (admin↔redis) | B (API 시나리오) | SC-001 |
 | C5 | L3 | 특정 API만 500 | **스키마 드리프트** (v2가 컬럼 추가, `create_all`은 ALTER 안 함) | F7 v2 배포 | B (API 시나리오) | SC-001 |
 | E1 | L5 | 로그인 불가 | C2 + **이전의 무해한 재시작 기록이 미끼** | C2 + 과거 재시작 | A + B (미끼는 P06) | SC-001 |

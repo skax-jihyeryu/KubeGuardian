@@ -36,20 +36,29 @@ if [[ "$answer" != "$EXPECTED"* ]]; then
   exit 1
 fi
 
-# agent 컨테이너의 python으로 llm-gateway를 직접 부른다. 본문은 비워 보낸다 (정상이면 4xx 검증 오류, 주입 중이면 429)
-code="$(kubectl -n "$TARGET_NS" exec deploy/agent -- python -c "
+# agent 컨테이너의 python으로 llm-gateway를 직접 부른다. 본문은 비워 보낸다 (정상이면 401, 주입 중이면 429)
+# 다른 경로(GET /docs)는 200이어야 한다 (llm-gateway 전체 장애가 아니라 채팅 완성 응답만 429)
+codes="$(kubectl -n "$TARGET_NS" exec deploy/agent -- python -c "
 import urllib.request, urllib.error
-req = urllib.request.Request('http://llm-gateway-svc:8080/api/v1/chat/completions', data=b'{}',
-                             headers={'Content-Type': 'application/json'}, method='POST')
-try:
-    print(urllib.request.urlopen(req, timeout=10).status)
-except urllib.error.HTTPError as e:
-    print(e.code)
-except Exception:
-    print(0)" 2>/dev/null || true)"
-if [[ "$code" != 429 ]]; then
+def call(req):
+    try:
+        return urllib.request.urlopen(req, timeout=10).status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except Exception:
+        return 0
+base = 'http://llm-gateway-svc:8080'
+chat = urllib.request.Request(base + '/api/v1/chat/completions', data=b'{}',
+                              headers={'Content-Type': 'application/json'}, method='POST')
+print(call(chat), call(base + '/docs'))" 2>/dev/null || true)"
+read -r code other <<<"$codes"
+if [[ "${code:-}" != 429 ]]; then
   echo "증상 없음: agent → llm-gateway /api/v1/chat/completions 직접 호출 응답 ${code:-확인 실패} (429여야 한다)" >&2
   exit 1
 fi
+if [[ "${other:-}" != 200 ]]; then
+  echo "무효: llm-gateway GET /docs 응답 ${other:-확인 실패} (200이어야 한다. 채팅 경로 밖 장애가 섞임)" >&2
+  exit 1
+fi
 
-echo "증상 확인: llm-gateway·agent·gateway·front-chat Ready, 로그인 성공, 채팅 answer '${answer:0:60}', agent → llm-gateway 직접 호출 429"
+echo "증상 확인: llm-gateway·agent·gateway·front-chat Ready, 로그인 성공, 채팅 answer '${answer:0:60}', agent → llm-gateway 직접 호출 429 (GET /docs는 200)"
