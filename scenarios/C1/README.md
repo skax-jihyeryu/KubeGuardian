@@ -21,7 +21,16 @@ Chaos Mesh HTTPChaos(`mode: all`, `target: Response`, `port: 8080`, `method: POS
 - 다른 경로(할당량·관리 API 등)와 GET 요청은 그대로다. readinessProbe는 tcpSocket이라 Pod는 Ready로 남는다.
 - Chaos Mesh는 `dev`에 PodHttpChaos 객체를 만든다. HTTPChaos를 지워도 spec이 빈 채로 남으므로(Chaos Mesh 동작), `reset.sh`가 `dev`의 PodNetworkChaos·PodHttpChaos를 모두 지운다. 주입 중에는 남아 있다 (KubeGuardian은 이 kind를 수집하지 않는다).
 - 주입 중 `dev`의 PodHttpChaos에는 path(`/api/v1/chat/completions`)와 429가 그대로 보인다. 정답이 새지 않도록 조사 도구·수집 대상에서 chaos-mesh kind(`*.chaos-mesh.org`)를 계속 제외해야 한다 (B1도 같다).
-- 주입·원복 모두 Pod를 재시작하지 않는다.
+- 주입은 Pod를 재시작하지 않는다. **원복은 llm-gateway Deployment를 `rollout restart`한다** (아래 "원복과 tproxy").
+
+### 원복과 tproxy
+
+`reset.sh` 순서: HTTPChaos 삭제 → `dev`의 PodHttpChaos·PodNetworkChaos 삭제 → `rollout restart deploy/llm-gateway` → `rollout status` → 이전 Pod가 사라질 때까지 대기.
+
+재시작하는 이유: Chaos Mesh는 원복할 때 tproxy의 하위 프로세스만 끝내고("Proxy executor killing sub process") tproxy 자체는 Pod가 살아 있는 동안 남겨 두며, 그 pid를 PodHttpChaos `status`에만 적어 둔다. PodHttpChaos를 지우면(정답 흔적 제거) pid 기록이 사라져, 다음 주입이 tproxy를 또 띄우려다 `process with identifier tproxy-docker://... is running`으로 실패한다 (2026-10-20 재현). 남은 tproxy를 Pod와 함께 없애려고 재시작한다 (2026-10-20 사용자 결정, 안 b). 주입 기록이 없어도 재시작한다 (이전 실행이 중간에 끝났을 수 있다).
+
+- 재시작마다 Deployment에 `kubectl.kubernetes.io/restartedAt` 주석과 새 ReplicaSet이 생긴다. 원복 뒤 Pod 이름·나이가 바뀐다.
+- 이전 방식(PodHttpChaos만 지움)으로 원복된 Pod에 주입하면 AllInjected=False로 실패하고, 이때는 HTTPChaos 삭제도 finalizer에 걸려 멈춘다(`reset.sh` 실패). 복구: 대상 Deployment를 재시작한 뒤, 이전 Pod가 없어져 원복할 대상이 없는 HTTPChaos의 finalizer를 `kubectl patch ... '{"metadata":{"finalizers":[]}}'`로 지운다. 2026-10-20 llm-gateway·agent에서 한 번씩 이렇게 복구했다. 지금의 `reset.sh`를 쓰면 생기지 않는다.
 
 ### 이 방식의 한계
 
@@ -44,13 +53,7 @@ Chaos Mesh HTTPChaos(`mode: all`, `target: Response`, `port: 8080`, `method: POS
 - inject → AllInjected → verify_symptom 통과 (`채팅 answer '오류가 발생했습니다: LLM Gateway error: 429'`, 직접 호출 429, 응답 본문·Content-Type 교체 확인). llm-gateway restartCount 0.
 - reset → HTTPChaos·PodHttpChaos 삭제(`kubectl get` 결과 없음), verify_symptom 실패(채팅 정상), 직접 호출 401, H0 스모크 성공.
 - `make eval S=C1`: 아직 실행하지 않았다. 기대 결과는 실패(경로 C, 증상 감지 미구현), 원복·H0 복구 성공.
-- 리뷰 반영 후 재주입이 실패했다 (AllInjected=False, chaos-daemon `process with identifier tproxy-docker://... is running`). 아래 "알려진 문제".
-
-## 알려진 문제: 같은 Pod에 다시 주입할 수 없음 (조사 중)
-
-Chaos Mesh는 원복할 때 tproxy의 하위 프로세스만 끝내고 tproxy 자체는 Pod가 살아 있는 동안 남겨 두며, 그 pid를 PodHttpChaos `status`에 적어 둔다 (chaos-daemon 로그 "Proxy executor killing sub process"로 확인). `reset.sh`가 PodHttpChaos를 지우면 pid 기록이 사라져, 다음 주입이 tproxy를 새로 띄우려다 기존 프로세스와 부딪혀 실패하는 것으로 보인다 (재현 1회, 추정). 트래픽에는 영향이 없다 (실패한 상태에서도 H0 스모크 성공). B1도 같은 구조다.
-
-2026-10-20 복구: 멈춘 HTTPChaos(finalizer가 원복 실패로 남음)를 풀려고 llm-gateway Pod를 지워 Deployment가 새로 만들게 했고, 그래도 남은 finalizer를 직접 지웠다. reset 방식(PodHttpChaos를 남길지, 원복 뒤 대상 Pod를 재시작할지)은 결정이 필요하다.
+- 리뷰 반영 후 재주입이 실패했다 (위 "원복과 tproxy"). reset에 재시작을 넣은 뒤 inject → verify 통과 → reset(약 13초) → verify 실패(증상 없음)를 **2회 연속** 확인했다 (`LC_ALL=ko_KR.UTF-8 /bin/bash`). verify는 `GET /docs` 200 확인까지 통과. 끝난 뒤 chaos 객체 없음, H0 스모크 성공.
 
 ## 참고: 할당량 강제가 없는 근거
 

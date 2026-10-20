@@ -33,3 +33,4 @@ Chaos Mesh NetworkChaos(`action: partition`, `direction: both`)로 admin Pod와 
 - reset → NetworkChaos 삭제(1초 안), verify_symptom 실패(로그인 200 = 증상 없음), H0 스모크 성공.
 - 리뷰 반영 후 재확인: inject → verify 통과(로그인 504, admin → redis:6379 `TimeoutError`) → reset(NetworkChaos·PodNetworkChaos 삭제, `kubectl get` 결과 없음) → H0 스모크. **reset 직후 첫 스모크는 한 번 401(토큰 검증 실패)이 났고, 바로 다시 돌리자 성공했다.** 차단 중 멈춰 있던 로그인의 세션 저장이 차단이 풀린 뒤 늦게 반영돼 새 로그인의 토큰을 덮어쓴 것으로 보인다 (추정). 러너의 복구 확인은 180초 동안 다시 시도하므로 영향이 없다.
 - `make eval S=C2`: 실패(경로 C, 기대 B). 증상 감지가 아직 없어 예상된 결과다. 원복·H0 복구는 성공, 전체 238초 (증상 확인 1회에 약 120초).
+- 2026-10-20 재주입 확인 (B1·C1의 tproxy 문제가 NetworkChaos에도 있는지): inject → verify 통과 → reset → inject → verify 통과 → reset, 2회 연속 성공. NetworkChaos는 tproxy 같은 상주 프로세스를 쓰지 않아 reset을 바꾸지 않았다. 이번에도 reset 직후 첫 스모크는 401이었고 다시 돌리자 성공했다.
