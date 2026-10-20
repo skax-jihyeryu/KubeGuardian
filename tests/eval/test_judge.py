@@ -32,3 +32,18 @@ def test_judge_uses_a_different_model_from_investigator():
     from service.agent.investigator.v1.config import SPEC
 
     assert JUDGE_MODEL not in SPEC.models.values()
+
+
+def test_judge_failure_reason_is_redacted(monkeypatch):
+    # invoke_structured가 이미 가리지만, 그 밖의 예외 문구도 결과 파일에 비밀을 남기지 않아야 한다
+    import judge
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("401 Authorization: Bearer abcdefgh12345678")
+
+    monkeypatch.setattr(judge, "invoke_structured", boom)
+
+    result = judge_top1("결론", EXPECTED, None)
+
+    assert result.match is None
+    assert "abcdefgh12345678" not in result.reason

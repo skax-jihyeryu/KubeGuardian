@@ -115,10 +115,12 @@ def investigate_and_judge(
     *,
     investigate: Callable[[], AgentResult | None],
     judge: Callable[[str], JudgeResult],
-) -> tuple[dict, dict | None]:
-    """조사를 돌리고 결론을 채점한다. 반환: (result.json의 ai 블록, 보고서 dict 또는 None).
+) -> tuple[dict, dict | None, list[dict]]:
+    """조사를 돌리고 결론을 채점한다. 반환: (result.json의 ai 블록, 보고서 dict 또는 None, 단계).
 
-    통과 = 조사가 보고서를 냈고(done·incomplete) 채점이 match. 채점 실패(None)는 통과가 아니다.
+    통과 = 조사가 보고서를 냈고(done·incomplete) 채점이 match이며 결론에 근거가 있다.
+    채점이 match가 아니면 실패, 채점 자체가 실패(None)하면 무효(ai["invalid"])다.
+    기대 게이트가 C면 조사하지 않아야 통과다. 조사가 돌았으면 채점 없이 실패한다.
     trace_id는 조사 전체를 감싸는 span의 id로 Phoenix에서 이 실행을 찾는 열쇠다 (추적 꺼짐: None).
     """
     from opentelemetry import trace
@@ -133,19 +135,27 @@ def investigate_and_judge(
         "trace_id": trace_id,
         "passed": False,
     }
+    expect_closed = expected.get("gate_path") == "C"
     if result is None:
         ai["status"] = "skipped"  # 게이트 경로 C: 조사하지 않음
-        return ai, None
+        ai["passed"] = expect_closed
+        return ai, None, []
+    steps = [s.model_dump(mode="json") for s in result.steps]
     ai["status"] = result.status
     ai["usage"] = result.usage.model_dump()
     if result.error:
         ai["error"] = result.error
+    if expect_closed:
+        ai["fail_reason"] = "기대 게이트 C인데 조사가 실행됐다"
+        return ai, None, steps
     if result.report is None:
-        return ai, None
+        return ai, None, steps
     ai["conclusion"] = result.report.conclusion
     verdict = judge(result.report.conclusion)
     ai["judge"] = {"match": verdict.match, "reason": verdict.reason}
     ai["passed"] = verdict.match is True
+    if verdict.match is None:
+        ai["invalid"] = verdict.reason or "채점 실패"
     ai["conclusion_supported"] = result.report.conclusion_supported
     validate = next((s for s in result.steps if s.node == "validate"), None)
     ai["demoted"] = list(validate.detail.get("demoted", [])) if validate else []
@@ -153,7 +163,23 @@ def investigate_and_judge(
         # 근거 없는 결론이 우연히 맞은 것은 통과가 아니다
         ai["passed"] = False
         ai["fail_reason"] = "결론이 인용한 근거가 없다 (conclusion_supported=False)"
-    return ai, result.report.model_dump(mode="json")
+    return ai, result.report.model_dump(mode="json"), steps
+
+
+def save_ai_artifacts(out_dir: Path, report: dict | None, steps: list[dict]) -> None:
+    """보고서와 단계 기록을 history 디렉터리에 남긴다 (도구 결과는 이미 마스킹된 상태)."""
+    for name, data in (("report.json", report), ("steps.json", steps or None)):
+        if data is not None:
+            (out_dir / name).write_text(
+                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+
+def decide_exit(rules_passed: bool, ai: dict) -> int:
+    """점검 채점과 AI 조사 결과를 종료 코드로 합친다. 채점 실패는 실패가 아니라 무효다."""
+    if ai.get("invalid"):
+        return EXIT_INVALID
+    return EXIT_PASS if rules_passed and ai["passed"] else EXIT_FAIL
 
 
 def run(
@@ -244,7 +270,7 @@ def run(
         )
         passed = s["passed"]
         if condition == "ai":
-            ai, report = investigate_and_judge(
+            ai, report, steps = investigate_and_judge(
                 expected,
                 investigate=lambda: run_investigation(
                     outcome,
@@ -259,17 +285,17 @@ def run(
                 ),
             )
             result["ai"] = ai
-            if report is not None:
-                (out_dir / "report.json").write_text(
-                    json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
+            save_ai_artifacts(out_dir, report, steps)
             log(
                 "ai",
                 f"{ai['status']} 결론 {ai.get('conclusion')!r} | 기대 {ai['expected_top1']!r}"
                 f" | 채점 {ai.get('judge')} | 사용 {ai.get('usage')} | trace {ai['trace_id']}",
             )
-            passed = passed and ai["passed"]
-        exit_code = EXIT_PASS if passed else EXIT_FAIL
+            if ai.get("invalid"):
+                result["invalid"] = ai["invalid"]
+            exit_code = decide_exit(passed, ai)
+        else:
+            exit_code = EXIT_PASS if passed else EXIT_FAIL
     except Exception as e:  # 설정·kubeconfig·저장소 오류 등: 실행 자체를 믿을 수 없다
         traceback.print_exc()
         result["invalid"] = f"{type(e).__name__}: {e}"

@@ -9,6 +9,7 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel
 
+from core.guard.redact import redact_text
 from service.agent._common.structured import invoke_structured
 
 JUDGE_MODEL = "gpt-4.1"
@@ -39,4 +40,4 @@ def judge_top1(conclusion: str, expected: dict[str, Any], llm: BaseChatModel) ->
     try:
         return invoke_structured(llm, JudgeResult, [("user", text)])
     except Exception as e:  # 채점 실패는 결과에 남기고 평가는 계속한다
-        return JudgeResult(match=None, reason=f"채점 실패: {type(e).__name__}: {e}")
+        return JudgeResult(match=None, reason=redact_text(f"채점 실패: {type(e).__name__}: {e}"))

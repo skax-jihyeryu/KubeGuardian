@@ -1,7 +1,15 @@
+import json
 from datetime import UTC, datetime
 
 from judge import JudgeResult
-from run import investigate_and_judge
+from run import (
+    EXIT_FAIL,
+    EXIT_INVALID,
+    EXIT_PASS,
+    decide_exit,
+    investigate_and_judge,
+    save_ai_artifacts,
+)
 from service.agent.base import AgentResult, AgentStep, Usage
 from service.model import Report
 
@@ -45,7 +53,7 @@ def test_ai_block_records_demoted_from_validate_step():
     assert ai["conclusion_supported"] is True
 
 
-def _run(result, judge_result=None):
+def _run(result, judge_result=None, expected=None):
     judge_result = judge_result or JudgeResult(match=True, reason="같은 원인")
     judged = []
 
@@ -53,7 +61,9 @@ def _run(result, judge_result=None):
         judged.append(conclusion)
         return judge_result
 
-    ai, report = investigate_and_judge(EXPECTED, investigate=lambda: result, judge=judge)
+    ai, report, _ = investigate_and_judge(
+        expected or EXPECTED, investigate=lambda: result, judge=judge
+    )
     return ai, report, judged
 
 
@@ -73,6 +83,44 @@ def test_ai_block_records_conclusion_judge_and_usage():
 def test_mismatch_fails_and_unjudged_is_not_passed():
     assert _run(_result(), JudgeResult(match=False, reason="다른 원인"))[0]["passed"] is False
     assert _run(_result(), JudgeResult(match=None, reason="채점 실패"))[0]["passed"] is False
+
+
+def test_judge_failure_is_invalid_not_fail():
+    ai, _, _ = _run(_result(), JudgeResult(match=None, reason="채점 실패: Timeout"))
+
+    assert "채점 실패" in ai["invalid"]
+    assert decide_exit(True, ai) == EXIT_INVALID
+    assert decide_exit(True, {"passed": False}) == EXIT_FAIL
+    assert decide_exit(True, {"passed": True}) == EXIT_PASS
+    assert decide_exit(False, {"passed": True}) == EXIT_FAIL
+
+
+GATE_C = {"gate_path": "C", "expected_top1": "", "root_cause": ""}
+
+
+def test_expected_gate_c_passes_when_investigation_skipped():
+    ai, report, judged = _run(None, expected=GATE_C)
+
+    assert ai["status"] == "skipped" and ai["passed"] is True and judged == []
+
+
+def test_expected_gate_c_fails_when_investigation_ran_without_judging():
+    ai, report, judged = _run(_result(), expected=GATE_C)
+
+    assert judged == []
+    assert ai["passed"] is False
+    assert "게이트 C" in ai["fail_reason"]
+
+
+def test_steps_are_returned_for_saving():
+    result = _result()
+    result.steps = [AgentStep(node="triage", started_at=datetime.now(UTC))]
+
+    _, _, steps = investigate_and_judge(
+        EXPECTED, investigate=lambda: result, judge=lambda c: JudgeResult(match=True)
+    )
+
+    assert [s["node"] for s in steps] == ["triage"]
 
 
 def test_failed_agent_is_not_judged():
@@ -104,3 +152,10 @@ def test_tracing_is_set_up_before_the_investigation_span_starts(monkeypatch):
     investigate_and_judge(EXPECTED, investigate=investigate, judge=lambda c: None)
 
     assert order == ["setup", "investigate"]
+
+
+def test_steps_json_is_saved_next_to_report(tmp_path):
+    save_ai_artifacts(tmp_path, {"conclusion": "c"}, [{"node": "triage"}])
+
+    assert json.loads((tmp_path / "steps.json").read_text()) == [{"node": "triage"}]
+    assert json.loads((tmp_path / "report.json").read_text())["conclusion"] == "c"
