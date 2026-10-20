@@ -1,7 +1,10 @@
-"""평가 러너 최소판 (기획서 §9.3): 주입 → 증상 확인 → 점검·게이트 → 채점 → 원복.
+"""평가 러너 최소판 (기획서 §9.3): 주입 → 증상 확인 → 반복 점검·게이트 → 채점 → 원복.
 
 기준 조건(규칙만)으로 시나리오 하나를 돈다. AI 조사 단계는 W2에 연결한다.
+점검은 같은 DB로 간격(기본 300초)마다 반복하고, 기대 신호를 모두 적발하거나
+상한(기본 2700초)에 닿으면 마지막 점검으로 채점한다. 기대 신호가 없는 시나리오는 한 번만 점검한다.
 실행: uv run python eval/run.py <시나리오 ID> [--config kubeguardian.yaml]
+      [--check-interval 300] [--check-max 2700]
 종료 코드: 0 통과, 1 실패, 2 무효(증상이 나지 않음·원복 실패 등 실행 자체를 믿을 수 없음)
 결과는 eval/history/<시각>-<ID>/에 result.json과 점검 DB로 남긴다 (커밋하지 않음).
 """
@@ -12,8 +15,10 @@ import subprocess
 import sys
 import time
 import traceback
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app"))
@@ -51,7 +56,56 @@ def log(step: str, msg: str) -> None:
     print(f"[{step}] {msg}", flush=True)
 
 
-def run(scenario: str, config_path: str, symptom_timeout_s: int) -> int:
+def check_repeatedly(
+    check: Callable[[], Any],
+    expected: dict,
+    *,
+    interval_s: float,
+    max_s: float,
+    elapsed: Callable[[], float],
+    sleep: Callable[[float], None] = time.sleep,
+    on_check: Callable[[dict], None] = lambda _: None,
+) -> tuple[Any, list[dict], dict[str, int]]:
+    """기대 신호를 모두 적발하거나 상한에 닿을 때까지 interval_s마다 점검한다 (CronJob처럼).
+
+    check는 같은 DB로 run_check를 부른다 (지속 시간 규칙이 앞 점검의 관찰 기록을 이어 본다).
+    elapsed는 주입 시각부터 지난 초. 일정은 첫 점검 시작 시각 기준 interval_s 간격이고,
+    다음 점검 시작이 max_s를 넘으면 멈춘다. 기대 신호가 없으면(H0·B·C 시나리오) 한 번만 점검한다.
+    수집 실패가 나면 멈춘다 (무효 처리는 호출한 쪽이 한다).
+    반환: (마지막 점검 결과, 점검별 기록, 기대 신호별 첫 적발 경과 초)
+    """
+    want = set(expected.get("expected_signals") or [])
+    checks: list[dict] = []
+    first: dict[str, int] = {}
+    first_start = elapsed()
+    n = 0
+    while True:
+        outcome = check()
+        t = round(elapsed())
+        s = score(expected, outcome.signals, outcome.gate.path)
+        for rule in sorted(want & set(s["detected"])):
+            first.setdefault(rule, t)
+        n += 1
+        record = {
+            "n": n,
+            "elapsed_s": t,
+            "gate_path": outcome.gate.path,
+            "detected": s["detected"],
+            "observing": s["observing"],
+            "collect_failed": list(outcome.snapshot.failed),
+        }
+        checks.append(record)
+        on_check(record)
+        next_start = first_start + n * interval_s
+        # 채점은 마지막 점검으로 하므로, 그 점검 하나에서 기대 신호가 모두 적발되어야 멈춘다
+        if outcome.snapshot.failed or want <= set(s["detected"]) or next_start > max_s:
+            return outcome, checks, first
+        sleep(max(0.0, next_start - elapsed()))
+
+
+def run(
+    scenario: str, config_path: str, symptom_timeout_s: int, interval_s: int, max_s: int
+) -> int:
     expected = yaml.safe_load((SCENARIOS / scenario / "expected.yaml").read_text(encoding="utf-8"))
     config = load_kubeguardian_config(config_path)
     started = datetime.now(UTC)
@@ -72,6 +126,7 @@ def run(scenario: str, config_path: str, symptom_timeout_s: int) -> int:
         return finish(result, out_dir, exit_code)
 
     try:
+        injected_at = time.monotonic()
         r = sh(scenario, "inject.sh")
         log("inject", (r.stdout + r.stderr).strip())
         if r.returncode != 0:
@@ -84,12 +139,33 @@ def run(scenario: str, config_path: str, symptom_timeout_s: int) -> int:
             result["invalid"] = "증상이 나지 않음"
             return exit_code
 
-        outcome = run_check(
-            K8sClient.from_config(config),
-            config,
-            create_db_engine(str(out_dir / "kg.db")),
-            trigger="check",
+        # 같은 DB로 반복 점검한다. 지속 시간 규칙(W02 등)은 앞 점검의 관찰 기록이 있어야 적발된다
+        reader = K8sClient.from_config(config)
+        engine = create_db_engine(str(out_dir / "kg.db"))
+        result["check_interval_s"] = interval_s
+        result["check_max_s"] = max_s
+        result["checks"] = []
+
+        def on_check(c: dict) -> None:
+            # 바로 쌓아 둔다. 반복 중 예외가 나도 그때까지의 점검이 result.json에 남는다
+            result["checks"].append(c)
+            log(
+                f"check {c['n']}",
+                f"{c['elapsed_s']}s 경로 {c['gate_path']} 적발 {c['detected']}"
+                f" 관찰 중 {c['observing']}",
+            )
+
+        outcome, checks, first = check_repeatedly(
+            lambda: run_check(reader, config, engine, trigger="check"),
+            expected,
+            interval_s=interval_s,
+            max_s=max_s,
+            elapsed=lambda: time.monotonic() - injected_at,
+            on_check=on_check,
         )
+        result["first_detected_s"] = {
+            r: first.get(r) for r in sorted(expected.get("expected_signals") or [])
+        }
         result["check_run_id"] = outcome.run_id
         result["collect_failed"] = outcome.snapshot.failed
         if outcome.snapshot.failed:
@@ -100,7 +176,8 @@ def run(scenario: str, config_path: str, symptom_timeout_s: int) -> int:
         s = result["score"]
         log(
             "check",
-            f"게이트 경로 {s['gate_path']} (기대 {s['gate_expected']}) — {outcome.gate.reason}",
+            f"점검 {len(checks)}회, 마지막 게이트 경로 {s['gate_path']} (기대 {s['gate_expected']})"
+            f" — {outcome.gate.reason}. 첫 적발(주입 기준 초) {result['first_detected_s']}",
         )
         log(
             "score",
@@ -147,12 +224,20 @@ def main() -> int:
     p.add_argument("scenario", help="scenarios/<ID>")
     p.add_argument("--config", default="kubeguardian.yaml")
     p.add_argument("--symptom-timeout", type=int, default=180, help="증상 확인 대기 (초)")
+    p.add_argument("--check-interval", type=int, default=300, help="반복 점검 간격 (초)")
+    p.add_argument(
+        "--check-max", type=int, default=2700, help="반복 점검 상한, 주입 시각 기준 (초)"
+    )
     args = p.parse_args()
+    if args.check_interval <= 0:
+        p.error("--check-interval은 0보다 커야 한다")
     if not (SCENARIOS / args.scenario / "expected.yaml").is_file():
         print(f"시나리오 없음: scenarios/{args.scenario}/expected.yaml", file=sys.stderr)
         return EXIT_INVALID
     try:
-        return run(args.scenario, args.config, args.symptom_timeout)
+        return run(
+            args.scenario, args.config, args.symptom_timeout, args.check_interval, args.check_max
+        )
     except Exception as e:  # 설정 파일 오류 등 주입 전에 난 오류
         print(f"무효: {type(e).__name__}: {e}", file=sys.stderr)
         return EXIT_INVALID
