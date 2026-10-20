@@ -179,6 +179,7 @@ def test_report_without_evidence_is_rewritten_once():
 
     assert result.status == "done"
     assert result.report.evidence_ids == ["ev-1"]
+    assert result.report.conclusion_supported is True
     assert [s.node for s in result.steps].count("write_report") == 2
 
 
@@ -187,6 +188,7 @@ def test_report_still_without_evidence_gets_low_confidence():
 
     assert result.status == "done"
     assert result.report.confidence == "low"
+    assert result.report.conclusion_supported is False
 
 
 def test_llm_error_becomes_failed():

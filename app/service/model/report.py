@@ -58,6 +58,7 @@ class CheckedScope(BaseModel):
 class Report(BaseModel):
     conclusion: str
     confidence: Confidence
+    conclusion_supported: bool = True  # False = 결론이 인용한 근거가 없다 (검증기가 정한다)
     impact_scope: str
     issues: list[Issue] = []
     preliminary_facts: list[Fact] = []

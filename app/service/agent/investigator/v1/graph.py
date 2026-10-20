@@ -171,7 +171,7 @@ def build_graph(agent: "InvestigatorV1"):
         with agent.step("validate") as s:
             out = validate_report(state["report"], seen.__contains__)
             s.detail = {"demoted": out.demoted, "conclusion_supported": out.conclusion_supported}
-        report = out.report
+        report = out.report.model_copy(update={"conclusion_supported": out.conclusion_supported})
         if not out.conclusion_supported and state["report_attempts"] >= 2:
             report = report.model_copy(update={"confidence": "low"})
         if not report.preliminary_facts:

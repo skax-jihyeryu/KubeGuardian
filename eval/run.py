@@ -146,6 +146,13 @@ def investigate_and_judge(
     verdict = judge(result.report.conclusion)
     ai["judge"] = {"match": verdict.match, "reason": verdict.reason}
     ai["passed"] = verdict.match is True
+    ai["conclusion_supported"] = result.report.conclusion_supported
+    validate = next((s for s in result.steps if s.node == "validate"), None)
+    ai["demoted"] = list(validate.detail.get("demoted", [])) if validate else []
+    if ai["passed"] and not ai["conclusion_supported"]:
+        # 근거 없는 결론이 우연히 맞은 것은 통과가 아니다
+        ai["passed"] = False
+        ai["fail_reason"] = "결론이 인용한 근거가 없다 (conclusion_supported=False)"
     return ai, result.report.model_dump(mode="json")
 
 
