@@ -275,3 +275,31 @@ def test_path_b_without_signals_runs_scenario_in_preliminary():
     subjects = [e.subject for e in ctx.evidence.saved]
     assert len(subjects) == 3 and ctx.evidence.saved[2].source == "GET run_api_scenario"
     assert "채팅이 안 돼요" in llm.calls[0][-1].content  # 선별이 증상으로 진행
+
+
+def test_path_a_preliminary_does_not_run_scenario():
+    scenario_tool = _fake_tool("run_api_scenario")
+    scenario_tool.scenario_names = ["login-chat"]
+    req = InvestigationRequest(
+        trigger="check",
+        gate_path="A",
+        signal_board=SignalBoard(),
+        user_symptom="채팅이 안 돼요",
+    )
+    llm = ScriptedLLM(script=[TRIAGE, AIMessage(content="조사 완료"), _report(["ev-1"])], calls=[])
+    ctx = RunContext(
+        run_id="r1",
+        namespace="dev",
+        evidence=MemoryEvidence(),
+        budget=BudgetTracker(Budget()),
+        now=lambda: NOW,
+    )
+
+    result = InvestigatorV1(
+        llm_factory=lambda model: llm, tools=[*TOOLS, scenario_tool], ctx=ctx
+    ).run(req)
+
+    assert result.status == "done", result.error
+    sources = [e.source for e in ctx.evidence.saved]
+    # 사전 확인은 토폴로지·이벤트뿐
+    assert len(sources) == 2 and "GET run_api_scenario" not in sources
