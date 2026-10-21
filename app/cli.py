@@ -1,6 +1,7 @@
 """KubeGuardian CLI (개발·평가·CronJob 진입). 실행: uv run python app/cli.py check
 
-kg check: 규칙 점검을 한 번 돌리고 규칙별 판정 결과·판정에 쓴 값·게이트 경로를 출력한다.
+kg check: 규칙 점검과 증상 감지(API 시나리오)를 한 번 돌리고
+규칙별 판정 결과·판정에 쓴 값·증상 결과·게이트 경로를 출력한다.
 종료 코드: 0 점검 완료(게이트 경로와 무관), 2 입력 오류, 1 서버 오류 (ServiceException.exit_code).
 """
 
@@ -8,12 +9,14 @@ import argparse
 import json
 import sys
 from collections.abc import Callable, Sequence
+from typing import Any
 
 from pydantic import ValidationError
 
 from core.config import KubeGuardianConfig, get_setting, load_kubeguardian_config
 from core.db import create_db_engine
 from core.error.service_exception import ErrorCode, ServiceException
+from core.http import NamespacedHttp
 from service.checks.detectors.catalog import CATALOG
 from service.pipeline.check import CheckOutcome, run_check
 from service.sensors.collector import KubeReader
@@ -27,6 +30,11 @@ VERDICT_LABEL = {
 }
 
 ReaderFactory = Callable[[KubeGuardianConfig], KubeReader]
+HttpFactory = Callable[[KubeGuardianConfig], Any]
+
+
+def _http(config: KubeGuardianConfig) -> NamespacedHttp:
+    return NamespacedHttp(config.target.namespace)
 
 
 def _k8s_reader(config: KubeGuardianConfig) -> KubeReader:
@@ -47,14 +55,14 @@ def _load_config(path: str) -> KubeGuardianConfig:
         raise ServiceException(ErrorCode.VALIDATION_ERROR, f"설정 파일 검증 실패: {path}") from e
 
 
-def check(args: argparse.Namespace, make_reader: ReaderFactory) -> None:
+def check(args: argparse.Namespace, make_reader: ReaderFactory, make_http: HttpFactory) -> None:
     config = _load_config(args.config)
     reader = make_reader(config)
     try:
         engine = create_db_engine(args.db)
     except Exception as e:
         raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
-    print_outcome(run_check(reader, config, engine, trigger="check"))
+    print_outcome(run_check(reader, config, engine, trigger="check", http=make_http(config)))
 
 
 def print_outcome(out: CheckOutcome) -> None:
@@ -75,12 +83,22 @@ def print_outcome(out: CheckOutcome) -> None:
             if s.message:
                 line += f"  {s.message}"
             print(line)
+    if out.symptoms:
+        print("\n증상 감지")
+        for sym in out.symptoms:
+            label = "성공" if sym.failed_step is None else f"실패({sym.severity})"
+            print(f"  {label}  {sym.scenario}  {sym.summary}")
     gate = out.gate
     severity = f" ({gate.severity})" if gate.severity else ""
     print(f"\n게이트: 경로 {gate.path}{severity} — {gate.reason}")
 
 
-def main(argv: Sequence[str] | None = None, *, make_reader: ReaderFactory = _k8s_reader) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    make_reader: ReaderFactory = _k8s_reader,
+    make_http: HttpFactory = _http,
+) -> int:
     parser = argparse.ArgumentParser(prog="kg", description="KubeGuardian CLI")
     sub = parser.add_subparsers(dest="command", required=True)
     p_check = sub.add_parser("check", help="규칙 점검을 한 번 실행하고 결과를 출력한다")
@@ -89,7 +107,7 @@ def main(argv: Sequence[str] | None = None, *, make_reader: ReaderFactory = _k8s
     args = parser.parse_args(argv)
     try:
         if args.command == "check":
-            check(args, make_reader)
+            check(args, make_reader, make_http)
     except ServiceException as e:
         print(
             f"오류 {e.error_code.code} {e.error_code.name}: {e.error_code.message}", file=sys.stderr

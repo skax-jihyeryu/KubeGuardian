@@ -241,7 +241,13 @@ def run(
             )
 
         outcome, checks, first = check_repeatedly(
-            lambda: run_check(reader, config, engine, trigger="check"),
+            lambda: run_check(
+                reader,
+                config,
+                engine,
+                trigger="check",
+                http=NamespacedHttp(config.target.namespace),
+            ),
             expected,
             interval_s=interval_s,
             max_s=max_s,

@@ -1,6 +1,6 @@
 from service.checks.gate import decide_gate
 from service.checks.signal_board import build_signal_board
-from service.model import Signal
+from service.model import Signal, Symptom
 
 
 def _s(rule_id, verdict="detected", severity="warning", service="agent", subject=None):
@@ -57,3 +57,56 @@ def test_signal_board_groups_non_passed_signals_by_service():
         "gateway": ["S04"],
         "Node/minikube": ["N01"],  # 서비스가 없는 신호는 대상으로 묶는다
     }
+
+
+def _sym(name="chat", failed=1, severity="critical"):
+    return Symptom(
+        scenario=name,
+        failed_step=failed,
+        summary=f"시나리오 {name}",
+        severity=severity if failed else None,
+    )
+
+
+def test_failed_symptom_without_signals_opens_path_b():
+    gate = decide_gate([_s("S01", verdict="passed")], [_sym("chat", 2)])
+    assert gate.path == "B"
+    assert gate.severity == "critical"
+    assert [x.scenario for x in gate.symptoms] == ["chat"]
+    assert gate.signals == []
+    assert "chat" in gate.reason and "2단계" in gate.reason
+
+
+def test_path_b_severity_is_highest_failed_symptom():
+    gate = decide_gate([], [_sym("a", 1, "warning"), _sym("b", 3, "critical")])
+    assert gate.severity == "critical"
+    assert [x.scenario for x in gate.symptoms] == ["a", "b"]
+
+
+def test_passing_symptoms_do_not_open_the_gate():
+    gate = decide_gate([_s("H01", severity="info")], [_sym("chat", None)])
+    assert (gate.path, gate.symptoms) == ("C", [])
+    assert "개선 권고 1건" in gate.reason
+
+
+def test_signal_beats_symptom_and_stays_path_a():
+    gate = decide_gate([_s("S01", severity="warning")], [_sym("chat", 1, "critical")])
+    assert (gate.path, gate.severity) == ("A", "warning")
+    assert gate.symptoms == []
+
+
+def test_user_symptom_alone_opens_path_b_as_warning():
+    gate = decide_gate([], user_symptom="채팅이 안 돼요")
+    assert (gate.path, gate.severity) == ("B", "warning")
+    assert "사용자 증상" in gate.reason
+
+
+def test_user_symptom_with_failed_scenario_takes_scenario_severity():
+    gate = decide_gate([], [_sym("chat", 1, "critical")], user_symptom="안 돼요")
+    assert (gate.path, gate.severity) == ("B", "critical")
+    assert "chat" in gate.reason and "사용자 증상" in gate.reason
+
+
+def test_user_symptom_with_signal_stays_path_a():
+    gate = decide_gate([_s("S01", severity="critical")], user_symptom="안 돼요")
+    assert gate.path == "A"

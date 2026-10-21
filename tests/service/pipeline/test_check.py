@@ -2,9 +2,11 @@ from datetime import timedelta
 
 import pytest
 
+from core.config import ApiScenario
 from core.db import CheckRunStore, EvidenceStore, SqliteObservationStore, create_db_engine
 from service.pipeline.check import run_check
 from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
+from tests.service.tools.fakes import FakeHttp
 
 
 @pytest.fixture
@@ -67,3 +69,70 @@ def test_previous_snapshot_feeds_restart_increase(engine):
     )
     p06 = next(s for s in out.signals if s.rule_id == "P06" and s.subject.endswith("x2k9p/agent"))
     assert (p06.verdict, p06.values["previous_restartCount"]) == ("observing", 3)
+
+
+# ── 증상 감지 (경로 B) ──
+
+
+def _symptom_config(core_paths=None):
+    return CONFIG.model_copy(
+        update={
+            "core_paths": core_paths or {"chat": ["gateway"]},
+            "api_scenarios": [
+                ApiScenario.model_validate(
+                    {
+                        "name": "chat",
+                        "steps": [
+                            {"call": {"via": "gateway", "path": "/chat", "method": "GET"}},
+                        ],
+                    }
+                )
+            ],
+        }
+    )
+
+
+def _http(status):
+    return FakeHttp({("gateway", "/chat"): status})
+
+
+def test_without_http_symptoms_are_not_checked(engine):
+    out = run_check(_reader(), _symptom_config(), engine, trigger="check", now=NOW)
+    assert (out.gate.path, out.symptoms) == ("C", [])
+
+
+def test_rules_pass_and_scenario_fails_opens_path_b(engine):
+    out = run_check(_reader(), _symptom_config(), engine, trigger="check", now=NOW, http=_http(500))
+    assert (out.gate.path, out.gate.severity) == ("B", "critical")
+    [sym] = out.gate.symptoms
+    assert (sym.scenario, sym.failed_step) == ("chat", 1)
+    ev = EvidenceStore(engine).get(sym.evidence_id)
+    assert ev.kind == "app_api"
+    assert ev.subject == "dev/Scenario/chat"
+    assert EvidenceStore(engine).check_run_of(sym.evidence_id) == out.run_id
+
+
+def test_passing_scenario_keeps_path_c_but_is_reported(engine):
+    out = run_check(_reader(), _symptom_config(), engine, trigger="check", now=NOW, http=_http(200))
+    assert out.gate.path == "C"
+    assert [(s.scenario, s.failed_step) for s in out.symptoms] == [("chat", None)]
+
+
+def test_signal_keeps_path_a_even_if_scenario_fails(engine):
+    out = run_check(
+        _reader("s01/detected"),
+        _symptom_config(),
+        engine,
+        trigger="check",
+        now=NOW,
+        http=_http(500),
+    )
+    assert out.gate.path == "A"
+    assert [s.failed_step for s in out.symptoms] == [1]
+
+
+def test_user_symptom_opens_path_b_without_http(engine):
+    out = run_check(
+        _reader(), CONFIG, engine, trigger="investigate", now=NOW, user_symptom="채팅 안 돼요"
+    )
+    assert (out.gate.path, out.gate.severity) == ("B", "warning")
