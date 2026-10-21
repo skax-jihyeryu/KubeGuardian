@@ -13,7 +13,7 @@
 | 지속 시간은 kubernetes-mixin을 따른다 | 상태 규칙은 [kubernetes-mixin](https://github.com/kubernetes-monitoring/kubernetes-mixin) 알림 규칙의 `for` 지속 시간을 그대로 쓴다. 롤아웃 중 일시적인 부족처럼 금방 회복되는 상태를 장애로 올리지 않기 위해서다. mixin에 대응 규칙이 없는 선언 규칙은 spec만 보고 즉시 판정한다 |
 | 수집 실패는 통과가 아니다 | 필요한 데이터를 못 읽으면 판정 결과를 "확인하지 못함"으로 둔다 |
 | 판정에 쓴 값을 남긴다 | 적발·통과 모두 판정에 쓴 값을 근거로 저장한다. 보고서 화면 P4에 "판정에 쓴 값"으로 표시한다 |
-| 없다는 결함이 아니다 | 무언가가 가리키는데 대상이 없거나 맞지 않을 때만 적발한다. 아무것도 가리키지 않는 부재는 판정하지 않는다. 운영자가 `required_config`로 선언한 것만 예외다 (§4 `required_config`) |
+| 없다는 결함이 아니다 | 무언가가 가리키는데 대상이 없거나 맞지 않을 때만 적발한다. 아무것도 가리키지 않는 부재는 **장애 신호로** 적발하지 않는다 (H 개선 권고는 별개). 운영자가 `required_config`로 선언한 것만 예외다 (§4 C05) |
 | 진단 대상 네임스페이스만 | 대상 네임스페이스 밖의 리소스는 판정에 쓰지 않는다. 노드(N01)는 대상 Pod가 올라간 노드만 본다 |
 
 ### 0.1 판정 결과
@@ -37,11 +37,11 @@
 
 "의도일 수 있음"은 규칙이 아니라 판정하지 않는 영역이므로 §2 표에 규칙으로 나오지 않는다.
 
-규칙별 등급은 다음과 같다. §2 표는 감지기 목록(`catalog.py`)과 열 구성이 1:1로 대응하므로 등급 열을 따로 두지 않고 이 표로 정한다.
+규칙별 등급은 다음과 같다. 등급은 ID 접두사로 정해진다(§1): 장애 신호 접두사(N·P·W·S·C)는 반드시 장애, H는 개선 권고다. §2 표는 감지기 목록(`catalog.py`)과 1:1로 대응하므로 등급 열을 따로 두지 않고 이 표로 정한다.
 
 | 등급 | 규칙 |
 |---|---|
-| 반드시 장애 | N01, P03, P06, P07, W01, W02, S01~S04, C01, `required_config` (장애 신호 N·P·W·S·C 전부) |
+| 반드시 장애 | N01, P03, P06, P07, W01, W02, S01~S04, C01, C05 (장애 신호 N·P·W·S·C 전부) |
 | 개선 권고 | H01, H02 |
 
 ### 0.2 지속 시간 판정 방법
@@ -103,6 +103,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | H02 | requests·limits 미설정 | 선언 | 즉시 | ⚪ 참고 | Polaris (항목 미확인) | — |
 
 - 근거 열의 "설계값"·"미확인"은 외부 기준으로 확인하지 못한 항목이다. W4 평가 결과로 조정한다 (§6).
+- C05(`required_config`, §4)는 #64에서 구현과 함께 이 표에 추가한다 (`test_catalog`가 표와 `catalog.py`를 1:1로 대조한다).
 - W02는 v2.3의 확장 후보였던 규칙(같은 판정 조건)을 MVP 범위로 올린 것이다. 이유는 §5.1.
 
 ## 3. 1차 심각도
@@ -200,8 +201,9 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 |---|---|
 | 판정 조건 | Service `spec.selector`에 맞는 Pod가 네임스페이스에 0개 |
 | 지속 시간 | 없음 (선언 비교) |
-| 제외 | selector가 없는 Service (ExternalName, 수동 EndpointSlice). Service selector가 고르는 Deployment가 `spec.replicas: 0`이면 제외한다 (의도한 축소). 그 Deployment는 `spec.selector`가 아니라 pod template 라벨이 Service selector를 모두 포함하는 것으로 찾는다 |
+| 제외 | selector가 없는 Service (ExternalName, 수동 EndpointSlice) |
 | 1차 심각도 | §3 기준 (대상 서비스가 요청을 받을 수 없음) |
+| 알려진 한계 | 의도적으로 `replicas: 0`으로 둔 Deployment의 Service도 적발된다. 실수로 replicas를 0으로 줄인 경우를 S01·W01·S02 어느 것도 잡지 못하는 구멍을 막기 위해 예외를 두지 않았다 |
 | 근거로 남길 값 | Service selector, 같은 앱으로 보이는 Pod의 라벨 (비교용) |
 | 출처 | K8s [Debug Services](https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/): selector가 Pod 라벨과 맞는지 확인. [learnk8s](https://learnkube.com/troubleshooting-deployments): Endpoints가 비면 selector와 Pod 라벨 불일치 |
 
@@ -235,6 +237,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 판정 조건 | 컨테이너 env와 `envFrom`으로 불러오는 ConfigMap 값 중 이름이 `*_SERVICE_URL`·`*_URL`인 값의 호스트가 다음 중 하나: `localhost`·`127.0.0.1`, 대상 네임스페이스에 없는 Service 이름, Service에 없는 포트. 우선순위는 Kubernetes 규칙대로 뒤의 envFrom이 앞을 덮고 env가 envFrom을 덮는다. Secret envFrom과 env `valueFrom`은 값을 읽지 않고 판정하지 않으며, 같은 이름의 앞선 값도 판정에서 뺀다. envFrom이 가리키는 ConfigMap·Secret을 수집하지 못했으면 그 서비스의 envFrom 값은 "확인하지 못함"이다. 같은 서비스에 적발된 주소가 하나라도 있으면 적발이 우선한다. env가 아예 없는 경우는 판정하지 않는다(§0 "없다는 결함이 아니다") |
 | 지속 시간 | 없음 (선언 비교) |
 | 제외 | 설정 파일 `external_hosts` 허용 목록에 있는 외부 호스트 (예: LLM API 엔드포인트). `localhost`·`127.0.0.1`은 같은 Pod의 다른 컨테이너가 그 포트를 `containerPort`로 열고 있으면 적발하지 않는다 (사이드카). 그런 컨테이너가 없으면 계속 장애로 적발한다 |
+| 사이드카 판정 출처 | Deployment 템플릿의 `containers`와 `restartPolicy: Always`인 `initContainers` 중 **자기 컨테이너를 제외한** 컨테이너의 `containerPort`. URL에 포트가 없으면 scheme 기본 포트(http=80, https=443)로 본다. 포트가 마스킹되었거나 알 수 없으면 예외를 적용하지 않는다. 알려진 한계: webhook이 주입하는 사이드카(Pod spec에만 있음)는 보지 않는다 |
 | 1차 심각도 | 그 env를 쓰는 서비스가 핵심 경로면 🔴 긴급, 아니면 🟠 주의 |
 | 근거로 남길 값 | 서비스, env 이름, 값(마스킹 후), 매칭 결과(declared / unresolved) |
 | 출처 | **운영 사례.** 템플릿에서 서비스 주소 env가 없으면 `localhost`로 호출하는 결함(기획서 §2.3 T1)에서 나온 규칙이다. 외부 표준은 없다 |
@@ -250,9 +253,9 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 근거로 남길 값 | 참조 위치, 객체 종류·이름·키, 존재 여부 (Secret은 메타데이터와 키 이름만, 값은 읽지 않음) |
 | 출처 | K8s [Configure a Pod to Use a ConfigMap](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/): 없는 ConfigMap이나 키를 참조하고 optional로 표시하지 않으면 Pod가 시작되지 않는다. Secret에도 같은 규칙을 적용하며, Secret 쪽 공식 문서 문구는 아직 확인하지 않았다 |
 
-### (ID 미정) — 필수 설정 누락 (`required_config`)
+### C05 — 필수 설정 누락 (`required_config`)
 
-> ID는 정하지 않았다. C 계열 다음 번호 C02는 기획서 §7.2가 확장 후보로 예약했다(C02~C04). 사용자 결정 뒤에 채운다.
+> 번호는 C02~C04를 기획서 §7.2 확장 후보로 예약해 두고 C05를 쓴다 (2026-10-21 사용자 결정).
 
 설정 파일 `kubeguardian.yaml`의 선택 항목 `required_config`에 서비스별로 반드시 있어야 할 env 이름을 선언하면, 그것의 부재만 적발한다. 기본값은 비어 있고, 비어 있으면 이 규칙은 아무것도 판정하지 않는다. 선언하지 않은 부재는 계속 "의도일 수 있음"이다 (§0.1.1).
 
@@ -263,11 +266,15 @@ required_config:
 
 | 항목 | 내용 |
 |---|---|
-| 판정 조건 | 선언한 서비스의 컨테이너 `env`와 `envFrom` 어디에도 선언한 이름이 없음. ConfigMap envFrom은 키를 읽어 확인하고, Secret envFrom은 값을 읽지 않고 키 이름만 확인한다 |
+| 판정 조건 | 선언한 서비스의 컨테이너 `env`와 `envFrom` 어디에도 선언한 이름이 없음. ConfigMap envFrom은 키를 읽어 확인하고, Secret envFrom은 값을 읽지 않고 키 이름만 확인한다. envFrom에 `prefix`가 있으면 붙인 이름으로 본다. 컨테이너가 여럿이면 어느 컨테이너에도 없을 때 적발한다. `valueFrom` env와 빈 문자열 값은 **있는 것**으로 본다 (값을 읽지 않는 원칙) |
+| 서비스 이름 | `kubeguardian.yaml`의 다른 서비스 키(`core_paths`)와 같은 기준이다. 코드(`sensors/topology.py` `_source_name`, `detectors/_common.py` `Workloads`)가 쓰는 규칙대로, Deployment 템플릿 라벨을 선택하는 Service 이름(여럿이면 이름순 첫째), 없으면 Deployment 이름이다 |
+| 선언 오류 | 선언한 서비스가 네임스페이스에 없으면 "확인하지 못함"이 아니라 **설정 오류로 적발**한다 (오타가 조용히 통과하지 않게). 근거 값에 "선언한 서비스 없음"을 남긴다 |
+| 확인하지 못함 | envFrom ConfigMap·Secret·Deployment를 수집하지 못했을 때. 참조한 ConfigMap 자체가 없으면 C01이 적발하므로 C05는 그 출처를 "확인하지 못함"으로 두고 중복 적발하지 않는다 |
 | 지속 시간 | 없음 (선언 비교) |
 | 제외 | 선언하지 않은 서비스와 이름 (판정 대상이 아님) |
 | 1차 심각도 | S04와 같은 기준: 그 서비스가 핵심 경로면 🔴 긴급, 아니면 🟠 주의 |
 | 근거로 남길 값 | 서비스, 선언된 이름, 확인한 env·envFrom 위치와 결과 (Secret은 키 이름만) |
+| 관련 지침 | failure-after-deploy, service-unreachable (S04·C01의 지침) |
 | 출처 | 운영자 선언 (C01 확장, [#60](https://github.com/skax-jihyeryu/KubeGuardian/issues/60)의 (b)안) |
 
 ### H01 — readinessProbe 없음·TCP만
@@ -294,7 +301,7 @@ mixin 지속 시간을 따르면 상태 규칙은 장애 후 최소 15분이 지
 
 | 규칙 | 장애 주입 후 적발까지 (5분 주기 기준) |
 |---|---|
-| 선언 규칙 (S01, S03, S04, C01, H01, H02) | 다음 점검 = 0~6분 |
+| 선언 규칙 (S01, S03, S04, C01, C05, H01, H02) | 다음 점검 = 0~6분 |
 | 15분 규칙 (N01, P06, S02) | 약 15~21분 |
 | W01 | 변화 없음 10분 + 15분 = 약 25~31분 (§4 W01 "첫 관측") |
 | W02 | `progressDeadlineSeconds` 600초 + 15분 = 약 25~31분 |
