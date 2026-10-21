@@ -55,9 +55,10 @@ def run_investigation(
     k8s: Any = None,
     http: Any = None,
     agent_key: str = AGENT_KEY,
+    symptom: str | None = None,
 ) -> AgentResult | None:
     """게이트가 열렸으면 조사한다. 경로 C면 None."""
-    request = build_request(outcome, config, trigger=trigger)
+    request = build_request(outcome, config, trigger=trigger, symptom=symptom)
     if request is None:
         return None
     setup_tracing()

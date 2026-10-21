@@ -1,5 +1,10 @@
+import json
+
+from langchain_core.messages import AIMessage
+
 import cli
 from core.error.service_exception import ErrorCode, ServiceException
+from tests.service.agent.investigator.test_v1_graph import ScriptedLLM
 from tests.service.checks.detectors.cases import FixtureReader, raw_cluster
 from tests.service.tools.fakes import FakeHttp
 
@@ -101,3 +106,104 @@ def test_check_shows_passing_scenario(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "성공  chat  시나리오 chat: 1단계 모두 성공" in out
     assert "게이트: 경로 C" in out
+
+
+# ── kg investigate ──
+
+
+def _investigate_args(tmp_path, *extra):
+    return ["investigate", *extra, "--config", _config(tmp_path), "--db", str(tmp_path / "kg.db")]
+
+
+def _llm_factory(llm):
+    return lambda model: llm
+
+
+def _scripted():
+    triage = json.dumps(
+        {
+            "issues": [
+                {
+                    "rank": 1,
+                    "title": "gateway 주소 설정 오류",
+                    "impact": "core_path_broken",
+                    "confidence": "high",
+                }
+            ],
+            "runbook": "service-unreachable",
+        }
+    )
+    report = json.dumps(
+        {
+            "conclusion": "gateway 주소 env가 localhost",
+            "confidence": "high",
+            "impact_scope": "전체",
+            "issues": [
+                {
+                    "rank": 1,
+                    "title": "gateway 주소 설정 오류",
+                    "impact": "core_path_broken",
+                    "confidence": "high",
+                }
+            ],
+            "evidence_ids": ["ev-0001"],  # 새 DB의 첫 근거 (규칙 점검이 저장한 S04 적발)
+        }
+    )
+    return ScriptedLLM(script=[triage, AIMessage(content="조사 완료"), report], calls=[])
+
+
+def test_investigate_runs_agent_when_gate_opens_and_prints_report(tmp_path, capsys):
+    llm = _scripted()
+    code = cli.main(
+        _investigate_args(tmp_path, "채팅이 안 돼요"),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=_llm_factory(llm),
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "게이트: 경로 A" in out
+    assert "조사 상태: done" in out
+    assert "결론: gateway 주소 env가 localhost" in out
+    assert "1순위: (추정) gateway 주소 설정 오류 (critical)" in out
+    assert "근거 1건" in out
+    assert any("채팅이 안 돼요" in str(m.content) for m in llm.calls[0])
+
+
+def test_investigate_symptom_only_opens_path_b(tmp_path, capsys):
+    code = cli.main(
+        _investigate_args(tmp_path, "채팅이 안 돼요"),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=_llm_factory(_scripted()),
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "게이트: 경로 B (warning) — 증상: 사용자 증상" in out
+    assert "조사 상태:" in out
+
+
+def test_investigate_skips_agent_on_path_c(tmp_path, capsys):
+    def no_llm(model):
+        raise AssertionError("경로 C는 조사하지 않는다")
+
+    code = cli.main(
+        _investigate_args(tmp_path),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=no_llm,
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "게이트: 경로 C" in out
+    assert "조사하지 않음" in out
+
+
+def test_investigate_rejects_too_long_symptom(tmp_path, capsys):
+    code = cli.main(
+        _investigate_args(tmp_path, "가" * 501),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(),
+    )
+    assert code == 2
+    assert str(ErrorCode.VALIDATION_ERROR.code) in capsys.readouterr().err

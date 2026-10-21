@@ -71,3 +71,30 @@ def test_run_investigation_uses_registered_agent_and_stores_evidence(engine):
     assert result.status == "done", result.error
     assert result.report.evidence_ids == [s04.evidence_id]
     assert EvidenceStore(engine).get(result.report.preliminary_facts[0].evidence_ids[0]) is not None
+
+
+def test_build_request_carries_user_symptom(engine):
+    out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
+
+    req = build_request(out, CONFIG, trigger="investigate", symptom="채팅이 안 돼요")
+
+    assert (req.trigger, req.user_symptom) == ("investigate", "채팅이 안 돼요")
+
+
+def test_run_investigation_passes_symptom_to_the_agent(engine):
+    out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
+    triage = json.dumps({"issues": [], "runbook": "service-unreachable"})
+    report = json.dumps({"conclusion": "c", "confidence": "low", "impact_scope": "전체"})
+    llm = ScriptedLLM(script=[triage, AIMessage(content="조사 완료"), report], calls=[])
+
+    run_investigation(
+        out,
+        CONFIG,
+        engine,
+        llm_factory=lambda m: llm,
+        k8s=_reader("s04/localhost"),
+        run_id="inv-2",
+        symptom="채팅이 안 돼요",
+    )
+
+    assert any("채팅이 안 돼요" in str(m.content) for m in llm.calls[0])
