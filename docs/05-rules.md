@@ -13,6 +13,7 @@
 | 지속 시간은 kubernetes-mixin을 따른다 | 상태 규칙은 [kubernetes-mixin](https://github.com/kubernetes-monitoring/kubernetes-mixin) 알림 규칙의 `for` 지속 시간을 그대로 쓴다. 롤아웃 중 일시적인 부족처럼 금방 회복되는 상태를 장애로 올리지 않기 위해서다. mixin에 대응 규칙이 없는 선언 규칙은 spec만 보고 즉시 판정한다 |
 | 수집 실패는 통과가 아니다 | 필요한 데이터를 못 읽으면 판정 결과를 "확인하지 못함"으로 둔다 |
 | 판정에 쓴 값을 남긴다 | 적발·통과 모두 판정에 쓴 값을 근거로 저장한다. 보고서 화면 P4에 "판정에 쓴 값"으로 표시한다 |
+| 없다는 결함이 아니다 | 무언가가 가리키는데 대상이 없거나 맞지 않을 때만 적발한다. 아무것도 가리키지 않는 부재는 판정하지 않는다. 운영자가 `required_config`로 선언한 것만 예외다 (§4 `required_config`) |
 | 진단 대상 네임스페이스만 | 대상 네임스페이스 밖의 리소스는 판정에 쓰지 않는다. 노드(N01)는 대상 Pod가 올라간 노드만 본다 |
 
 ### 0.1 판정 결과
@@ -23,6 +24,25 @@
 | 관찰 중 | 조건은 만족했지만 지속 시간이 아직 안 됨 | 열지 않는다. P4에 "관찰 중"으로 표시 |
 | 통과 | 조건을 만족하지 않음 | — |
 | 확인하지 못함 | 수집 실패 | 열지 않는다. P4와 보고서의 "확인하지 못함"에 표시 |
+
+### 0.1.1 등급
+
+판정 결과와 별개로, 규칙이 다루는 문제를 세 등급으로 나눈다. 같은 "설정이 없음"이라도 가리키는 곳이 있으면 장애이고, 없으면 일부러 그랬을 수 있다.
+
+| 등급 | 뜻 | 판정 기준 | 게이트·알림 |
+|---|---|---|---|
+| 반드시 장애 | 선언된 참조나 의존이 깨져 K8s나 앱이 정상 동작할 수 없다 | 무언가가 가리키고 있는데 대상이 없거나 맞지 않는다 | 경로 A, 알림 |
+| 의도일 수 있음 | 설정이 없거나 관례와 다르지만 일부러 그랬을 수 있다 | 아무것도 가리키지 않는다. 규칙으로는 판정하지 않는다 | 게이트를 열지 않는다. AI 조사에서 사용·변경·증상 증거와 함께 있을 때만 원인 후보로 올린다 |
+| 개선 권고 | 장애는 아니지만 운영 위험 | H 규칙 | 알림 없음 |
+
+"의도일 수 있음"은 규칙이 아니라 판정하지 않는 영역이므로 §2 표에 규칙으로 나오지 않는다.
+
+규칙별 등급은 다음과 같다. §2 표는 감지기 목록(`catalog.py`)과 열 구성이 1:1로 대응하므로 등급 열을 따로 두지 않고 이 표로 정한다.
+
+| 등급 | 규칙 |
+|---|---|
+| 반드시 장애 | N01, P03, P06, P07, W01, W02, S01~S04, C01, `required_config` (장애 신호 N·P·W·S·C 전부) |
+| 개선 권고 | H01, H02 |
 
 ### 0.2 지속 시간 판정 방법
 
@@ -180,7 +200,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 |---|---|
 | 판정 조건 | Service `spec.selector`에 맞는 Pod가 네임스페이스에 0개 |
 | 지속 시간 | 없음 (선언 비교) |
-| 제외 | selector가 없는 Service (ExternalName, 수동 EndpointSlice) |
+| 제외 | selector가 없는 Service (ExternalName, 수동 EndpointSlice). Service selector가 고르는 Deployment가 `spec.replicas: 0`이면 제외한다 (의도한 축소). 그 Deployment는 `spec.selector`가 아니라 pod template 라벨이 Service selector를 모두 포함하는 것으로 찾는다 |
 | 1차 심각도 | §3 기준 (대상 서비스가 요청을 받을 수 없음) |
 | 근거로 남길 값 | Service selector, 같은 앱으로 보이는 Pod의 라벨 (비교용) |
 | 출처 | K8s [Debug Services](https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/): selector가 Pod 라벨과 맞는지 확인. [learnk8s](https://learnkube.com/troubleshooting-deployments): Endpoints가 비면 selector와 Pod 라벨 불일치 |
@@ -212,9 +232,9 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 
 | 항목 | 내용 |
 |---|---|
-| 판정 조건 | 컨테이너 env와 `envFrom`으로 불러오는 ConfigMap 값 중 이름이 `*_SERVICE_URL`·`*_URL`인 값의 호스트가 다음 중 하나: `localhost`·`127.0.0.1`, 대상 네임스페이스에 없는 Service 이름, Service에 없는 포트. 우선순위는 Kubernetes 규칙대로 뒤의 envFrom이 앞을 덮고 env가 envFrom을 덮는다. Secret envFrom과 env `valueFrom`은 값을 읽지 않고 판정하지 않으며, 같은 이름의 앞선 값도 판정에서 뺀다. envFrom이 가리키는 ConfigMap·Secret을 수집하지 못했으면 그 서비스의 envFrom 값은 "확인하지 못함"이다. 같은 서비스에 적발된 주소가 하나라도 있으면 적발이 우선한다 |
+| 판정 조건 | 컨테이너 env와 `envFrom`으로 불러오는 ConfigMap 값 중 이름이 `*_SERVICE_URL`·`*_URL`인 값의 호스트가 다음 중 하나: `localhost`·`127.0.0.1`, 대상 네임스페이스에 없는 Service 이름, Service에 없는 포트. 우선순위는 Kubernetes 규칙대로 뒤의 envFrom이 앞을 덮고 env가 envFrom을 덮는다. Secret envFrom과 env `valueFrom`은 값을 읽지 않고 판정하지 않으며, 같은 이름의 앞선 값도 판정에서 뺀다. envFrom이 가리키는 ConfigMap·Secret을 수집하지 못했으면 그 서비스의 envFrom 값은 "확인하지 못함"이다. 같은 서비스에 적발된 주소가 하나라도 있으면 적발이 우선한다. env가 아예 없는 경우는 판정하지 않는다(§0 "없다는 결함이 아니다") |
 | 지속 시간 | 없음 (선언 비교) |
-| 제외 | 설정 파일 `external_hosts` 허용 목록에 있는 외부 호스트 (예: LLM API 엔드포인트) |
+| 제외 | 설정 파일 `external_hosts` 허용 목록에 있는 외부 호스트 (예: LLM API 엔드포인트). `localhost`·`127.0.0.1`은 같은 Pod의 다른 컨테이너가 그 포트를 `containerPort`로 열고 있으면 적발하지 않는다 (사이드카). 그런 컨테이너가 없으면 계속 장애로 적발한다 |
 | 1차 심각도 | 그 env를 쓰는 서비스가 핵심 경로면 🔴 긴급, 아니면 🟠 주의 |
 | 근거로 남길 값 | 서비스, env 이름, 값(마스킹 후), 매칭 결과(declared / unresolved) |
 | 출처 | **운영 사례.** 템플릿에서 서비스 주소 env가 없으면 `localhost`로 호출하는 결함(기획서 §2.3 T1)에서 나온 규칙이다. 외부 표준은 없다 |
@@ -229,6 +249,26 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 1차 심각도 | 참조하는 Pod가 시작되지 못하므로 §3 기준. 이전 버전 Pod가 Ready로 남아 있으면 🟠 주의 |
 | 근거로 남길 값 | 참조 위치, 객체 종류·이름·키, 존재 여부 (Secret은 메타데이터와 키 이름만, 값은 읽지 않음) |
 | 출처 | K8s [Configure a Pod to Use a ConfigMap](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/): 없는 ConfigMap이나 키를 참조하고 optional로 표시하지 않으면 Pod가 시작되지 않는다. Secret에도 같은 규칙을 적용하며, Secret 쪽 공식 문서 문구는 아직 확인하지 않았다 |
+
+### (ID 미정) — 필수 설정 누락 (`required_config`)
+
+> ID는 정하지 않았다. C 계열 다음 번호 C02는 기획서 §7.2가 확장 후보로 예약했다(C02~C04). 사용자 결정 뒤에 채운다.
+
+설정 파일 `kubeguardian.yaml`의 선택 항목 `required_config`에 서비스별로 반드시 있어야 할 env 이름을 선언하면, 그것의 부재만 적발한다. 기본값은 비어 있고, 비어 있으면 이 규칙은 아무것도 판정하지 않는다. 선언하지 않은 부재는 계속 "의도일 수 있음"이다 (§0.1.1).
+
+```yaml
+required_config:
+  gateway: [ADMIN_SERVICE_URL, AGENT_SERVICE_URL]
+```
+
+| 항목 | 내용 |
+|---|---|
+| 판정 조건 | 선언한 서비스의 컨테이너 `env`와 `envFrom` 어디에도 선언한 이름이 없음. ConfigMap envFrom은 키를 읽어 확인하고, Secret envFrom은 값을 읽지 않고 키 이름만 확인한다 |
+| 지속 시간 | 없음 (선언 비교) |
+| 제외 | 선언하지 않은 서비스와 이름 (판정 대상이 아님) |
+| 1차 심각도 | S04와 같은 기준: 그 서비스가 핵심 경로면 🔴 긴급, 아니면 🟠 주의 |
+| 근거로 남길 값 | 서비스, 선언된 이름, 확인한 env·envFrom 위치와 결과 (Secret은 키 이름만) |
+| 출처 | 운영자 선언 (C01 확장, [#60](https://github.com/skax-jihyeryu/KubeGuardian/issues/60)의 (b)안) |
 
 ### H01 — readinessProbe 없음·TCP만
 
@@ -265,6 +305,8 @@ mixin 지속 시간을 따르면 상태 규칙은 장애 후 최소 15분이 지
 | A1 (selector 오타) | S01 즉시 (S02는 대상 Pod가 0개라 제외) | 영향 없음 |
 | A3 (없는 이미지 태그) | **W02 약 25분**, P03 약 1시간 (S02는 롤아웃 중인 새 버전 Pod라 제외) | 아래 §5.1 |
 | A5 (서비스 주소 누락) | S04 즉시 | 영향 없음 |
+| H1 (설정 없이도 정상) | 적발 없음 | 경로 C, 알림 없음 (§0 "없다는 결함이 아니다") |
+| A6 (주소 env 삭제) | 적발 없음 (env가 없으면 S04가 판정하지 않음). 증상 감지로 경로 B | 규칙 적발이 없으므로 AI 조사가 설정·로그로 원인을 확정한다 |
 | E1 (과거 재시작 미끼) | P06은 적발되지 않아야 함 (제외 조건) | 의도대로 |
 | C1·C2·C5 | 규칙 없음, 증상 감지(경로 B) | 장애 감지 시간 KPI는 이 시나리오들로 재므로 영향 없음 |
 
