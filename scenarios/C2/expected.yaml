@@ -7,8 +7,7 @@ must_signals: []   # 장애 신호 규칙으로 잡히는 것이 없다 (05-rule
 allowed_signals: []
 forbidden_signals: []
 must_check:
-  wiring: "로그인 실패"
-  logs: "admin의 Redis 연결 오류"
+  wiring: "로그인 요청이 응답 대기 끝에 시간 초과(504)로 실패"
 root_cause: "admin에서 redis로 가는 네트워크가 차단되어 admin이 로그인 세션을 Redis에 저장하지 못하고 멈춘다"
 affected_services: [admin, gateway, front-chat, front-admin]
 expected_top1: "admin → Redis 연결 차단으로 로그인이 시간 초과(5xx)로 실패, Pod는 전부 Ready"
