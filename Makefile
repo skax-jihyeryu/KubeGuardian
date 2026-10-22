@@ -1,4 +1,4 @@
-.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix eval
+.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix eval kg-build kg-up kg-down
 
 # 진단 대상(템플릿 포크) 위치. 포크 6개 + shared-infra가 이 아래에 있어야 한다.
 TARGET_DIR ?= $(HOME)/Cursor/kg-target
@@ -106,3 +106,7 @@ EVAL_CONFIG ?= $(if $(wildcard kubeguardian.yaml),kubeguardian.yaml,kubeguardian
 eval:  ## 시나리오 하나 평가 (주입 → 증상 확인 → 점검·게이트 → 채점 → 원복). 예: make eval S=A5, AI 조건은 make eval S=A5 ARGS="--condition ai"
 	@test -n "$(S)" || { echo "S=<시나리오 ID>가 필요하다. 예: make eval S=A5"; exit 2; }
 	uv run python eval/run.py $(S) --config $(EVAL_CONFIG) $(ARGS)
+
+kg-build:  ## KubeGuardian runner 이미지를 minikube 노드의 docker에 빌드
+	@for img in python:3.12-slim ghcr.io/astral-sh/uv:0.9.13; do minikube ssh -- docker pull -q $$img >/dev/null || exit 1; done
+	@eval $$(minikube docker-env) && docker build -q -t kubeguardian:local .
