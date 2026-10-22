@@ -150,7 +150,9 @@ def _edge(
     sibling_ports: set[int],
 ) -> TopologyEdge | None:
     # 호스트 뒤의 마스킹된 포트만 모르는 것으로 본다 (호스트만 맞춘다). userinfo의 `:***@`는 아니다
-    port_masked = _MASKED_PORT.search(value) is not None
+    # authority 안에서만 본다 (경로·쿼리 끝의 `:***`는 포트가 아니다)
+    netloc = urlsplit(value if "://" in value else f"//{value}").netloc
+    port_masked = netloc.rpartition("@")[2].endswith(":***")
     value = _MASKED_PORT.sub("", value)
     url = urlsplit(value if "://" in value else f"//{value}")
     host = url.hostname

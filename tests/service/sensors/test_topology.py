@@ -459,6 +459,15 @@ def test_loopback_masked_port_is_unresolved():
     assert edge.status == "unresolved"
 
 
+@pytest.mark.parametrize(
+    "value", ["http://localhost:6379/?token:***", "http://localhost:6379/#a:***"]
+)
+def test_masked_suffix_outside_authority_does_not_hide_sidecar(value):
+    (edge,) = _sidecar_edges(value, sidecar_ports=[6379])
+
+    assert (edge.status, edge.port, edge.via) == ("declared", 6379, "sidecar")
+
+
 @pytest.mark.parametrize("value", ["redis://:***@localhost:6379", "http://user:***@localhost:6379"])
 def test_loopback_with_masked_password_is_sidecar(value):
     (edge,) = _sidecar_edges(value, sidecar_ports=[6379])
