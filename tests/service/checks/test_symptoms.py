@@ -3,6 +3,7 @@ import pytest
 from core.config import KubeGuardianConfig
 from core.guard.budget import Budget, BudgetTracker
 from core.http import HttpResponse, NamespacedHttp
+from core.k8s import K8sCallError
 from service.checks.symptoms import detect_symptoms
 from service.tools.base import ToolContext
 from tests.service.tools.fakes import NOW, FakeHttp, FakeK8s, MemoryEvidence, service
@@ -90,15 +91,49 @@ def test_runs_every_scenario_in_config_order(make_ctx):
     assert [(s.scenario, s.failed_step) for s in out] == [("a", 1), ("b", None)]
 
 
-def test_scenario_that_could_not_run_is_unknown_with_reason(make_ctx):
-    # Service가 없으면 도구가 실행하지 못한다. 증상이 아니라 확인하지 못함이다
+def test_missing_target_service_is_a_failed_step_not_unknown(make_ctx):
+    # Service 목록은 읽었는데 연결할 Service가 없으면 사용자는 실패한다 (05-rules §3)
     http = FakeHttp()
 
     [s] = detect_symptoms(_config("chat"), _ctx(make_ctx, http, FakeK8s({"Service": []})))
 
-    assert (s.scenario, s.status, s.failed_step, s.severity) == ("chat", "unknown", None, None)
+    assert (s.status, s.failed_step, s.severity) == ("failed", 1, "critical")
     assert "Service gateway" in s.summary
     assert http.calls == []
+
+
+def test_service_without_ports_is_a_failed_step(make_ctx):
+    no_port = service("gateway")
+    no_port["spec"]["ports"] = []
+
+    [s] = detect_symptoms(
+        _config("chat"), _ctx(make_ctx, FakeHttp(), FakeK8s({"Service": [no_port]}))
+    )
+
+    assert (s.status, s.failed_step) == ("failed", 1)
+    assert "포트" in s.summary
+
+
+def test_service_list_collection_failure_is_unknown(make_ctx):
+    # 목록을 읽지 못했으면 Service가 없는지 모른다
+    k8s = FakeK8s({"Service": K8sCallError("api down")})
+
+    [s] = detect_symptoms(_config("chat"), _ctx(make_ctx, FakeHttp(), k8s))
+
+    assert (s.status, s.failed_step, s.severity) == ("unknown", None, None)
+    assert "Service" in s.summary
+
+
+def test_external_name_service_is_unknown(make_ctx):
+    external = service("gateway")
+    external["spec"] = {"type": "ExternalName", "externalName": "x.other-ns.svc.cluster.local"}
+
+    [s] = detect_symptoms(
+        _config("chat"), _ctx(make_ctx, FakeHttp(), FakeK8s({"Service": [external]}))
+    )
+
+    assert s.status == "unknown"
+    assert "ExternalName" in s.summary
 
 
 def test_missing_test_account_is_unknown_without_values(make_ctx):

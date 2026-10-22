@@ -111,12 +111,12 @@ def test_check_shows_passing_scenario(tmp_path, capsys):
 
 
 def test_check_shows_scenario_that_could_not_run_with_reason(tmp_path, capsys):
-    path = tmp_path / "kubeguardian.yaml"
-    path.write_text(SCENARIO_YAML.replace("via: gateway", "via: nowhere"), encoding="utf-8")
-    argv = ["check", "--config", str(path), "--db", str(tmp_path / "kg.db")]
+    # Service 목록을 읽지 못하면 대상 Service가 있는지 알 수 없다
+    argv = ["check", "--config", _scenario_config(tmp_path), "--db", str(tmp_path / "kg.db")]
+    objects, _ = raw_cluster()
     code = cli.main(
         argv,
-        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_reader=lambda cfg: FixtureReader(objects, {"Service": "api down"}),
         make_http=lambda cfg: FakeHttp(),
     )
     out = capsys.readouterr().out
@@ -124,6 +124,20 @@ def test_check_shows_scenario_that_could_not_run_with_reason(tmp_path, capsys):
     assert "확인하지 못함  chat  조회 실패:" in out
     assert "증상 감지 확인하지 못함 1건" in out
     assert "게이트: 경로 C" in out
+
+
+def test_check_shows_missing_target_service_as_failed_symptom(tmp_path, capsys):
+    path = tmp_path / "kubeguardian.yaml"
+    path.write_text(SCENARIO_YAML.replace("via: gateway", "via: nowhere"), encoding="utf-8")
+    argv = ["check", "--config", str(path), "--db", str(tmp_path / "kg.db")]
+    cli.main(
+        argv,
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(),
+    )
+    out = capsys.readouterr().out
+    assert "실패(critical)  chat" in out
+    assert "게이트: 경로 B (critical)" in out
 
 
 def test_default_http_gets_accounts_from_accounts_dir(tmp_path, monkeypatch):

@@ -138,3 +138,12 @@ def test_user_symptom_opens_path_b_without_http(engine):
         _reader(), CONFIG, engine, trigger="investigate", now=NOW, user_symptom="채팅 안 돼요"
     )
     assert (out.gate.path, out.gate.severity) == ("B", "warning")
+
+
+def test_missing_target_service_opens_path_b_critical(engine):
+    objects, failed = raw_cluster()
+    objects["Service"] = [x for x in objects["Service"] if x["metadata"]["name"] != "gateway"]
+    reader = FixtureReader(objects, failed)
+    out = run_check(reader, _symptom_config(), engine, trigger="check", now=NOW, http=_http(200))
+    assert (out.gate.path, out.gate.severity) == ("B", "critical")
+    assert [(x.scenario, x.status) for x in out.gate.symptoms] == [("chat", "failed")]
