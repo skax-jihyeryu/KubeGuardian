@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>서비스 점검 지도</title>
+<style>
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --surface2:#eef0f4; --text:#1b1f27; --muted:#5b6472; --border:#d5dae2; --accent:#2f5fd0;
+  --impl:#1f8a4c; --impl-bg:#dff3e6;
+  --plan:#2f5fd0; --plan-bg:#dfe8fb;
+  --cand:#b57a00; --cand-bg:#fbefcf;
+  --out:#6b7280; --out-bg:#e6e8ec;
+  --gap:#c62f3a; --gap-bg:#fbe0e2;
+  --must:#c62f3a; --maybe:#b57a00; --advice:#5b6472;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#12151b; --surface:#1b2029; --surface2:#242b37; --text:#e6e9ef; --muted:#9aa3b2; --border:#333c4b; --accent:#7ba1ff;
+    --impl:#5fd08a; --impl-bg:#16382a;
+    --plan:#8fb0ff; --plan-bg:#1c2b52;
+    --cand:#f0c25a; --cand-bg:#40330f;
+    --out:#a3abb8; --out-bg:#2b313c;
+    --gap:#ff7c86; --gap-bg:#4a1c21;
+    --must:#ff7c86; --maybe:#f0c25a; --advice:#9aa3b2;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#12151b; --surface:#1b2029; --surface2:#242b37; --text:#e6e9ef; --muted:#9aa3b2; --border:#333c4b; --accent:#7ba1ff;
+  --impl:#5fd08a; --impl-bg:#16382a;
+  --plan:#8fb0ff; --plan-bg:#1c2b52;
+  --cand:#f0c25a; --cand-bg:#40330f;
+  --out:#a3abb8; --out-bg:#2b313c;
+  --gap:#ff7c86; --gap-bg:#4a1c21;
+  --must:#ff7c86; --maybe:#f0c25a; --advice:#9aa3b2;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",system-ui,sans-serif;overflow-wrap:anywhere}
+.wrap{max-width:1100px;margin:0 auto;padding:0 16px 64px}
+header.top{padding:28px 0 8px}
+h1{font-size:26px;margin:0 0 6px}
+h2{font-size:20px;margin:40px 0 10px;padding-top:8px;border-top:1px solid var(--border)}
+h3{font-size:16px;margin:18px 0 6px}
+p{margin:6px 0}
+.lead{color:var(--muted);max-width:760px}
+a{color:var(--accent)}
+code{background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:.9em;font-family:ui-monospace,Menlo,Consolas,monospace}
+nav.toc{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5;border-bottom:1px solid var(--border)}
+nav.toc a{font-size:13px;text-decoration:none;padding:3px 10px;border:1px solid var(--border);border-radius:999px;color:var(--text);background:var(--surface)}
+.themebtn{margin-left:auto;font-size:13px;padding:3px 10px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);cursor:pointer}
+.badge{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;font-weight:600;white-space:nowrap}
+.b-impl{background:var(--impl-bg);color:var(--impl)} .b-plan{background:var(--plan-bg);color:var(--plan)}
+.b-cand{background:var(--cand-bg);color:var(--cand)} .b-out{background:var(--out-bg);color:var(--out)} .b-gap{background:var(--gap-bg);color:var(--gap)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:10px 0;font-size:13px;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.note{border-left:4px solid var(--accent);background:var(--surface);padding:8px 12px;border-radius:0 8px 8px 0;margin:10px 0;font-size:14px}
+.warn{border-left-color:var(--gap)}
+/* 흐름 */
+.flow{list-style:none;margin:12px 0;padding:0;display:grid;grid-template-columns:repeat(5,1fr);gap:22px 18px;counter-reset:s}
+.node{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 10px 10px;cursor:pointer;display:flex;flex-direction:column;gap:6px;min-width:0}
+.node:hover{border-color:var(--accent)}
+.node .n{font-size:12px;color:var(--muted);font-weight:700}
+.node .t{font-weight:700;font-size:14px;line-height:1.35}
+.node .o{font-size:12px;color:var(--muted)}
+.node::after{content:"→";position:absolute;right:-17px;top:42%;color:var(--muted);font-size:15px}
+.node:nth-child(5n)::after{content:"";}
+.bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--surface2)}
+.bar i{display:block;height:100%}
+.chips{display:flex;flex-wrap:wrap;gap:3px}
+.chip{font-size:11px;padding:0 6px;border-radius:4px;font-weight:700}
+.cnt{font-size:11px;color:var(--muted)}
+@media (max-width:820px){
+  .flow{grid-template-columns:1fr;gap:20px}
+  .node::after{content:"↓";right:auto;left:50%;top:auto;bottom:-19px}
+  .node:nth-child(5n)::after{content:"↓"}
+  .node:last-child::after{content:""}
+}
+/* 상세 */
+details.stage{background:var(--surface);border:1px solid var(--border);border-radius:10px;margin:10px 0}
+details.stage>summary{cursor:pointer;padding:12px 14px;font-weight:700;list-style:none;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+details.stage>summary::-webkit-details-marker{display:none}
+details.stage>summary::before{content:"▸";color:var(--muted)}
+details.stage[open]>summary::before{content:"▾"}
+.body{padding:0 14px 14px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.body .full{grid-column:1/-1}
+.col{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;min-width:0}
+.col h4{margin:0 0 6px;font-size:13px;color:var(--muted);text-transform:none}
+.col ul{margin:0;padding-left:18px} .col li{margin:3px 0}
+.kgcol{border-color:var(--accent)}
+.gapcol{border-color:var(--gap)}
+@media (max-width:820px){.body{grid-template-columns:1fr}}
+.grade{font-weight:700;font-size:12px}
+.g-must{color:var(--must)} .g-maybe{color:var(--maybe)} .g-advice{color:var(--advice)}
+/* 표 */
+.scroll{overflow-x:auto;border:1px solid var(--border);border-radius:8px;background:var(--surface);max-width:100%}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:6px 9px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+th{background:var(--surface2);position:sticky;top:0;white-space:nowrap}
+td.c{text-align:center;white-space:nowrap}
+.matrix{min-width:980px}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;align-items:center}
+.fbtn{font-size:13px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:999px;padding:3px 11px;cursor:pointer}
+.fbtn[aria-pressed="true"]{outline:2px solid var(--accent)}
+select,input[type=search]{font:inherit;font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);max-width:100%}
+.y{color:var(--impl);font-weight:700} .p{color:var(--plan);font-weight:700} .no{color:var(--muted)}
+.sum{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:10px 0}
+.sum div{border-radius:8px;padding:8px;text-align:center}
+.sum b{display:block;font-size:22px}
+@media (max-width:600px){.sum{grid-template-columns:repeat(2,1fr)}}
+/* 게이트 */
+svg{max-width:100%;height:auto}
+svg text{fill:var(--text);font-family:inherit}
+.svgbox{fill:var(--surface);stroke:var(--border)}
+.svgacc{fill:var(--plan-bg);stroke:var(--plan)}
+.svgok{fill:var(--impl-bg);stroke:var(--impl)}
+.svgbad{fill:var(--gap-bg);stroke:var(--gap)}
+.svgline{stroke:var(--muted);fill:none}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:820px){.two{grid-template-columns:1fr}}
+ol.crit li,ul.crit li{margin:5px 0}
+footer{margin-top:40px;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <h1>서비스 점검 지도</h1>
+  <p class="lead">서비스가 뜨기까지의 전 과정(환경 구축 → 설정 → 배포 → 구동 → 연결 → 사용자 요청 → 점검)을 한 줄로 놓고, 단계마다 생길 수 있는 문제와 확인할 조건, 그리고 KubeGuardian이 지금 점검하는 범위와 비어 있는 범위를 표시한 학습·점검용 문서다.</p>
+  <p class="lead" style="font-size:13px">기준: <code>origin/develop</code>의 <code>docs/05-rules.md</code>·<code>catalog.py</code>·시나리오 정답 파일(2026-10-21 확인), 확정 설계 <code>docs/superpowers/specs/2026-10-21-investigation-procedure-design.md</code>, 진단 대상 <code>kg-target/shared-infra/kubernetes</code> 매니페스트. 일반 조건은 공개 자료에서 요약했고 출처는 §8에 모았다.</p>
+</header>
+
+<nav class="toc" aria-label="목차">
+  <a href="#s1">1 한 장 요약</a><a href="#s2">2 단계별 상세</a><a href="#s3">3 커버리지 매트릭스</a><a href="#s4">4 규칙 기준</a><a href="#s5">5 판정 등급</a><a href="#s6">6 시나리오 지도</a><a href="#s7">7 한계·다음 작업</a><a href="#s8">8 출처</a>
+  <button class="themebtn" id="themebtn" type="button">테마 전환</button>
+</nav>
+
+<section id="s1">
+<h2>1. 한 장 요약</h2>
+<p>각 칸을 누르면 아래 상세 카드가 열린다. 막대는 그 단계에서 뽑은 문제 유형이 지금 어디에 있는지(매트릭스 §3 기준)를 보여 준다.</p>
+<div class="legend" id="legend"></div>
+<ol class="flow" id="flow"></ol>
+<div class="sum" id="sum"></div>
+<div class="note"><b>읽는 법.</b> 초록(구현됨)은 코드와 명세가 있다는 뜻이지 실제 클러스터 시나리오로 검증됐다는 뜻은 아니다. 검증 여부는 매트릭스의 "시나리오" 열에서 따로 본다. 실제 클러스터에서 AI 조건까지 통과를 확인한 것은 A1·A5(3/3)와 A3(2/3)뿐이다.</div>
+</section>
+
+<section id="s2">
+<h2>2. 단계별 상세 카드</h2>
+<p>각 카드는 (1) 생길 수 있는 문제, (2) 확인할 조건·방법·출처, (3) KubeGuardian의 점검, (4) 누락 순서로 읽는다.</p>
+<div style="margin:6px 0"><button class="fbtn" id="openall" type="button">모두 펼치기</button> <button class="fbtn" id="closeall" type="button">모두 접기</button></div>
+<div id="stages"></div>
+</section>
+
+<section id="s3">
+<h2>3. 커버리지 매트릭스</h2>
+<p>행은 공개 자료(Kubernetes 공식 문서, learnk8s, kubernetes-mixin, Polaris)와 우리 명세에서 뽑은 문제 유형이다. 상태는 코드·명세 기준이고, 한 문제에 여러 근거가 있으면 가장 앞선 상태를 쓴다.</p>
+<div class="note"><b>열의 뜻.</b> <b>규칙</b>: 결정적 감지기가 있는가. <b>증상</b>: API 시나리오·사용자 입력으로 드러나는가(<span class="p">○</span> = 증상 감지 #20이 아직 열려 있어 계획). <b>AI</b>: 조사 도구로 확인할 수 있는가(<span class="y">●</span> = 실측 통과, <span class="p">○</span> = 도구상 가능하나 실측 안 함, <span class="no">–</span> = 도구로 볼 수 없음). <b>시나리오</b>: 클러스터에서 주입해 검증한 것.</div>
+<div class="filters" id="filters"></div>
+<div class="scroll"><table class="matrix"><thead><tr><th>#</th><th>단계</th><th>문제 유형</th><th>근거</th><th>규칙</th><th>증상</th><th>AI</th><th>시나리오</th><th>상태</th><th>비고</th></tr></thead><tbody id="mbody"></tbody></table></div>
+<p class="cnt" id="mcount"></p>
+</section>
+
+<section id="s4">
+<h2>4. 우리 규칙이 세워진 기준</h2>
+<div class="two">
+<div class="card"><h3 style="margin-top:0">기준 순서</h3>
+<ol class="crit">
+<li><b>시나리오 우선.</b> 먼저 MVP 시나리오(A1·A3·A5…)를 잡는 데 필요한 규칙을 정하고, 거기에 기본 상태 확인(노드·재시작·replicas)을 더했다. 그래서 13종이다.</li>
+<li><b>상태 규칙은 mixin의 <code>for</code>를 따른다.</b> 롤아웃 중 잠깐의 부족을 장애로 올리지 않기 위해서다. N01·P06·W01·W02·S02는 15분, P03는 1시간이다. 5분 주기라 관측 기록으로 같은 효과를 낸다.</li>
+<li><b>선언 규칙은 K8s 문서</b>(S01·S03·C01)를 근거로 spec만 보고 다음 점검에서 바로 판정한다. 트래픽이 없어도 잡힌다.</li>
+<li><b>권고는 Polaris</b>(H01·H02). 게이트를 열지 않고 알림도 없다.</li>
+<li><b>결정적 판정.</b> LLM을 쓰지 않는다. 같은 입력이면 같은 결과다.</li>
+<li><b>수집 실패는 통과가 아니다.</b> 못 읽으면 "확인하지 못함"으로 두고 지속 시간 기록은 유지한다.</li>
+<li><b>근거가 약한 것은 약하다고 적는다.</b> P07의 15분은 설계값, S04는 운영 사례(외부 표준 없음)다.</li>
+</ol></div>
+<div class="card"><h3 style="margin-top:0">판정 결과 4종</h3>
+<table><thead><tr><th>결과</th><th>뜻</th><th>게이트</th></tr></thead><tbody>
+<tr><td>적발</td><td>조건 + 지속 시간 충족</td><td>장애 신호면 경로 A</td></tr>
+<tr><td>관찰 중</td><td>조건은 맞으나 시간이 덜 지남</td><td>열지 않음</td></tr>
+<tr><td>통과</td><td>조건 불만족</td><td>—</td></tr>
+<tr><td>확인하지 못함</td><td>수집 실패</td><td>열지 않음, 화면에 표시</td></tr>
+</tbody></table>
+<p class="cnt">지속 시간 예: 5분 주기에서 15분 규칙은 네 번째 점검에 적발. 조건이 풀리면 기록을 지운다.</p></div>
+</div>
+
+<h3>규칙 13종 한눈에</h3>
+<div class="scroll"><table style="min-width:760px"><thead><tr><th>ID</th><th>이름</th><th>성격</th><th>판정 시점</th><th>근거</th><th>단계</th></tr></thead><tbody id="rulebody"></tbody></table></div>
+
+<h3>게이트: 점검 결과가 AI 조사로 가는 길</h3>
+<div class="card">
+<svg viewBox="0 0 760 330" role="img" aria-label="게이트 경로 A B C 흐름도">
+ <rect class="svgbox" x="10" y="130" width="130" height="70" rx="8"/><text x="75" y="160" text-anchor="middle" font-size="14" font-weight="700">5분 점검</text><text x="75" y="180" text-anchor="middle" font-size="11">수집 → 규칙 + 증상</text>
+ <path class="svgline" d="M140 150 L220 70 M140 165 L220 165 M140 180 L220 260"/>
+ <rect class="svgacc" x="220" y="35" width="250" height="70" rx="8"/><text x="345" y="62" text-anchor="middle" font-size="13" font-weight="700">장애 신호 규칙 적발 (N·P·W·S·C)</text><text x="345" y="82" text-anchor="middle" font-size="11">지속 시간까지 채움</text>
+ <rect class="svgacc" x="220" y="130" width="250" height="70" rx="8"/><text x="345" y="157" text-anchor="middle" font-size="13" font-weight="700">증상 감지 (경로 B)</text><text x="345" y="177" text-anchor="middle" font-size="11">API 시나리오 실패 · /kg investigate · 구현 전(#20)</text>
+ <rect class="svgok" x="220" y="225" width="250" height="70" rx="8"/><text x="345" y="252" text-anchor="middle" font-size="13" font-weight="700">장애 신호 없음 (경로 C)</text><text x="345" y="272" text-anchor="middle" font-size="11">H 권고만 기록 · 알림 없음</text>
+ <path class="svgline" d="M470 70 L540 70 M470 165 L540 120 M470 260 L540 260"/>
+ <rect class="svgacc" x="540" y="45" width="210" height="50" rx="8"/><text x="645" y="68" text-anchor="middle" font-size="13" font-weight="700">경로 A → AI 조사</text><text x="645" y="86" text-anchor="middle" font-size="11">규칙 신호가 출발점</text>
+ <rect class="svgacc" x="540" y="105" width="210" height="50" rx="8"/><text x="645" y="128" text-anchor="middle" font-size="13" font-weight="700">경로 B → AI 조사</text><text x="645" y="146" text-anchor="middle" font-size="11">증상이 출발점 (A와 겹칠 수 있음)</text>
+ <rect class="svgok" x="540" y="235" width="210" height="50" rx="8"/><text x="645" y="258" text-anchor="middle" font-size="13" font-weight="700">종료</text><text x="645" y="276" text-anchor="middle" font-size="11">관찰 중·확인하지 못함도 열지 않음</text>
+</svg>
+<p class="cnt">경로 B가 비어 있는 동안 C1·C2·B1은 점검만으로는 AI 조사에 들어가지 못한다(§7).</p>
+</div>
+</section>
+
+<section id="s5">
+<h2>5. 판정 등급과 "설정 부재" 경계</h2>
+<div class="note">원칙(2026-10-21 확정): <b>"없다"는 결함이 아니다. "가리키는데 없다"가 결함이다.</b> 아직 명세 반영 전이며 #63·#64가 반영 작업이다.</div>
+<div class="scroll"><table style="min-width:640px"><thead><tr><th>등급</th><th>뜻</th><th>게이트·알림</th></tr></thead><tbody>
+<tr><td><span class="grade g-must">반드시 장애</span></td><td>선언된 참조·의존이 깨졌다. 무언가가 가리키는데 대상이 없거나 맞지 않음</td><td>경로 A, 알림</td></tr>
+<tr><td><span class="grade g-maybe">의도일 수 있음</span></td><td>설정이 없거나 관례와 다름. 아무것도 가리키지 않음</td><td>게이트 안 염. AI가 사용·변경·증상 증거와 함께 있을 때만 원인 후보</td></tr>
+<tr><td><span class="grade g-advice">개선 권고</span></td><td>장애는 아니지만 운영 위험 (H 규칙)</td><td>알림 없음</td></tr>
+</tbody></table></div>
+<h3>예시 판정</h3>
+<div class="scroll"><table style="min-width:760px"><thead><tr><th>상황</th><th>등급</th><th>지금 규칙</th></tr></thead><tbody>
+<tr><td>Secret이 필요 없는 서비스 (참조 없음)</td><td><span class="grade g-maybe">의도일 수 있음</span></td><td>C01은 참조가 있을 때만 판정 → 맞음</td></tr>
+<tr><td>ConfigMap 없이 Deployment env에 직접 적음</td><td><span class="grade g-maybe">의도일 수 있음</span></td><td>S04는 값의 출처와 무관하게 값만 봄 → 맞음</td></tr>
+<tr><td><code>envFrom</code>이 가리키는 ConfigMap이 없음 (optional 아님)</td><td><span class="grade g-must">반드시 장애</span></td><td>C01</td></tr>
+<tr><td>주소 env가 아예 없음</td><td><span class="grade g-maybe">의도일 수 있음</span></td><td>적발 안 함 (#60). 운영자가 <code>required_config</code>(규칙 C05)로 선언하면 적발(구현 #64 계획). 로그의 호출 대상이 증거</td></tr>
+<tr><td>주소 env 값이 없는 Service·포트를 가리킴</td><td><span class="grade g-must">반드시 장애</span></td><td>S04</td></tr>
+<tr><td>주소 env가 <code>localhost</code></td><td><span class="grade g-must">반드시 장애</span> (단, 같은 Pod 사이드카가 그 포트를 열면 정상)</td><td>S04는 사이드카 예외 없음 → 오탐 가능 (명세 반영 #63, 구현 #64)</td></tr>
+<tr><td>selector에 맞는 Pod 0개</td><td><span class="grade g-must">반드시 장애</span> (의도적 replicas 0도 적발되는 알려진 한계)</td><td>S01 (replicas 0 예외는 리뷰 뒤 철회: 실수로 0으로 줄인 경우를 놓치지 않기 위해)</td></tr>
+<tr><td>readinessProbe·resources 없음</td><td><span class="grade g-advice">개선 권고</span></td><td>H01·H02</td></tr>
+</tbody></table></div>
+<p class="cnt">AI 조사에서 "의도일 수 있음"을 원인으로 올리는 증거: 로그(앱이 그 설정을 찾다 실패), 설정(이전 revision에는 있었다가 사라짐), 증상(그 서비스가 속한 사용자 경로 실패). 증거가 없으면 결론에 올리지 않는다.</p>
+</section>
+
+<section id="s6">
+<h2>6. 시나리오 지도</h2>
+<p>시나리오가 흐름의 어느 단계에 장애를 주입하는지, 그리고 지금 검증 상태가 어떤지 본다. 레포 <code>scenarios/</code>에 실제 있는 것은 A1·A3·A5·B1·C1·C2·H0이다.</p>
+<div class="scroll"><table style="min-width:900px"><thead><tr><th>ID</th><th>Lv</th><th>주입 단계</th><th>주입</th><th>경로·기대 신호</th><th>상태</th></tr></thead><tbody id="scenbody"></tbody></table></div>
+<div class="note warn"><b>L4(부하·시간 의존)</b>는 비목표다. 시나리오 8개는 모두 상태·선언·앱 층 장애이고, 느려짐·점진적 메모리 증가·재시도 폭주는 이번 범위에 없다.</div>
+</section>
+
+<section id="s7">
+<h2>7. 알려진 한계와 다음 작업</h2>
+<div class="scroll"><table style="min-width:700px"><thead><tr><th>항목</th><th>내용</th><th>이슈</th></tr></thead><tbody>
+<tr><td>Mac에서 HTTP 도구 실패</td><td>Mac에서 실행하면 <code>probe</code>·<code>run_api_scenario</code> 같은 HTTP 도구가 클러스터 DNS에 닿지 않는다. 조사 보고서의 "연결" 영역이 "확인하지 못함 (클러스터 밖 실행)"이 된다. 클러스터 안 Job에서는 해당 없음(이번 문서에서 직접 확인하지는 못함)</td><td>—</td></tr>
+<tr><td>경로 B 미구현</td><td>증상 감지가 없어 B1·C1·C2는 eval 불가. 점검만으로는 조사에 들어가지 못한다</td><td>#20</td></tr>
+<tr><td>가설 루프·보고서 완성</td><td>멈춤 조건(원인 리소스 설정 직접 확인, 로그 확인), 영역별 coverage 보고서</td><td>#21</td></tr>
+<tr><td>S04 주소 env 누락 공백</td><td>env가 없으면 적발하지 못한다. 선언한 것만 적발하는 <code>required_config</code>(C05)로 닫기로 확정</td><td>#60</td></tr>
+<tr><td>판정 경계 명세 반영</td><td>05-rules·기획서에 세 등급, 조사 방식 반영</td><td>#63</td></tr>
+<tr><td>설정 부재 경계 구현</td><td>S04 사이드카 예외, <code>required_config</code>(C05), 정답 파일 must/allowed/forbidden</td><td>#64</td></tr>
+<tr><td>A6 시나리오</td><td>주소 env를 지워 "설정 부재가 원인"인 경우를 만든다. 증상 감지 뒤</td><td>#65</td></tr>
+<tr><td>A3 채점 흔들림</td><td>같은 결론에 AI 채점이 2/3. 정답 문구·judge 기준 정리</td><td>#62</td></tr>
+<tr><td>H1 시나리오</td><td>설정 없이도 정상인 구성 (W2 계획, 이슈 번호는 확인하지 못함)</td><td>—</td></tr>
+</tbody></table></div>
+<p class="cnt">#59(run_api_scenario 응답에 비밀번호 잔류)는 닫혔다.</p>
+</section>
+
+<section id="s8">
+<h2>8. 출처</h2>
+<p>"본문 확인"은 이번 조사에서 페이지를 직접 열어 요약한 것이다. "링크만"은 05-rules·기획서가 이미 근거로 인용했거나 표준 문서라 연결만 달았고, 이 문서 작성 중 본문은 열지 않았다. 원문은 옮기지 않고 요약만 했다.</p>
+<div class="scroll"><table style="min-width:700px"><thead><tr><th>자료</th><th>쓴 곳</th><th>확인</th></tr></thead><tbody id="srcbody"></tbody></table></div>
+<footer>이 문서는 학습·점검용이며 커밋 대상이 아니다. 비밀값은 포함하지 않았다.</footer>
+</section>
+</div>
+
+<script>
+(function(){
+"use strict";
+var ST={impl:"구현됨",plan:"계획됨",cand:"확장 후보",out:"범위 밖",gap:"누락"};
+var COL={impl:"var(--impl)",plan:"var(--plan)",cand:"var(--cand)",out:"var(--out)",gap:"var(--gap)"};
+var ORDER=["impl","plan","cand","out","gap"];
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function badge(k){return '<span class="badge b-'+k+'">'+ST[k]+'</span>';}
+
+var SRC={
+ dsvc:["Kubernetes — Debug Services","https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/","본문 확인 (앞부분: 서비스 존재·NetworkPolicy·DNS까지. 뒷부분 일부는 제목만)"],
+ dpod:["Kubernetes — Debug Pods","https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/","본문 확인"],
+ drun:["Kubernetes — Debug Running Pods","https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/","링크만"],
+ tapp:["Kubernetes — Troubleshooting Applications","https://kubernetes.io/docs/tasks/debug/debug-application/","링크만"],
+ tclu:["Kubernetes — Troubleshooting Clusters","https://kubernetes.io/docs/tasks/debug/debug-cluster/","링크만"],
+ depl:["Kubernetes — Deployments","https://kubernetes.io/docs/concepts/workloads/controllers/deployment/","링크만 (05-rules가 progressDeadlineSeconds·maxUnavailable 내림을 인용)"],
+ imgs:["Kubernetes — Images","https://kubernetes.io/docs/concepts/containers/images/","링크만"],
+ cmap:["Kubernetes — Configure a Pod to Use a ConfigMap","https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/","링크만 (05-rules C01 근거)"],
+ secr:["Kubernetes — Secrets","https://kubernetes.io/docs/concepts/configuration/secret/","링크만. C01의 Secret 문구는 05-rules도 미확인으로 적음"],
+ prob:["Kubernetes — Liveness, Readiness and Startup Probes","https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/","링크만 (05-rules S02·H01 근거)"],
+ rsrc:["Kubernetes — Resource Management for Pods and Containers","https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/","링크만"],
+ dns:["Kubernetes — DNS for Services and Pods","https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/","링크만"],
+ eps:["Kubernetes — EndpointSlices","https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/","링크만 (05-rules S02 근거)"],
+ lk8s:["learnk8s — Troubleshooting Kubernetes deployments","https://learnkube.com/troubleshooting-deployments","본문 확인 (Pod 상태 → Service 엔드포인트 → Ingress 순서)"],
+ mixr:["Prometheus Operator Runbooks — Kubernetes","https://runbooks.prometheus-operator.dev/runbooks/kubernetes/","목록 확인 (Kube… 47개 알림 이름). 개별 runbook 본문은 열지 않음"],
+ mixg:["kubernetes-mixin","https://github.com/kubernetes-monitoring/kubernetes-mixin","링크만 (05-rules가 apps_alerts·kubelet 알림의 for 값을 인용)"],
+ polr:["Polaris — Reliability checks","https://polaris.docs.fairwinds.com/checks/reliability/","본문 확인 (readinessProbeMissing, livenessProbeMissing, tagNotSpecified, pullPolicyNotAlways 등)"],
+ pole:["Polaris — Efficiency checks","https://polaris.docs.fairwinds.com/checks/efficiency/","본문 확인 (cpu·memory × requests·limits 4개 키). 05-rules가 '미확인'으로 적은 H02 출처가 이것으로 보강됨"],
+ klint:["kube-linter","https://github.com/stackrox/kube-linter","링크만, 검사 항목 미확인"],
+ kscor:["kube-score","https://github.com/zegl/kube-score","링크만, 검사 항목 미확인"],
+ sre:["Google SRE Book — Monitoring Distributed Systems","https://sre.google/sre-book/monitoring-distributed-systems/","링크만 (증상 기반 알림·golden signals)"]
+};
+function srcLinks(keys){return keys.map(function(k){var s=SRC[k];return '<a href="'+s[1]+'" target="_blank" rel="noopener">'+esc(s[0].replace(/^Kubernetes — /,"K8s ").replace(/^Prometheus Operator Runbooks — Kubernetes/,"mixin runbooks"))+'</a>';}).join(" · ");}
+
+var STAGES=[
+ {n:"환경",t:"클러스터·노드·네트워크",o:"Node · CNI · CoreDNS · kube-proxy",
+  prob:["노드 NotReady (kubelet·CNI 미기동·자원 부족)","노드 압박(메모리·디스크·PID)","클러스터 DNS(CoreDNS) 비정상","NetworkPolicy·CNI 문제로 Pod 간 통신 차단","사내 TLS 가로채기 프록시 때문에 시스템 이미지(calico 등)를 못 받음"],
+  cond:[["노드 Ready 조건과 cordon 여부 (<code>kubectl get nodes</code>, <code>describe node</code>)","tclu"],["kube-system의 CoreDNS·CNI·kube-proxy Pod가 Ready인가","tclu"],["다른 Pod에서 서비스 이름을 DNS로 풀 수 있는가: 짧은 이름 → <code>svc.ns</code> → FQDN 순","dsvc"],["NetworkPolicy ingress 규칙이 대상 Pod를 막는가","dsvc"]],
+  kg:["<b>N01</b> 노드 NotReady — 대상 Pod가 올라간 노드의 Ready≠True, cordon 제외, 15분 지속, 🔴 긴급(단일 노드). 근거 mixin <code>KubeNodeNotReady</code>.","증상 감지: 해당 없음. AI 도구: <code>get_resource</code>로 노드·Pod 상태는 볼 수 있으나 kube-system은 진단 대상 네임스페이스 밖이라 수집하지 않는다."],
+  scen:"전용 시나리오 없음. C2(admin↔redis 차단)는 Chaos Mesh로 네트워크를 끊지만 NetworkPolicy가 아니다.",
+  gaps:["NetworkPolicy·kube-system(CoreDNS·kube-proxy·CNI) 상태는 수집 목록에 없다 — 누락 / N02(노드 압박)·N03(CoreDNS)는 확장 후보","설치 단계(CA 등록, minikube 옵션)는 <code>docs/environment-setup.md</code>·<code>make doctor</code>로 사람이 확인 — 범위 밖"],
+  env:"minikube(docker 드라이버, calico CNI, <code>--embed-certs</code>), 네임스페이스 dev·kubeguardian·chaos-mesh·kube-system. calico 이미지(quay.io)를 사내 CA 없이 받으면 노드가 NotReady에 머문다고 설치 가이드에 적혀 있다."},
+ {n:"빌드",t:"이미지 빌드·레지스트리",o:"Image · tag · imagePullPolicy · pull secret",
+  prob:["이미지 이름·태그 오타, 레지스트리에 없는 tag","사설 레지스트리 인증 실패(pull secret 누락)","<code>imagePullPolicy: Never</code>인데 노드에 이미지가 없음","tag 고정 + Always 정책이라 같은 tag에 다른 이미지가 섞임(기획서 T3)"],
+  cond:[["이미지 이름·tag가 실제로 있고 레지스트리가 해석되는가 (<code>docker pull</code>로 직접 시험)","dpod"],["Pod의 대기 사유가 ErrImagePull·ImagePullBackOff인가, 메시지에 무엇이 있는가","lk8s"],["사설 레지스트리면 imagePullSecrets가 Pod에 붙어 있는가","imgs"],["pullPolicy와 tag 규칙 (latest·미지정 지양)","polr"]],
+  kg:["<b>P03</b> 이미지 받기 실패 — 대기 사유 ∈ {ErrImagePull, ImagePullBackOff, ErrImageNeverPull, InvalidImageName}, <b>1시간</b> 지속(mixin <code>KubeContainerWaiting</code>). 같은 Deployment에 Ready Pod가 남으면 🟠.","<b>W02</b>가 먼저 잡는다(약 25분). AI 도구: 이벤트·Pod 상태·Deployment 이미지 참조 비교."],
+  scen:"A3 (없는 이미지, <code>registry.invalid</code> 도메인으로 주입): W02 약 25분. AI 조건 2/3 통과.",
+  gaps:["이미지 tag 미지정·pullPolicy 점검(Polaris <code>tagNotSpecified</code>·<code>pullPolicyNotAlways</code>)은 H 규칙에 없음 — 누락","같은 tag의 digest 불일치(C02) 확장 후보","CI 빌드·취약점 스캔은 범위 밖"],
+  env:"로컬 overlay: 이미지는 minikube 노드에서 직접 빌드한 <code>kg-target/&lt;서비스&gt;:local</code>, <code>imagePullPolicy: Never</code>. 원본 템플릿은 <code>…azurecr.io/…:0.0.1</code> + <code>Always</code>."},
+ {n:"설정",t:"설정 (ConfigMap·Secret·env)",o:"ConfigMap · Secret · env · envFrom",
+  prob:["참조한 ConfigMap·Secret·키가 없어 컨테이너가 시작 못 함","서비스 주소 env가 localhost거나 없는 Service를 가리킴","주소 env가 아예 없어 코드 기본값(localhost)으로 동작","환경 변수는 ConfigMap을 바꿔도 Pod 재시작 전에는 안 바뀜","공용 ConfigMap·Secret 하나가 모든 서비스에 파급(T4)"],
+  cond:[["envFrom·valueFrom·volume이 가리키는 객체와 키가 있는가 (<code>optional</code> 여부)","cmap"],["Secret은 존재와 키 이름만 확인하고 값은 읽지 않는다","secr"],["서비스 주소 env 값의 호스트·포트가 실제 Service와 맞는가","dns"],["최근 revision과 설정이 달라졌는가 (<code>rollout history</code>)","lk8s"]],
+  kg:["<b>C01</b> 설정 참조 누락 — 즉시(선언), optional 제외, 참조 Pod가 못 뜨므로 §3 심각도.","<b>S04</b> 서비스 주소 오류 — <code>*_URL</code> 값의 호스트가 localhost·없는 Service·없는 포트. 즉시. 외부 호스트 허용 목록 제외. 근거는 운영 사례(T1)이고 외부 표준은 없다.","AI 도구: <code>get_resource</code>(ConfigMap·Deployment), <code>get_topology</code>(env 주소를 Service와 매칭)."],
+  scen:"A5 (gateway 주소 env 4개를 localhost로): S04 즉시, 3/3 통과. 주소 env 삭제는 A6(#65, 계획).",
+  gaps:["주소 env가 없는 경우는 의도일 수 있음으로 보고 적발하지 않는다(#60) → <code>required_config</code>(C05, 구현 #64 계획)","<code>*_URL</code>이 아닌 값(DB_HOST 등)의 오타는 규칙이 안 본다 — 누락","ConfigMap 변경 후 미재시작(C03)·복수 적용(C04)은 확장 후보","Secret 값 오류는 값을 읽지 않는 정책상 로그로만 추정"],
+  env:"공용 <code>common-config</code>·<code>infra-config</code>·<code>common-secret</code>를 네 백엔드가 <code>envFrom</code>으로 받는다. 서비스 주소 env는 <code>components/service-urls</code>(F1)에서 추가한다. 이 component를 빼면 원본 템플릿 상태(=A5 동작)가 된다."},
+ {n:"배포",t:"배포 (Deployment·ReplicaSet·롤아웃)",o:"Deployment · ReplicaSet · progressDeadline",
+  prob:["롤아웃이 멈춤(ProgressDeadlineExceeded)","원하는 replicas만큼 가용 Pod가 안 생김","롤아웃 일시 중지(paused)","컨트롤러가 변경을 반영 못 함(generation 불일치)"],
+  cond:[["<code>Progressing</code> 조건이 False이고 reason이 ProgressDeadlineExceeded인가 (기본 600초)","depl"],["<code>spec.replicas</code> vs <code>availableReplicas</code>, <code>updatedReplicas</code>가 바뀌고 있는가","mixr"],["새 ReplicaSet과 이전 ReplicaSet의 Ready 수","depl"],["rollout을 되돌릴 수 있는 이전 revision이 있는가","lk8s"]],
+  kg:["<b>W02</b> 롤아웃 정체 — Progressing=False, 15분 지속 (mixin <code>KubeDeploymentRolloutStuck</code>).","<b>W01</b> 가용 replicas 부족 — replicas>available <i>그리고</i> updatedReplicas 10분간 불변, 15분 지속 (mixin <code>KubeDeploymentReplicasMismatch</code>).","W01은 A3에서 적발되지 않는다: replicas 1~3이면 maxUnavailable이 0으로 내림돼 이전 Pod가 남기 때문(§5.1). 그래서 W02를 MVP로 올렸다."],
+  scen:"A3: W02가 기대 신호. B2(새 ReplicaSet만 잘못된 env)는 확장 후보.",
+  gaps:["paused 롤아웃은 W02(Progressing=Unknown)에도 S02에도 안 걸린다 — 05-rules에 알려진 한계로만 적혀 있음 → 누락","<code>KubeDeploymentGenerationMismatch</code> 대응 규칙 없음 — 누락","StatefulSet·DaemonSet·Job은 수집 대상 아님 — 범위 밖","의도적으로 replicas 0인 Deployment의 Service도 S01이 적발한다 — 예외를 철회한 알려진 한계"],
+  env:"Deployment는 gateway 등 6개, 모두 RollingUpdate(25%/25%), progressDeadlineSeconds 600. agent만 로컬에서 replicas 3."},
+ {n:"스케줄",t:"스케줄링 (노드·자원)",o:"Pending · requests/limits · quota · PVC",
+  prob:["Pending: CPU·메모리 부족, taint·affinity 불일치","PVC가 Pending이라 Pod가 못 뜸","ResourceQuota 초과로 Pod 생성 거부","requests·limits가 없어 자원 경합"],
+  cond:[["<code>describe pod</code> 이벤트의 FailedScheduling 메시지","dpod"],["노드 allocatable vs 요청 합계, 네임스페이스 ResourceQuota","lk8s"],["PVC 상태가 Bound인가","lk8s"],["컨테이너마다 requests·limits가 있는가","rsrc"]],
+  kg:["<b>H02</b> requests·limits 미설정 — 즉시, ⚪ 참고, 알림 없음. Polaris 효율 검사의 4개 키(cpu·memory × requests·limits)와 같은 방향임을 이번에 확인했다.","Pending 자체를 보는 규칙은 없다. 결국 W01(약 25분 뒤)·W02에 간접적으로 걸린다."],
+  scen:"전용 시나리오 없음. H0에서 H02가 나오는지는 명세에 H01 6건만 적혀 있어 확인하지 못했다.",
+  gaps:["P01 스케줄 실패·P02 PVC Pending은 확장 후보 (로컬 postgres는 PVC 사용)","ResourceQuota 초과 — 후보 목록에도 없음 → 누락","overcommit 계열(메트릭 필요)은 L4로 범위 밖"],
+  env:"로컬 overlay의 <code>datastores.yml</code>에 PVC 1개(postgres). 진단 대상 매니페스트에 ResourceQuota·HPA·Ingress·NetworkPolicy·livenessProbe는 없다(grep 확인)."},
+ {n:"구동",t:"컨테이너 구동 (시작·재시작·probe)",o:"CrashLoop · OOMKilled · readiness",
+  prob:["CrashLoopBackOff 반복 재시작","OOMKilled(메모리 limit 초과)","설정 때문에 시작 못 함(CreateContainerConfigError)","볼륨 마운트·init 컨테이너 실패","Running인데 Ready가 아님(readiness 실패)","readiness가 TCP뿐이라 앱이 500을 내도 Ready","DB보다 먼저 떠서 1회 재시작(앱이 재시도 안 함)","Pod 1개만 이상(나머지는 정상)"],
+  cond:[["Pod phase, 대기/종료 사유, restartCount, lastState.terminated(reason·exitCode)","dpod"],["이전 컨테이너 로그(<code>logs --previous</code>)","lk8s"],["readinessProbe 종류(httpGet/exec/tcp)와 실패 임계","prob"],["Pod별 응답 차이 — 서비스 경유 반복 호출 vs Pod 직접 호출","lk8s"]],
+  kg:["<b>P06</b> CrashLoop — CrashLoopBackOff 또는 직전 점검 대비 restartCount 증가, 15분. 지금 Ready이고 증가 없으면 제외(과거 재시작 오탐 방지).","<b>P07</b> OOMKilled — 최근 15분 안 종료, 즉시. 15분은 설계값(근거 약함).","<b>S02</b> Ready 엔드포인트 없음·일부 — 15분. 롤아웃 중인 새 버전 Pod 제외.","<b>H01</b> readiness 없음·TCP만 — 권고. 템플릿 6곳 전부 tcpSocket(매니페스트 확인).","AI 도구: <code>get_pod_logs</code>(previous), <code>get_events</code>, <code>probe</code>(Pod 직접)."],
+  scen:"B1(agent Pod 1개만 500): 규칙 신호 없음 → 경로 B, 증상 감지 전이라 eval 불가. E1(과거 재시작 미끼)은 기획서에만 있고 scenarios/에 없음.",
+  gaps:["P03은 이미지 사유 4개만 본다. mixin <code>KubeContainerWaiting</code>은 CrashLoop 외 모든 대기 사유(ContainerCreating 정체 등)를 1시간 기준으로 봄 — #68 스파이크로 계획됨","P04 FailedMount·P05 init 실패·P08 NotReady 지속·P09 Evicted는 확장 후보","livenessProbe 없음(Polaris <code>livenessProbeMissing</code>)은 H 규칙에 없음 — 누락","P06·P07은 실제 클러스터 시나리오로 검증하지 않았다(픽스처 단위 테스트만)"],
+  env:"readinessProbe는 전부 tcpSocket(포트 연결만 확인, <code>/health</code>도 고정 응답). 앱은 DB 연결을 재시도하지 않아 postgres보다 먼저 뜨면 1회 재시작될 수 있다."},
+ {n:"연결",t:"서비스 연결 (Service·EndpointSlice·포트·DNS)",o:"selector · EndpointSlice · targetPort · DNS",
+  prob:["Service selector가 Pod 라벨과 안 맞아 엔드포인트가 빔","Pod가 Ready가 아니라 엔드포인트에서 빠짐","targetPort가 컨테이너 포트와 다름","호출 주소의 Service 이름·포트·네임스페이스 오류","Service 자체가 없음"],
+  cond:[["Service가 있는가 → DNS로 풀리는가 → EndpointSlice가 비지 않았는가 (공식 문서 순서)","dsvc"],["selector가 Pod 라벨과 맞는가(네임스페이스 포함). 엔드포인트가 비면 거의 이것","lk8s"],["엔드포인트가 있는데 응답이 없으면 targetPort 확인","lk8s"],["Ready=true인 엔드포인트만 트래픽을 받는다","eps"]],
+  kg:["<b>S01</b> selector에 맞는 Pod 0 — 즉시. selector 없는 Service는 제외. (replicas 0 예외는 두지 않는다: 알려진 한계)","<b>S02</b> Ready 엔드포인트 0/일부 — 15분. 대상 Pod 0개면 S01이 맡으므로 제외.","<b>S03</b> targetPort 불일치 — 즉시. 컨테이너에 ports 선언이 없으면 판정 대신 \"확인하지 못함\".","<b>S04</b> 주소 env의 Service 이름·포트 오류 — 즉시.","AI 도구: <code>get_resource</code>(Service·EndpointSlice), <code>probe</code>(via=service)."],
+  scen:"A1 (selector 오타): S01 즉시, 3/3 통과. A2(targetPort)는 확장 후보로 시나리오 미작성.",
+  gaps:["NetworkPolicy·DNS 해석 단계는 규칙이 없고, Mac에서는 probe도 DNS에 못 닿는다 — 누락","다른 네임스페이스 FQDN 주소를 S04가 어떻게 판정하는지는 명세에서 확인하지 못했다","Ingress·LoadBalancer는 이 환경에 없음 — 범위 밖","S03·S02는 시나리오로 주입해 본 적 없음(픽스처만)"],
+  env:"Service 이름이 Deployment와 다른 곳: front-chat-svc, front-admin-svc, llm-gateway-svc. 라벨은 <code>app: &lt;Deployment 이름&gt;</code>. LoadBalancer Service는 로컬 overlay에서 제거되고 port-forward로 접속한다."},
+ {n:"의존",t:"앱 의존 (DB·Redis·외부 LLM·CA)",o:"postgres · redis · llm-gateway · Azure OpenAI · CA",
+  prob:["admin→Redis 같은 서비스 간 네트워크 차단(Pod는 전부 Ready)","DB 연결 실패·스키마 불일치","외부 LLM이 429(할당량)·인증 오류를 돌려줌","사내 SSL 프록시 때문에 CA 번들이 없으면 외부 TLS 실패","시계 어긋남·타임아웃 설정 불일치"],
+  cond:[["상위 증상에서 하위 의존 서비스로 내려가며 각 서비스 로그 확인","lk8s"],["의존 서비스 쪽에서 직접 호출해 응답을 보는 것(앱 상태 API)","sre"],["의존 대상이 클러스터 밖이면 DNS·TLS·인증서 확인","tapp"]],
+  kg:["규칙이 없다. 이 단계는 <b>증상 감지(경로 B)</b>와 <b>AI 조사</b> 영역이다.","AI 도구: <code>get_pod_logs</code>(원인 서비스 포함), <code>query_app_api</code>(허용 목록 GET: llm-gateway 상태·할당량), <code>get_topology</code>.","진단 에이전트는 llm-gateway를 거치지 않고 Azure OpenAI를 직접 호출한다(고장 나도 진단하려고)."],
+  scen:"C1(llm-gateway 429), C2(admin→redis 차단): 둘 다 k8s_visible=false, 경로 B, 증상 감지 전이라 eval 불가. C5(스키마 드리프트)는 기획서에만 있고 scenarios/에 없음.",
+  gaps:["DB·Redis 자체를 확인하는 규칙 없음 — 앱이 재시도 안 해 재시작으로 보일 때만 P06이 간접 포착 — 누락","사내 CA 번들 누락(SSL_CERT_FILE)은 환경 설명에만 있고 규칙·시나리오 없음 — 누락","C3 시계 어긋남·C4 타임아웃은 확장 시나리오 후보"],
+  env:"llm-gateway는 사내 CA 번들을 <code>/etc/kg-ca</code>에 마운트해 <code>SSL_CERT_FILE</code>로 쓴다(overlay). postgres·redis는 클러스터 안 Pod(원본은 관리형)."},
+ {n:"요청",t:"사용자 요청 경로 (front → gateway → 하위)",o:"front-chat · gateway · auth · chat",
+  prob:["로그인부터 모든 API가 5xx (gateway가 하위 서비스를 못 부름)","채팅이 HTTP 200인데 본문이 오류 문구","gateway 프록시 타임아웃·재시도 후 504","front nginx의 gateway 프록시 설정 오류","부하·지연 때 나타나는 장애(L4)"],
+  cond:[["사용자 시나리오를 그대로 실행한다: 로그인 → 채팅 (상태 코드만 보지 말고 answer 문구까지)","sre"],["golden signals: 지연·오류·트래픽·포화 중 사용자에게 보이는 증상 기준으로 본다","sre"],["실패한 단계에서 어느 하위 서비스로 갔는지 로그와 토폴로지로 따라간다","lk8s"]],
+  kg:["<b>증상 감지</b>: API 시나리오(기본 로그인 → 채팅) 중 하나라도 실패·시간 초과하면 경로 B. 사용자 입력 <code>/kg investigate 증상</code>은 항상 B. <b>구현 전(#20)</b>.","AI 도구: <code>run_api_scenario</code>, <code>probe</code>."],
+  scen:"H0의 검증 스크립트(smoke: 로그인 → 채팅)가 정상 기준선. C1·C2·B1은 이 경로가 열려야 시험 가능.",
+  gaps:["증상 감지 전체 미구현(#20) → 계획됨","front nginx(front-*-node-server ConfigMap) 설정 오류를 보는 규칙 없음 — 누락","L4 부하·시간 의존은 비목표"],
+  env:"gateway는 요청마다 admin의 verify로 토큰을 검증하고 실패 시 2번 재시도. C2에서는 PROXY_TIMEOUT 60초 × 2회 뒤 504(약 120초)."},
+ {n:"점검",t:"점검 (KubeGuardian)",o:"수집 · 규칙 · 게이트 · 조사 · 알림",
+  prob:["수집 실패를 정상으로 오해","점검 Job·diagnostic-agent가 멈춰도 아무도 모름","Mac 실행에서 HTTP 도구가 클러스터 DNS에 못 닿음","같은 문제의 반복 알림·AI 재호출"],
+  cond:[["감시하는 쪽도 감시한다: 점검이 마지막으로 성공한 시각은 언제인가","sre"],["수집 실패를 \"문제 없음\"과 구분해 표시한다","sre"]],
+  kg:["원칙: 수집 실패는 통과가 아니다 → \"확인하지 못함\". 묶음용 데이터(Service·ReplicaSet) 실패 시 Deployment 이름으로 묶어 판정을 계속하고 심각도를 한 단계 낮춘다.","같은 문제는 AI를 다시 부르지 않고 리마인더만, 해결되면 복구 알림(기획서 §4.1).","조사 에이전트: 7개 읽기 전용 도구, 예산(문제당 8회, 전체 20회, 150초)."],
+  scen:"H0(정상 기준선): 장애 신호 0건, H01 6건, 경로 C. 2026-10-19 <code>kg check</code>로 확인.",
+  gaps:["점검 자체가 중단됐는지 알리는 장치(dead man's switch류)를 명세에서 찾지 못해 #67로 등록 — 계획됨","Mac 실행의 HTTP 도구 한계는 알려진 한계(§7)"],
+  env:"네임스페이스 kubeguardian: 5분 CronJob 점검 Job, diagnostic-agent(Slack Socket Mode, 보고서 화면), SQLite on PVC. 읽기 전용 ServiceAccount."}
+];
+
+// stage, 문제, 근거, 규칙, 증상(y/p/n), AI(y/p/n), 시나리오, 상태, 비고
+var ROWS=[
+ [0,"노드 NotReady (kubelet·CNI·자원)",["tclu","mixr"],"N01 (15분)","n","p","없음 (픽스처만)","impl","단일 노드라 🔴 긴급. 원인(CNI 등)은 kube-system이 수집 밖이라 AI도 제한적"],
+ [0,"노드 자원 압박 (Memory/Disk/PID Pressure)",["tclu"],"N02","n","p","—","cand","확장 후보"],
+ [0,"클러스터 DNS(CoreDNS) 비정상",["dns","dsvc"],"N03","n","p","—","cand","확장 후보. Mac에서는 probe도 DNS 불가"],
+ [0,"NetworkPolicy가 트래픽 차단",["dsvc"],"—","n","n","—","gap","수집 목록에 NetworkPolicy 없음(기획서 §7.4)"],
+ [0,"kube-proxy·Service IP 라우팅 이상",["dsvc"],"—","n","n","—","gap","kube-system 미수집. 단일 노드 minikube에서는 드묾"],
+ [0,"사내 CA·프록시로 시스템 이미지 수신 실패",["tclu"],"(결과는 N01·P03로 보임)","n","n","—","out","설치 가이드와 make doctor로 사전 확인 — 진단 대상 아님"],
+ [0,"Chaos Mesh 설치·고장",[],"—","n","n","—","out","평가 전용 도구"],
+ [1,"이미지 이름·태그 오류, 없는 이미지",["dpod","imgs","lk8s"],"P03 (1시간) · W02 (15분)","p","y","A3 (AI 2/3)","impl","P03는 느려서 W02가 먼저 적발"],
+ [1,"사설 레지스트리 인증 실패 (pull secret 없음)",["imgs","lk8s"],"P03 (증상만)","p","p","—","impl","증상은 잡지만 인증 원인을 구분하는 것은 AI 몫"],
+ [1,"imagePullPolicy: Never인데 노드에 이미지 없음",["imgs"],"P03 (ErrImageNeverPull)","p","p","—","impl","로컬 overlay가 Never를 쓰므로 실제로 일어날 수 있음"],
+ [1,"잘못된 이미지 이름 (InvalidImageName)",["imgs"],"P03","p","p","—","impl",""],
+ [1,"tag 미지정·latest, pullPolicy가 Always 아님",["polr"],"—","n","n","—","gap","H 규칙은 H01·H02뿐"],
+ [1,"같은 tag에 다른 이미지 공존 (digest 불일치, T3)",["imgs"],"C02","n","p","—","cand","확장 후보"],
+ [1,"이미지 빌드·CI 실패, 취약점 스캔",[],"—","n","n","—","out","배포된 뒤의 상태만 본다"],
+ [2,"참조한 ConfigMap·Secret이 없음",["cmap","secr","lk8s"],"C01","p","p","없음 (픽스처만)","impl","optional 제외. Secret 문구는 공식 문서 미확인"],
+ [2,"참조 키(configMapKeyRef 등)가 없음",["cmap"],"C01","p","p","—","impl",""],
+ [2,"서비스 주소 env가 localhost·없는 Service·없는 포트",["dns"],"S04 (즉시)","p","y","A5 (3/3)","impl","외부 표준 없음(운영 사례). 외부 호스트 허용 목록 제외"],
+ [2,"서비스 주소 env 자체가 없음 (코드 기본값 localhost)",["dns"],"— (의도일 수 있음)","p","p","A6 (#65 계획)","plan","#60 → C05 required_config(선언한 것만 적발, 구현 #64)"],
+ [2,"S04 사이드카 localhost 예외",["dsvc"],"S04 보강","n","n","—","plan","#64. 범용 애드온 때 오탐 1순위. S01 replicas 0 예외는 리뷰 뒤 철회(의도적 replicas 0의 Service도 S01이 적발하는 알려진 한계)"],
+ [2,"주소가 아닌 env 값 오타 (DB_HOST 등)",[],"—","p","p","—","gap","S04는 *_URL만 본다"],
+ [2,"Secret 값 오류·만료",["secr"],"—","p","p","—","out","값을 읽지 않는 의도된 정책 → 로그로만 추정"],
+ [2,"ConfigMap 변경 후 재시작 안 된 Pod (설정 잠복)",["cmap"],"C03","n","n","—","cand","확장 후보"],
+ [2,"같은 ConfigMap을 복수 주체가 적용",[],"C04","n","n","—","cand","확장 후보 (managedFields)"],
+ [2,"공용 설정 하나가 전 서비스에 파급 (T4)",[],"—","p","p","—","gap","토폴로지는 호출 관계만. 설정 공유 관계는 없음"],
+ [2,"이전 revision과의 설정 차이 확인",["lk8s"],"— (AI 지침)","n","p","A3에서 필요","plan","설계 §3.1 확정. #63 명세, #21 구현(ReplicaSet 템플릿 수집 포함)"],
+ [2,"ServiceAccount cluster-admin 등 과한 권한",[],"H03","n","n","—","cand","템플릿 dev-account에 cluster-admin이 있음"],
+ [3,"롤아웃 정체 (ProgressDeadlineExceeded)",["depl","mixr"],"W02 (15분)","p","y","A3","impl",""],
+ [3,"가용 replicas 부족",["mixr"],"W01 (10분+15분)","p","p","—","impl","A3에서는 적발 안 됨(§5.1). 시나리오 없음"],
+ [3,"롤아웃 일시 중지 (paused)",["depl"],"—","n","p","—","gap","05-rules에 '알려진 한계'로만 기록"],
+ [3,"Deployment generation 불일치",["mixr"],"—","n","n","—","gap","mixin에는 있으나 우리 목록에 없음"],
+ [3,"새 ReplicaSet만 잘못된 설정 (롤아웃 정체)",[],"W02 + AI","p","p","B2 (후보)","cand","시나리오 확장 후보"],
+ [3,"StatefulSet·DaemonSet·Job·CronJob 실패",["mixr"],"—","n","n","—","out","수집이 Deployment 중심"],
+ [3,"HPA 최대치·불일치",["mixr"],"—","n","n","—","out","대상에 HPA 없음, 부하 의존(L4)"],
+ [4,"스케줄 실패 (Pending, FailedScheduling)",["dpod","lk8s"],"P01","p","p","—","cand","현재는 W01이 약 25분 뒤 간접 포착"],
+ [4,"PVC Pending",["lk8s"],"P02","p","n","—","cand","로컬 postgres가 PVC 사용"],
+ [4,"ResourceQuota 초과",["mixr"],"—","n","n","—","gap","후보 목록에도 없음"],
+ [4,"requests·limits 미설정",["rsrc","pole"],"H02 (권고)","n","n","—","impl","Polaris 효율 키와 일치"],
+ [4,"CPU·메모리 overcommit",["mixr"],"—","n","n","—","out","메트릭 기반 (L4)"],
+ [5,"CrashLoopBackOff 반복 재시작",["mixr","lk8s"],"P06 (15분)","p","p","E1 미끼 (미작성)","impl","과거 재시작 제외. 실제 시나리오 없음"],
+ [5,"OOMKilled",["rsrc"],"P07 (최근 15분)","p","p","—","impl","15분은 설계값(근거 약함)"],
+ [5,"설정 때문에 컨테이너 시작 못 함",["lk8s"],"C01 (원인)","p","p","—","impl","대기 사유 자체를 보는 규칙은 아님"],
+ [5,"그 밖의 Waiting (ContainerCreating 정체 등)",["mixr"],"P03는 이미지 사유 4개만","n","p","—","plan","#68 스파이크. mixin은 CrashLoop 외 모든 대기 사유를 봄"],
+ [5,"볼륨 마운트 실패 (FailedMount)",["dpod"],"P04","p","p","—","cand",""],
+ [5,"init 컨테이너 실패",[],"P05","p","p","—","cand",""],
+ [5,"Running인데 NotReady",["prob","mixr"],"S02 (15분)","p","p","—","impl","Service에 안 걸린 Pod는 P08 후보"],
+ [5,"Running NotReady 지속 (Service 무관)",["mixr"],"P08","p","p","—","cand",""],
+ [5,"readiness 없음·TCP만 (앱 500에도 Ready)",["polr","prob"],"H01 (권고)","n","p","H0 (6건)","impl","템플릿 6곳 전부 해당, 알림 없음이 의도"],
+ [5,"livenessProbe 없음",["polr"],"—","n","n","—","gap","H 규칙에 없음. 대상 매니페스트에도 liveness 없음"],
+ [5,"축출 (Evicted)",[],"P09","p","p","—","cand",""],
+ [5,"Pod 1개만 이상 (나머지 정상)",["lk8s"],"—","p","p","B1 (eval 불가)","plan","규칙으로 안 보임. 증상 입력 + probe. #20"],
+ [5,"DB보다 먼저 떠서 1회 재시작",[],"P06 (15분 지속·Ready 제외로 걸러짐)","n","p","—","impl","noise-filtering 지침"],
+ [6,"selector가 Pod 라벨과 불일치",["dsvc","lk8s"],"S01 (즉시)","p","y","A1 (3/3)","impl",""],
+ [6,"Ready 엔드포인트 없음·일부",["eps","prob"],"S02 (15분)","p","p","— (A1은 제외)","impl","시나리오 없음, 픽스처만"],
+ [6,"targetPort 불일치",["dsvc","lk8s"],"S03 (즉시)","p","p","A2 (후보, 미작성)","impl","컨테이너 ports 미선언이면 확인하지 못함"],
+ [6,"연결할 Service 자체가 없음 (이름 오타)",["dsvc"],"S04 (없는 Service 이름)","p","p","A5 일부","impl",""],
+ [6,"env URL 포트가 Service 포트와 다름",["dns"],"S04 (Service에 없는 포트)","p","p","—","impl","S05(후보)와 겹침"],
+ [6,"DNS 해석 (짧은 이름·다른 ns·FQDN)",["dns","dsvc"],"—","p","p","—","gap","다른 ns FQDN을 S04가 어떻게 보는지 미확인. Mac은 DNS 불가"],
+ [6,"Ingress·LoadBalancer 노출 오류",["lk8s"],"—","n","n","—","out","대상 환경에 없음(로컬은 port-forward)"],
+ [7,"admin→Redis 같은 서비스 간 통신 차단",["lk8s"],"—","p","p","C2 (eval 불가)","plan","#20 이후 경로 B"],
+ [7,"외부 LLM 429·인증 오류",["sre"],"—","p","p","C1 (eval 불가)","plan","query_app_api, 로그"],
+ [7,"DB 연결 실패·미기동",["lk8s"],"(P06 간접)","p","p","—","gap","DB 자체를 보는 규칙 없음"],
+ [7,"스키마 드리프트",[],"—","p","p","C5 (미작성)","plan","기획서 MVP, scenarios/에 아직 없음. 이슈 번호는 확인하지 못함"],
+ [7,"사내 CA 번들 누락으로 외부 TLS 실패",[],"—","p","p","—","gap","environment.md에만 기술"],
+ [7,"시계 어긋남·타임아웃 불일치",[],"—","p","p","C3·C4 (후보)","cand",""],
+ [8,"로그인·채팅 API 실패 (증상 감지)",["sre"],"증상 감지 API 시나리오","p","p","B1·C1·C2","plan","#20 미구현"],
+ [8,"채팅 HTTP 200 + 오류 문구",[],"증상 감지","p","p","C1","plan","상태 코드만으로는 못 봄"],
+ [8,"gateway 프록시 타임아웃·504",[],"증상 감지","p","p","C2","plan",""],
+ [8,"front nginx → gateway 프록시 설정 오류",[],"—","p","p","—","gap","front-*-node-server ConfigMap은 규칙이 안 봄"],
+ [8,"부하·지연·시간 의존 장애 (L4)",["sre"],"—","n","n","—","out","비목표"],
+ [9,"수집 실패를 통과로 처리하는 오류",[],"'확인하지 못함' 판정","n","n","단위 테스트","impl","원칙 0"],
+ [9,"점검 Job·diagnostic-agent 자체 중단",["sre"],"—","n","n","—","plan","#67. 명세에서 찾지 못해 이슈로 등록"]
+];
+
+var SCEN=[
+ ["A1","L1","6 연결","agent Service selector에 x를 붙임","A · S01 즉시 (S02는 Pod 0개라 제외)","실측 AI 3/3 통과"],
+ ["A3","L1","1 빌드 (증상은 3·5)","agent 이미지를 받을 수 없는 이미지로 변경","A · W02 약 25분 (P03 약 1시간)","AI 2/3 — 채점 흔들림(#62)"],
+ ["A5","L1","2 설정 (증상은 8)","gateway 주소 env 4개를 localhost로","A · S04 즉시","AI 3/3 통과"],
+ ["B1","L2","5 구동","agent Pod 1개만 HTTP 500 (HTTPChaos)","B · 규칙 신호 없음","증상 감지 없어 eval 불가(#20)"],
+ ["C1","L3","7 의존","llm-gateway 채팅 응답을 429로 (HTTPChaos)","B · 규칙 신호 없음, k8s 정상","eval 불가(#20)"],
+ ["C2","L3","7 의존 (환경: 네트워크)","admin↔redis 패킷 차단 (NetworkChaos)","B · 규칙 신호 없음, 로그인 약 120초 뒤 504","eval 불가(#20)"],
+ ["H0","—","전 단계 (정상)","없음","C · 장애 신호 0, H01 6건, 알림 없음","2026-10-19 kg check로 확인"],
+ ["H1","—","2 설정","설정 없이도 정상인 구성","C · not_a_cause를 원인으로 올리면 실패","W2 계획 (설계 D5)"],
+ ["A6","L1","2 설정","gateway 주소 env 하나를 삭제","B · 규칙으로는 안 잡힘, AI가 설정+로그로 확정","W3 계획 (#65, 증상 감지 뒤)"],
+ ["C5","L3","7 의존","스키마 드리프트 (v2 이미지)","B · API 시나리오","기획서 MVP, scenarios/에 없음"],
+ ["E1","L5","5 구동 + 7","C2 + 과거 재시작 미끼","A + B (미끼는 P06이 안 잡아야)","기획서 MVP, scenarios/에 없음"],
+ ["A2·B2·C3·C4","L1~L3","6·3·7","targetPort · 새 RS만 잘못된 env · 시계 · 타임아웃","—","확장 후보"]
+];
+
+var RULES=[
+ ["N01","노드 NotReady","상태","15분","mixin KubeNodeNotReady",0],
+ ["P03","이미지 받기 실패","상태","1시간","mixin KubeContainerWaiting; K8s Debug Pods",1],
+ ["P06","반복 재시작","시간","15분","mixin KubePodCrashLooping",5],
+ ["P07","OOMKilled","상태","즉시(최근 15분)","설계값 (mixin 없음)",5],
+ ["W01","가용 replicas 부족","상태","15분","mixin KubeDeploymentReplicasMismatch",3],
+ ["W02","롤아웃 정체","상태","15분","mixin KubeDeploymentRolloutStuck; K8s Deployments",3],
+ ["S01","selector에 맞는 Pod 없음","선언","즉시","K8s Debug Services; learnk8s",6],
+ ["S02","Ready 엔드포인트 없음·일부","상태","15분","mixin KubePodNotReady; K8s EndpointSlices",6],
+ ["S03","targetPort 불일치","선언","즉시","K8s Debug Services; learnk8s",6],
+ ["S04","서비스 주소 설정 오류","선언","즉시","운영 사례 (T1), 외부 표준 없음",2],
+ ["C01","설정 참조 누락","선언","즉시","K8s ConfigMap 문서",2],
+ ["H01","readinessProbe 없음·TCP만","선언","즉시","Polaris readinessProbeMissing",5],
+ ["H02","requests·limits 미설정","선언","즉시","Polaris 효율 검사 (이번에 확인)",4]
+];
+
+// 계산
+var perStage=STAGES.map(function(){return {impl:0,plan:0,cand:0,out:0,gap:0};});
+var total={impl:0,plan:0,cand:0,out:0,gap:0};
+ROWS.forEach(function(r){perStage[r[0]][r[7]]++;total[r[7]]++;});
+
+// 범례
+document.getElementById("legend").innerHTML=ORDER.map(function(k){return badge(k)+' '+({impl:"규칙·코드가 있음",plan:"이슈로 계획됨",cand:"확장 후보(의도한 범위 밖)",out:"비목표(범위 밖)",gap:"의도하지 않은 공백"}[k]);}).join(" &nbsp; ");
+
+// 흐름
+var ruleByStage={};RULES.forEach(function(r){(ruleByStage[r[5]]=ruleByStage[r[5]]||[]).push(r[0]);});
+document.getElementById("flow").innerHTML=STAGES.map(function(s,i){
+  var c=perStage[i],tot=ORDER.reduce(function(a,k){return a+c[k];},0)||1;
+  var bar=ORDER.map(function(k){return '<i style="width:'+(c[k]*100/tot)+'%;background:'+COL[k]+'" title="'+ST[k]+' '+c[k]+'"></i>';}).join("");
+  var chips=(ruleByStage[i]||[]).map(function(id){return '<span class="chip b-impl">'+id+'</span>';}).join("")||'<span class="cnt">규칙 없음</span>';
+  var cnt=ORDER.filter(function(k){return c[k];}).map(function(k){return ST[k]+' '+c[k];}).join(' · ');
+  return '<li class="node" tabindex="0" role="button" data-i="'+i+'"><span class="n">'+i+' · '+esc(s.n)+'</span><span class="t">'+esc(s.t)+'</span><span class="o">'+esc(s.o)+'</span><span class="chips">'+chips+'</span><span class="bar">'+bar+'</span><span class="cnt">'+cnt+'</span></li>';
+}).join("");
+document.getElementById("sum").innerHTML=ORDER.map(function(k){return '<div class="b-'+k+'"><b>'+total[k]+'</b>'+ST[k]+'</div>';}).join("");
+
+// 상세
+document.getElementById("stages").innerHTML=STAGES.map(function(s,i){
+  var c=perStage[i];
+  var head='<summary>'+i+'. '+esc(s.t)+' '+ORDER.filter(function(k){return c[k];}).map(function(k){return '<span class="badge b-'+k+'">'+ST[k]+' '+c[k]+'</span>';}).join(" ")+'</summary>';
+  var prob='<div class="col"><h4>생길 수 있는 문제</h4><ul>'+s.prob.map(function(x){return '<li>'+x+'</li>';}).join("")+'</ul></div>';
+  var cond='<div class="col"><h4>확인할 조건 · 방법 · 출처</h4><ul>'+s.cond.map(function(x){return '<li>'+x[0]+' <span class="cnt">['+srcLinks([x[1]])+']</span></li>';}).join("")+'</ul></div>';
+  var kg='<div class="col kgcol full"><h4>KubeGuardian 점검 (지금 하는 것)</h4><ul>'+s.kg.map(function(x){return '<li>'+x+'</li>';}).join("")+'</ul><p class="cnt"><b>관련 시나리오</b>: '+s.scen+'</p></div>';
+  var gap='<div class="col gapcol"><h4>누락 · 범위 밖 · 후보</h4><ul>'+s.gaps.map(function(x){return '<li>'+x+'</li>';}).join("")+'</ul></div>';
+  var env='<div class="col"><h4>이 환경에서는</h4><p>'+s.env+'</p></div>';
+  return '<details class="stage" id="stage'+i+'">'+head+'<div class="body">'+prob+cond+kg+gap+env+'</div></details>';
+}).join("");
+
+// 규칙표
+document.getElementById("rulebody").innerHTML=RULES.map(function(r){return '<tr><td><b>'+r[0]+'</b></td><td>'+esc(r[1])+'</td><td>'+r[2]+'</td><td>'+r[3]+'</td><td>'+esc(r[4])+'</td><td class="c">'+r[5]+'</td></tr>';}).join("");
+
+// 시나리오
+document.getElementById("scenbody").innerHTML=SCEN.map(function(r){return '<tr>'+r.map(function(x,j){return '<td'+(j===0?' style="font-weight:700"':'')+'>'+esc(x)+'</td>';}).join("")+'</tr>';}).join("");
+
+// 출처
+document.getElementById("srcbody").innerHTML=Object.keys(SRC).map(function(k){var s=SRC[k];
+  var used=[];STAGES.forEach(function(st,i){if(st.cond.some(function(c){return c[1]===k;}))used.push(i);});
+  var inRows=ROWS.some(function(r){return r[2].indexOf(k)>=0;});
+  return '<tr><td><a href="'+s[1]+'" target="_blank" rel="noopener">'+esc(s[0])+'</a></td><td>'+(used.length?'단계 '+used.join(', '):(inRows?'매트릭스':'—'))+'</td><td>'+esc(s[2])+'</td></tr>';}).join("");
+
+// 매트릭스
+var fState={st:{},stage:"all",q:""};
+ORDER.forEach(function(k){fState.st[k]=true;});
+function sym(v){if(v==="y"||v==="y_")return '<span class="y" title="있음">●</span>';if(v==="p")return '<span class="p" title="계획·가능(미검증)">○</span>';return '<span class="no">–</span>';}
+function renderMatrix(){
+  var rows=ROWS.map(function(r,i){return [i+1].concat(r);}).filter(function(r){
+    var st=r[8];if(!fState.st[st])return false;
+    if(fState.stage!=="all"&&String(r[1])!==fState.stage)return false;
+    if(fState.q){var hay=(r[2]+" "+r[4]+" "+r[9]+" "+r[7]).toLowerCase();if(hay.indexOf(fState.q)<0)return false;}
+    return true;});
+  document.getElementById("mbody").innerHTML=rows.map(function(r){
+    return '<tr><td>'+r[0]+'</td><td>'+r[1]+'</td><td>'+esc(r[2])+'<div class="cnt">'+srcLinks(r[3])+'</div></td><td></td><td>'+esc(r[4])+'</td><td class="c">'+sym(r[5])+'</td><td class="c">'+sym(r[6])+'</td><td>'+esc(r[7])+'</td><td>'+badge(r[8])+'</td><td>'+esc(r[9])+'</td></tr>';
+  }).join("")||'<tr><td colspan="10">조건에 맞는 행이 없다.</td></tr>';
+  document.getElementById("mcount").textContent=rows.length+" / "+ROWS.length+" 행 표시";
+}
+// 열 정리: 위 행에 근거 칸을 문제 칸에 합쳤으므로 빈 td를 제거한다
+(function fixCols(){var th=document.querySelectorAll(".matrix thead th");th[3].remove();})();
+var _orig=renderMatrix;
+renderMatrix=function(){_orig();document.querySelectorAll("#mbody tr").forEach(function(tr){if(tr.children.length===10)tr.children[3].remove();});};
+
+var fh='<span class="cnt">상태</span>'+ORDER.map(function(k){return '<button type="button" class="fbtn" data-st="'+k+'" aria-pressed="true">'+ST[k]+' ('+total[k]+')</button>';}).join("")
+ +'<select id="stsel" aria-label="단계"><option value="all">모든 단계</option>'+STAGES.map(function(s,i){return '<option value="'+i+'">'+i+' '+esc(s.t)+'</option>';}).join("")+'</select>'
+ +'<input type="search" id="q" placeholder="문제·규칙 ID 검색 (예: S04)" aria-label="검색">'
+ +'<button type="button" class="fbtn" id="onlygap">누락만 보기</button>';
+document.getElementById("filters").innerHTML=fh;
+document.getElementById("filters").addEventListener("click",function(e){
+  var b=e.target.closest("button");if(!b)return;
+  if(b.dataset.st){var k=b.dataset.st;fState.st[k]=!fState.st[k];b.setAttribute("aria-pressed",fState.st[k]);renderMatrix();}
+  if(b.id==="onlygap"){ORDER.forEach(function(k){fState.st[k]=(k==="gap");});document.querySelectorAll("[data-st]").forEach(function(x){x.setAttribute("aria-pressed",x.dataset.st==="gap");});renderMatrix();}
+});
+document.getElementById("stsel").addEventListener("change",function(e){fState.stage=e.target.value;renderMatrix();});
+document.getElementById("q").addEventListener("input",function(e){fState.q=e.target.value.trim().toLowerCase();renderMatrix();});
+renderMatrix();
+
+// 상호작용
+function openStage(i){var d=document.getElementById("stage"+i);d.open=true;d.scrollIntoView({block:"start"});}
+document.getElementById("flow").addEventListener("click",function(e){var n=e.target.closest(".node");if(n){openStage(n.dataset.i);}});
+document.getElementById("flow").addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){var n=e.target.closest(".node");if(n){e.preventDefault();openStage(n.dataset.i);}}});
+document.getElementById("openall").onclick=function(){document.querySelectorAll("details.stage").forEach(function(d){d.open=true;});};
+document.getElementById("closeall").onclick=function(){document.querySelectorAll("details.stage").forEach(function(d){d.open=false;});};
+document.getElementById("themebtn").onclick=function(){
+  var r=document.documentElement,cur=r.getAttribute("data-theme");
+  var dark=cur?cur==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches;
+  var nx=dark?"light":"dark";r.setAttribute("data-theme",nx);
+  try{localStorage.setItem("kg-theme",nx);}catch(e){}
+};
+try{var t=localStorage.getItem("kg-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}
+window.__KG_TOTAL=total;
+})();
+</script>
+</body>
+</html>
