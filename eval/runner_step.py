@@ -1,7 +1,8 @@
 """runner Pod 안 진입점: 점검·조사를 한 번 실행하고 결과를 stdout 한 줄 JSON으로 낸다.
 
 평가 러너(Mac)가 `kubectl exec <pod> -- python -m runner_step <명령> ... --json`으로 부른다.
-경고·진단은 stderr로만 나가고, 비밀값은 출력하지 않는다 (결과는 redact_mapping을 거친다).
+경고·진단은 stderr로만 나가고, 비밀값은 출력하지 않는다. 수집기(상류)가 redact_mapping으로 가린 값을
+전제로, 출력 직전에 문자열 값만 redact_text로 한 번 더 거른다 (키 이름으로는 가리지 않는다).
 
   check        --db <경로> [--config ...]
   investigate  --db <경로> --check-run-id <N> --run-id <ID> [--config ...]

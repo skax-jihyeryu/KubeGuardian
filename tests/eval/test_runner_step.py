@@ -163,3 +163,17 @@ def test_investigate_without_saved_outcome_fails(tmp_path, capsys):
 
     assert code == 2
     assert "outcome" in capsys.readouterr().err
+
+
+def test_main_output_is_scrubbed_before_printing(tmp_path, capsys, monkeypatch):
+    """do_check가 놓친 비밀 모양 문자열도 stdout에서는 가려진다 (main의 scrub이 마지막 방어선)."""
+    leaked = "AZURE_OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwx"
+    monkeypatch.setattr(runner_step, "do_check", lambda args, make_reader: {"note": leaked})
+
+    code = runner_step.main(
+        ["check", "--config", _config(tmp_path), "--db", str(tmp_path / "kg.db"), "--json"]
+    )
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "sk-abcdefghijklmnopqrstuvwx" not in out

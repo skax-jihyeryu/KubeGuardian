@@ -203,7 +203,15 @@ class StubRemote:
         self.fetched = dest
 
 
-def _run_in_cluster(tmp_path, monkeypatch, scenario, fail_at=None, stub_hook=None, symptom_ok=True):
+def _run_in_cluster(
+    tmp_path,
+    monkeypatch,
+    scenario,
+    fail_at=None,
+    stub_hook=None,
+    symptom_ok=True,
+    condition="rules",
+):
     import run as run_mod
 
     cfg = tmp_path / "kg.yaml"
@@ -230,7 +238,7 @@ def _run_in_cluster(tmp_path, monkeypatch, scenario, fail_at=None, stub_hook=Non
         stub_hook(stub)
     stub.events = events  # reset.sh와 fetch의 순서를 한 목록으로 본다
     monkeypatch.setattr(run_mod, "RemoteRunner", lambda name: stub)
-    code = run_mod.run(scenario, str(cfg), 1, 300, 2700, "rules", in_cluster=True)
+    code = run_mod.run(scenario, str(cfg), 1, 300, 2700, condition, in_cluster=True)
     result = json.loads(next((tmp_path / "history").glob("*/result.json")).read_text())
     return code, result, stub
 
@@ -258,6 +266,7 @@ def test_run_in_cluster_pod_error_is_invalid_and_still_fetches(tmp_path, monkeyp
     assert code == 2
     assert "RemoteError" in result["invalid"] and "Pod" in result["invalid"]
     assert result["recovered"] is True
+    assert stub.fetched is not None
 
 
 def test_reset_runs_before_fetch_and_fetch_failure_does_not_block_it(tmp_path, monkeypatch):
@@ -320,3 +329,28 @@ def test_repeated_checks_send_the_same_db_to_every_exec():
 
     dbs = [c[c.index("--db") + 1] for c in fake.calls if "exec" in c]
     assert dbs == ["/data/RUN1/kg.db"] * 2
+
+
+def test_pod_not_found_at_start_is_invalid_and_nothing_is_injected(tmp_path, monkeypatch):
+    def hook(stub):
+        def boom():
+            raise RemoteError("runner Pod를 하나로 찾지 못함")
+
+        stub.start = boom
+
+    code, result, stub = _run_in_cluster(tmp_path, monkeypatch, "A1", stub_hook=hook)
+
+    assert code == 2 and "runner Pod 확인 실패" in result["invalid"]
+    assert stub.events == []  # inject·reset 어느 것도 실행하지 않았다
+
+
+def test_ai_path_records_the_trace_id_from_the_pod(tmp_path, monkeypatch):
+    def hook(stub):
+        stub.investigate = lambda check_run_id, run_id: (None, "0af7651916cd43dd8448eb211c80319c")
+
+    import run as run_mod
+
+    monkeypatch.setattr(run_mod, "build_chat_model", lambda *a, **k: None)
+    _, result, _ = _run_in_cluster(tmp_path, monkeypatch, "H0", stub_hook=hook, condition="ai")
+
+    assert result["ai"]["trace_id"] == "0af7651916cd43dd8448eb211c80319c"
