@@ -6,6 +6,8 @@ Secret을 볼륨으로 마운트한 디렉터리를 읽는다: `<디렉터리>/<
 
 from pathlib import Path
 
+from core.error.service_exception import ErrorCode, ServiceException
+
 
 def load_accounts(directory: str | Path) -> dict[str, dict[str, str]]:
     """Secret 이름 → {키: 값}. 디렉터리가 없으면 빈 dict (계정 없이 점검만 한다)."""
@@ -26,5 +28,12 @@ def load_accounts(directory: str | Path) -> dict[str, dict[str, str]]:
 
 
 def _value(path: Path) -> str:
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        # 사유에는 위치와 예외 종류만 쓴다. 값과 예외 메시지(파일 내용이 섞일 수 있음)는 넣지 않는다
+        raise ServiceException(
+            ErrorCode.INTERNAL_ERROR,
+            f"테스트 계정 파일을 읽지 못함: {path.parent.name}/{path.name} ({type(e).__name__})",
+        ) from e
     return text.removesuffix("\n")

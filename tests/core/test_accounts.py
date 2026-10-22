@@ -1,4 +1,7 @@
+import pytest
+
 from core.accounts import load_accounts
+from core.error.service_exception import ServiceException
 
 
 def _secret(root, name, **keys):
@@ -32,3 +35,28 @@ def test_ignores_kubernetes_mount_metadata(tmp_path):
 
 def test_missing_directory_means_no_accounts(tmp_path):
     assert load_accounts(tmp_path / "none") == {}
+
+
+def test_unreadable_file_raises_with_reason_but_without_values(tmp_path):
+    _secret(tmp_path, "kg-test-user", id="tester")
+    (tmp_path / "kg-test-user" / "password").write_bytes(b"\xff\xfe-secret-value")
+
+    with pytest.raises(ServiceException) as e:
+        load_accounts(tmp_path)
+
+    assert "kg-test-user/password" in e.value.detail
+    assert "UnicodeDecodeError" in e.value.detail
+    assert "secret-value" not in e.value.detail and "tester" not in e.value.detail
+
+
+def test_permission_error_is_reported_with_secret_and_key(tmp_path):
+    _secret(tmp_path, "kg-test-user", id="tester")
+    path = tmp_path / "kg-test-user" / "id"
+    path.chmod(0)
+    try:
+        with pytest.raises(ServiceException) as e:
+            load_accounts(tmp_path)
+    finally:
+        path.chmod(0o600)
+
+    assert "kg-test-user/id" in e.value.detail and "PermissionError" in e.value.detail
