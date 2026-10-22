@@ -114,12 +114,20 @@ kg-build:  ## KubeGuardian runner 이미지를 minikube 노드의 docker에 빌�
 # runner에 넣을 점검 설정. kubeguardian.yaml이 없으면 예시 설정을 쓴다.
 KG_NS := kubeguardian
 KG_ENV_KEYS := LLM_PROVIDER|AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_API_KEY|AZURE_OPENAI_API_VERSION
+KG_ENV_COUNT := 4
 
 kg-up: kg-build ca  ## runner Pod 기동 (kubeguardian 네임스페이스, 이미지·Secret·ConfigMap·CA 포함)
 	@kubectl get ns $(KG_NS) >/dev/null 2>&1 || kubectl create ns $(KG_NS)
 	kubectl apply -f deploy/kubeguardian/rbac.yaml
 	@# 비밀값은 .env에서 필요한 키만 골라 Secret으로 만든다. 값은 출력하지 않는다.
-	@grep -E '^($(KG_ENV_KEYS))=' .env | kubectl -n $(KG_NS) create secret generic kubeguardian-env --from-env-file=/dev/stdin --dry-run=client -o yaml | kubectl apply -f - >/dev/null && echo "secret/kubeguardian-env applied"
+	@# server-side apply라 값이 last-applied-configuration annotation에 남지 않는다.
+	@set -o pipefail; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
+	grep -E '^($(KG_ENV_KEYS))=' .env > "$$tmp"; n=$$(wc -l < "$$tmp" | tr -d ' '); \
+	if [ "$$n" != "$(KG_ENV_COUNT)" ]; then echo "키 $$n/$(KG_ENV_COUNT): .env에 필요한 키가 모자라거나 겹친다 (값은 출력하지 않음)"; exit 1; fi; \
+	kubectl -n $(KG_NS) create secret generic kubeguardian-env --from-env-file="$$tmp" --dry-run=client -o yaml \
+	  | kubectl apply --server-side --force-conflicts -f - >/dev/null && echo "secret/kubeguardian-env applied"
+	@# 예전 client-side apply가 남긴 annotation(값 포함)을 지운다. 없으면 무시한다.
+	@kubectl -n $(KG_NS) annotate secret kubeguardian-env kubectl.kubernetes.io/last-applied-configuration- >/dev/null 2>&1 || true
 	@kubectl -n $(KG_NS) create configmap kubeguardian-config --from-file=kubeguardian.yaml=$(EVAL_CONFIG) --dry-run=client -o yaml | kubectl apply -f -
 	@# CA 번들 ConfigMap은 client-side apply의 annotation 한도에 가까워 server-side apply를 쓴다.
 	@kubectl -n $(KG_NS) create configmap kubeguardian-ca --from-file=ca-bundle.pem=$(TARGET_CA) --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f - >/dev/null && echo "configmap/kubeguardian-ca applied"
