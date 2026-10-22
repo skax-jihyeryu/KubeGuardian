@@ -6,7 +6,9 @@ NS="${KG_NAMESPACE:-dev}"
 
 kubectl -n "$NS" delete deployment/h1-noconfig service/h1-noconfig --ignore-not-found --wait=false >/dev/null
 for _ in $(seq 1 30); do
-  left="$(kubectl -n "$NS" get deploy,svc,pods -o name | grep -c 'h1-' || true)"
+  # kubectl 실패는 원복 성공으로 보지 않는다 (명령 실패 시 set -e로 비정상 종료)
+  names="$(kubectl -n "$NS" get deploy,rs,svc,pods -o name)"
+  left="$(printf '%s\n' "$names" | grep -c '/h1-' || true)"
   if [[ "$left" -eq 0 ]]; then
     echo "H1 원복: h1- 리소스 없음"
     exit 0
