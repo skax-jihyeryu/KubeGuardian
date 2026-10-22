@@ -14,6 +14,13 @@ RUN uv sync --frozen --no-dev
 COPY app/ ./app/
 COPY eval/*.py ./eval/
 
-ENV PATH="/kg/.venv/bin:$PATH" \
+# 비root로 실행한다 (runner.yaml의 runAsUser와 같은 uid)
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin kg
+
+ENV HOME=/tmp \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/kg/.venv/bin:$PATH" \
     PYTHONPATH=/kg/app:/kg/eval \
     PYTHONUNBUFFERED=1
+
+USER 10001

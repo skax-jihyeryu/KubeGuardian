@@ -18,6 +18,8 @@ spec:
       labels: { app: kg-runner }
     spec:
       serviceAccountName: kubeguardian
+      securityContext:
+        fsGroup: 10001  # emptyDir(/data, /tmp)을 비root가 쓴다
       containers:
         - name: runner
           image: kubeguardian:local
@@ -26,16 +28,24 @@ spec:
           envFrom:
             - secretRef: { name: kubeguardian-env }
           env:
-            - { name: KG_CONFIG_PATH, value: /etc/kubeguardian/kubeguardian.yaml }
+            - { name: KG_CONFIG_PATH, value: /etc/kubeguardian/config/kubeguardian.yaml }
+            - { name: KG_ACCOUNTS_DIR, value: /etc/kubeguardian/accounts }
             - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://phoenix.kubeguardian.svc:6006/v1/traces" }
             - { name: SSL_CERT_FILE, value: /etc/kubeguardian/ca/ca-bundle.pem }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
           resources:
             requests: { cpu: 100m, memory: 256Mi }
             limits: { cpu: "1", memory: 1Gi }
           volumeMounts:
-            - { name: config, mountPath: /etc/kubeguardian, readOnly: true }
+            - { name: config, mountPath: /etc/kubeguardian/config, readOnly: true }
             - { name: ca, mountPath: /etc/kubeguardian/ca, readOnly: true }
             - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
             - { name: test-user, mountPath: /etc/kubeguardian/accounts/kg-test-user, readOnly: true }
       volumes:
         - name: config
@@ -43,6 +53,8 @@ spec:
         - name: ca
           configMap: { name: kubeguardian-ca }
         - name: data
+          emptyDir: {}
+        - name: tmp
           emptyDir: {}
         # 증상 시나리오(login 단계)용 테스트 계정. Secret이 없어도 Pod는 뜬다.
         - name: test-user

@@ -14,3 +14,8 @@ docs
 tests
 deploy
 scenarios
+**/.env
+**/.env.*
+**/*.pem
+**/*.db
+kubeguardian.yaml
