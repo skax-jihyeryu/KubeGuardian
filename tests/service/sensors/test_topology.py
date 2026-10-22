@@ -447,6 +447,19 @@ def test_loopback_without_port_uses_scheme_default():
 
 
 def test_loopback_masked_port_is_unresolved():
-    (edge,) = _sidecar_edges("http://localhost:***", sidecar_ports=[6379])
+    (edge,) = _sidecar_edges("http://localhost:***", sidecar_ports=[80])
+
+    assert edge.status == "unresolved"
+
+
+@pytest.mark.parametrize("value", ["redis://:***@localhost:6379", "http://user:***@localhost:6379"])
+def test_loopback_with_masked_password_is_sidecar(value):
+    (edge,) = _sidecar_edges(value, sidecar_ports=[6379])
+
+    assert (edge.status, edge.port) == ("declared", 6379)
+
+
+def test_loopback_scheme_without_default_port_is_unresolved():
+    (edge,) = _sidecar_edges("redis://localhost", sidecar_ports=[6379])
 
     assert edge.status == "unresolved"

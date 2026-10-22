@@ -21,6 +21,7 @@
 - inferred(에이전트 추정)는 여기서 만들지 않는다
 """
 
+import re
 from fnmatch import fnmatchcase
 from typing import Any, NamedTuple
 from urllib.parse import urlsplit
@@ -31,6 +32,7 @@ from service.model import ClusterSnapshot, Topology, TopologyEdge
 Obj = dict[str, Any]
 
 _LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+_MASKED_PORT = re.compile(r":\*\*\*(?=[/?#]|$)")
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
@@ -147,8 +149,9 @@ def _edge(
     external_hosts: list[str],
     sibling_ports: set[int],
 ) -> TopologyEdge | None:
-    port_masked = ":***" in value
-    value = value.replace(":***", "")  # 마스킹된 포트는 모르는 것으로 본다 (호스트만 맞춘다)
+    # 호스트 뒤의 마스킹된 포트만 모르는 것으로 본다 (호스트만 맞춘다). userinfo의 `:***@`는 아니다
+    port_masked = _MASKED_PORT.search(value) is not None
+    value = _MASKED_PORT.sub("", value)
     url = urlsplit(value if "://" in value else f"//{value}")
     host = url.hostname
     if not host:
