@@ -110,3 +110,24 @@ eval:  ## 시나리오 하나 평가 (주입 → 증상 확인 → 점검·게�
 kg-build:  ## KubeGuardian runner 이미지를 minikube 노드의 docker에 빌드
 	@for img in python:3.12-slim ghcr.io/astral-sh/uv:0.9.13; do minikube ssh -- docker pull -q $$img >/dev/null || exit 1; done
 	@eval $$(minikube docker-env) && docker build -q -t kubeguardian:local .
+
+# runner에 넣을 점검 설정. kubeguardian.yaml이 없으면 예시 설정을 쓴다.
+KG_NS := kubeguardian
+KG_ENV_KEYS := LLM_PROVIDER|AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_API_KEY|AZURE_OPENAI_API_VERSION
+
+kg-up: kg-build ca  ## runner Pod 기동 (kubeguardian 네임스페이스, 이미지·Secret·ConfigMap·CA 포함)
+	@kubectl get ns $(KG_NS) >/dev/null 2>&1 || kubectl create ns $(KG_NS)
+	kubectl apply -f deploy/kubeguardian/rbac.yaml
+	@# 비밀값은 .env에서 필요한 키만 골라 Secret으로 만든다. 값은 출력하지 않는다.
+	@grep -E '^($(KG_ENV_KEYS))=' .env | kubectl -n $(KG_NS) create secret generic kubeguardian-env --from-env-file=/dev/stdin --dry-run=client -o yaml | kubectl apply -f - >/dev/null && echo "secret/kubeguardian-env applied"
+	@kubectl -n $(KG_NS) create configmap kubeguardian-config --from-file=kubeguardian.yaml=$(EVAL_CONFIG) --dry-run=client -o yaml | kubectl apply -f -
+	@# CA 번들 ConfigMap은 client-side apply의 annotation 한도에 가까워 server-side apply를 쓴다.
+	@kubectl -n $(KG_NS) create configmap kubeguardian-ca --from-file=ca-bundle.pem=$(TARGET_CA) --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f - >/dev/null && echo "configmap/kubeguardian-ca applied"
+	@# 이미지 태그(:local)가 같아 다시 빌드해도 Pod가 바뀌지 않으므로, 이미 떠 있던 runner는 재시작한다.
+	@existed=$$(kubectl -n $(KG_NS) get deployment kg-runner -o name 2>/dev/null); \
+	kubectl apply -f deploy/kubeguardian/runner.yaml || exit 1; \
+	if [ -n "$$existed" ]; then kubectl -n $(KG_NS) rollout restart deployment/kg-runner; fi
+	kubectl -n $(KG_NS) rollout status deployment/kg-runner --timeout=180s
+
+kg-down:  ## runner Pod·Secret·ConfigMap 삭제 (RBAC·Phoenix는 남김)
+	kubectl -n $(KG_NS) delete deployment/kg-runner secret/kubeguardian-env configmap/kubeguardian-config configmap/kubeguardian-ca --ignore-not-found

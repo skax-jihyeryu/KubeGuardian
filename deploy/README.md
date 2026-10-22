@@ -4,5 +4,18 @@
 
 | 폴더 | 내용 |
 |---|---|
-| `kubeguardian/` | SA·Role(dev)·ClusterRole(Node 조회만), PVC, CronJob, diagnostic-agent Deployment, Secret 예시 |
+| `kubeguardian/` | SA·Role(dev)·ClusterRole(Node 조회만), runner Deployment, (W3) PVC, CronJob, diagnostic-agent Deployment |
 | `chaos-mesh/` | 평가 환경 전용 장애 주입 도구 |
+
+## runner Pod (`kubeguardian/runner.yaml`)
+
+KubeGuardian을 클러스터 안에서 실행하는 Pod다. 클러스터 주소(`<svc>.dev.svc`)로 부르는 증상 감지와 AI의 HTTP 도구가 여기서만 동작한다. 평가 러너가 `kubectl exec`로 점검·조사를 시킨다 (`eval/README.md` "클러스터 안 실행").
+
+| 명령 | 하는 일 |
+|---|---|
+| `make kg-up` | 이미지를 minikube 노드에 빌드(`kubeguardian:local`) → 네임스페이스·RBAC(조회 전용) → Secret `kubeguardian-env`(`.env`의 LLM 키 4개만, 값 비출력) → ConfigMap `kubeguardian-config`(`kubeguardian.yaml`, 없으면 예시)·`kubeguardian-ca`(사내 CA 번들) → runner 기동·Ready 대기 |
+| `make kg-down` | runner·Secret·ConfigMap 삭제 (RBAC·Phoenix는 남김) |
+
+- runner는 `sleep infinity`로 떠 있고 점검 DB는 emptyDir(`/data`)다. Pod가 다시 뜨면 DB가 사라진다.
+- 추적은 클러스터 안 주소 `phoenix.kubeguardian.svc`로 보낸다 (port-forward 불필요).
+- 설정(`kubeguardian.yaml`)이나 코드를 바꾸면 `make kg-up`을 다시 한다 (runner를 재시작한다).
