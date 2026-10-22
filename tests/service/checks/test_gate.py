@@ -62,6 +62,7 @@ def test_signal_board_groups_non_passed_signals_by_service():
 def _sym(name="chat", failed=1, severity="critical"):
     return Symptom(
         scenario=name,
+        status="failed" if failed else "passed",
         failed_step=failed,
         summary=f"시나리오 {name}",
         severity=severity if failed else None,
@@ -87,6 +88,21 @@ def test_passing_symptoms_do_not_open_the_gate():
     gate = decide_gate([_s("H01", severity="info")], [_sym("chat", None)])
     assert (gate.path, gate.symptoms) == ("C", [])
     assert "개선 권고 1건" in gate.reason
+
+
+def _unknown(name="chat"):
+    return Symptom(scenario=name, status="unknown", summary="조회 실패: Service gateway 없음")
+
+
+def test_unknown_scenario_does_not_open_the_gate_but_is_reported():
+    gate = decide_gate([_s("S01", verdict="passed")], [_unknown("chat"), _unknown("export")])
+    assert (gate.path, gate.symptoms) == ("C", [])
+    assert "증상 감지 확인하지 못함 2건" in gate.reason
+
+
+def test_unknown_scenario_next_to_failed_one_still_opens_path_b():
+    gate = decide_gate([], [_unknown("a"), _sym("b", 2)])
+    assert gate.path == "B" and [x.scenario for x in gate.symptoms] == ["b"]
 
 
 def test_signal_beats_symptom_and_stays_path_a():

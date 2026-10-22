@@ -18,6 +18,7 @@ from langchain_core.language_models import BaseChatModel
 from pydantic import ValidationError
 from sqlalchemy import Engine
 
+from core.accounts import load_accounts
 from core.config import KubeGuardianConfig, get_setting, load_kubeguardian_config
 from core.db import create_db_engine
 from core.error.service_exception import ErrorCode, ServiceException
@@ -44,7 +45,8 @@ MAX_SYMPTOM_LENGTH = 500
 
 
 def _http(config: KubeGuardianConfig) -> NamespacedHttp:
-    return NamespacedHttp(config.target.namespace)
+    accounts = load_accounts(get_setting().KG_ACCOUNTS_DIR)
+    return NamespacedHttp(config.target.namespace, accounts=accounts)
 
 
 def _k8s_reader(config: KubeGuardianConfig) -> KubeReader:
@@ -149,7 +151,11 @@ def print_outcome(out: CheckOutcome) -> None:
     if out.symptoms:
         print("\n증상 감지")
         for sym in out.symptoms:
-            label = "성공" if sym.failed_step is None else f"실패({sym.severity})"
+            label = {
+                "passed": "성공",
+                "failed": f"실패({sym.severity})",
+                "unknown": "확인하지 못함",
+            }[sym.status]
             print(f"  {label}  {sym.scenario}  {sym.summary}")
     gate = out.gate
     severity = f" ({gate.severity})" if gate.severity else ""

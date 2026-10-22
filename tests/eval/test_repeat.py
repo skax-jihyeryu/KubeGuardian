@@ -3,14 +3,15 @@
 from datetime import timedelta
 from types import SimpleNamespace
 
+from core.config import KubeGuardianConfig, get_setting
 from core.db import create_db_engine
-from run import check_repeatedly
-from service.model import Signal
+from run import check_repeatedly, target_http, unknown_symptoms
+from service.model import Signal, Symptom
 from service.pipeline.check import run_check
 from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
 
 
-def _outcome(detected=(), observing=(), gate="C", failed=()):
+def _outcome(detected=(), observing=(), gate="C", failed=(), symptoms=()):
     signals = [
         Signal(rule_id=r, verdict="detected", subject=f"dev/{r}", severity="critical")
         for r in detected
@@ -20,6 +21,7 @@ def _outcome(detected=(), observing=(), gate="C", failed=()):
         signals=signals,
         gate=SimpleNamespace(path=gate, reason="test"),
         snapshot=SimpleNamespace(failed=list(failed)),
+        symptoms=list(symptoms),
     )
 
 
@@ -184,3 +186,29 @@ def test_collect_failure_stops_loop():
 
     assert clock.calls == 1
     assert checks[0]["collect_failed"] == ["pods"]
+
+
+def _unknown_symptom():
+    return Symptom(scenario="chat", status="unknown", summary="조회 실패: Service gateway 없음")
+
+
+def test_unknown_symptom_stops_loop_and_is_listed():
+    """시나리오를 실행하지 못하면 더 기다려도 소용없다. 호출한 쪽이 무효로 처리한다."""
+    clock = FakeClock([_outcome(observing=["W02"], symptoms=[_unknown_symptom()])])
+    (outcome, checks, first), _ = _run(clock, {"must_signals": ["W02"], "gate_path": "A"})
+
+    assert clock.calls == 1
+    assert unknown_symptoms(outcome) == ["chat: 조회 실패: Service gateway 없음"]
+
+
+def test_target_http_injects_accounts_from_accounts_dir(tmp_path, monkeypatch):
+    secret = tmp_path / "kg-test-user"
+    secret.mkdir()
+    (secret / "id").write_text("tester\n")
+    monkeypatch.setenv("KG_ACCOUNTS_DIR", str(tmp_path))
+    get_setting.cache_clear()
+    try:
+        http = target_http(KubeGuardianConfig.model_validate({"target": {"namespace": "dev"}}))
+        assert http.account("kg-test-user") == {"id": "tester"}
+    finally:
+        get_setting.cache_clear()

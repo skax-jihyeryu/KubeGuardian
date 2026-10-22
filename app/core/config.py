@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     # 진단 대상·점검 설정 파일 (kubeguardian.example.yaml 참고)
     KG_CONFIG_PATH: str = "kubeguardian.yaml"
+    # 시나리오용 테스트 계정 Secret을 마운트한 디렉터리 (<디렉터리>/<Secret 이름>/<키>)
+    KG_ACCOUNTS_DIR: str = "/etc/kubeguardian/accounts"
 
 
 @lru_cache

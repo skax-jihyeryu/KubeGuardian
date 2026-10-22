@@ -3,6 +3,7 @@ import json
 from langchain_core.messages import AIMessage
 
 import cli
+from core.config import KubeGuardianConfig, get_setting
 from core.error.service_exception import ErrorCode, ServiceException
 from tests.service.agent.investigator.test_v1_graph import ScriptedLLM
 from tests.service.checks.detectors.cases import FixtureReader, raw_cluster
@@ -107,6 +108,35 @@ def test_check_shows_passing_scenario(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "성공  chat  시나리오 chat: 1단계 모두 성공" in out
     assert "게이트: 경로 C" in out
+
+
+def test_check_shows_scenario_that_could_not_run_with_reason(tmp_path, capsys):
+    path = tmp_path / "kubeguardian.yaml"
+    path.write_text(SCENARIO_YAML.replace("via: gateway", "via: nowhere"), encoding="utf-8")
+    argv = ["check", "--config", str(path), "--db", str(tmp_path / "kg.db")]
+    code = cli.main(
+        argv,
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(),
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "확인하지 못함  chat  조회 실패:" in out
+    assert "증상 감지 확인하지 못함 1건" in out
+    assert "게이트: 경로 C" in out
+
+
+def test_default_http_gets_accounts_from_accounts_dir(tmp_path, monkeypatch):
+    secret = tmp_path / "accounts" / "kg-test-user"
+    secret.mkdir(parents=True)
+    (secret / "id").write_text("tester\n")
+    monkeypatch.setenv("KG_ACCOUNTS_DIR", str(tmp_path / "accounts"))
+    get_setting.cache_clear()
+    try:
+        http = cli._http(KubeGuardianConfig.model_validate({"target": {"namespace": "dev"}}))
+        assert http.account("kg-test-user") == {"id": "tester"}
+    finally:
+        get_setting.cache_clear()
 
 
 # ── kg investigate ──

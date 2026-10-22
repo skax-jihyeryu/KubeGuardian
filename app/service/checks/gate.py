@@ -4,7 +4,8 @@
   사용자 증상이 있어도 A다 (사용자 증상은 조사 요청에 그대로 전달한다).
 - B: 신호는 없는데 실패한 증상(API 시나리오)이나 사용자 증상이 있음
   → 심각도는 실패한 증상 중 가장 높은 것, 사용자 증상만 있으면 warning
-- C: 그 밖 (개선 권고만, 관찰 중, 확인하지 못함, 모두 통과)
+- C: 그 밖 (개선 권고만, 관찰 중, 확인하지 못함, 모두 통과).
+  실행하지 못한 증상 시나리오(unknown)는 게이트를 열지 않고 reason에만 센다.
 """
 
 from collections import Counter
@@ -28,7 +29,7 @@ def decide_gate(
         severity = max((s.severity for s in opening if s.severity), key=_RANK.__getitem__)
         rules = ", ".join(dict.fromkeys(s.rule_id for s in opening))
         return GateResult(path="A", severity=severity, signals=opening, reason=f"적발: {rules}")
-    failed = [x for x in symptoms if x.failed_step is not None]
+    failed = [x for x in symptoms if x.status == "failed"]
     if failed or user_symptom:
         severity = max(
             (x.severity for x in failed if x.severity), key=_RANK.__getitem__, default="warning"
@@ -39,10 +40,11 @@ def decide_gate(
         return GateResult(
             path="B", severity=severity, symptoms=failed, reason="증상: " + ", ".join(parts)
         )
-    return GateResult(path="C", reason=_summary(signals))
+    unknown = sum(x.status == "unknown" for x in symptoms)
+    return GateResult(path="C", reason=_summary(signals, unknown))
 
 
-def _summary(signals: list[Signal]) -> str:
+def _summary(signals: list[Signal], unknown_symptoms: int = 0) -> str:
     counts = Counter(
         "개선 권고"
         if s.verdict == "detected"
@@ -50,6 +52,8 @@ def _summary(signals: list[Signal]) -> str:
         for s in signals
         if s.verdict != "passed"
     )
+    if unknown_symptoms:
+        counts["증상 감지 확인하지 못함"] = unknown_symptoms
     if not counts:
         return "장애 신호 없음"
     return "장애 신호 없음 (" + ", ".join(f"{k} {v}건" for k, v in counts.items()) + ")"

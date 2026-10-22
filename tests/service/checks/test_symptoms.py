@@ -2,7 +2,7 @@ import pytest
 
 from core.config import KubeGuardianConfig
 from core.guard.budget import Budget, BudgetTracker
-from core.http import HttpResponse
+from core.http import HttpResponse, NamespacedHttp
 from service.checks.symptoms import detect_symptoms
 from service.tools.base import ToolContext
 from tests.service.tools.fakes import NOW, FakeHttp, FakeK8s, MemoryEvidence, service
@@ -90,14 +90,52 @@ def test_runs_every_scenario_in_config_order(make_ctx):
     assert [(s.scenario, s.failed_step) for s in out] == [("a", 1), ("b", None)]
 
 
-def test_scenario_that_could_not_run_is_not_a_symptom(make_ctx):
-    # Service가 없으면 도구가 실행하지 못한다 (ToolResult 오류). 규칙이 따로 잡는다
+def test_scenario_that_could_not_run_is_unknown_with_reason(make_ctx):
+    # Service가 없으면 도구가 실행하지 못한다. 증상이 아니라 확인하지 못함이다
     http = FakeHttp()
 
-    out = detect_symptoms(_config("chat"), _ctx(make_ctx, http, FakeK8s({"Service": []})))
+    [s] = detect_symptoms(_config("chat"), _ctx(make_ctx, http, FakeK8s({"Service": []})))
 
-    assert out == []
+    assert (s.scenario, s.status, s.failed_step, s.severity) == ("chat", "unknown", None, None)
+    assert "Service gateway" in s.summary
     assert http.calls == []
+
+
+def test_missing_test_account_is_unknown_without_values(make_ctx):
+    config = KubeGuardianConfig.model_validate(
+        {
+            "target": {"namespace": "dev"},
+            "core_paths": {"chat": ["gateway"]},
+            "api_scenarios": [
+                {
+                    "name": "chat",
+                    "feature": "chat",
+                    "steps": [
+                        {
+                            "login": {
+                                "via": "gateway",
+                                "path": "/login",
+                                "account_secret": "kg-test-user",
+                            }
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    [s] = detect_symptoms(config, _ctx(make_ctx, NamespacedHttp("dev")))
+
+    assert s.status == "unknown"
+    assert "테스트 계정 Secret kg-test-user 없음" in s.summary
+
+
+def test_statuses_of_passed_and_failed_scenarios(make_ctx):
+    http = FakeHttp({("gateway", "/a"): 500, ("gateway", "/b"): HttpResponse(200, 1.0, "{}")})
+
+    out = detect_symptoms(_config("a", "b"), _ctx(make_ctx, http))
+
+    assert [s.status for s in out] == ["failed", "passed"]
 
 
 def test_no_scenarios_means_no_symptoms(make_ctx):

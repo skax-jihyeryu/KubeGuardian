@@ -26,7 +26,8 @@ sys.path.insert(0, str(ROOT / "app"))
 
 import yaml  # noqa: E402
 
-from core.config import load_kubeguardian_config  # noqa: E402
+from core.accounts import load_accounts  # noqa: E402
+from core.config import get_setting, load_kubeguardian_config  # noqa: E402
 from core.db import create_db_engine  # noqa: E402
 from core.http import NamespacedHttp  # noqa: E402
 from core.k8s import K8sClient  # noqa: E402
@@ -59,6 +60,18 @@ def until_ok(scenario: str, script: str, timeout_s: int, interval_s: int = 10) -
         time.sleep(interval_s)
 
 
+def target_http(config: Any) -> NamespacedHttp:
+    """시나리오용 테스트 계정(KG_ACCOUNTS_DIR)을 넣은 HTTP 클라이언트."""
+    return NamespacedHttp(
+        config.target.namespace, accounts=load_accounts(get_setting().KG_ACCOUNTS_DIR)
+    )
+
+
+def unknown_symptoms(outcome: Any) -> list[str]:
+    """실행하지 못한 증상 시나리오 (이름: 사유). 하나라도 있으면 그 판정을 믿을 수 없다."""
+    return [f"{x.scenario}: {x.summary}" for x in outcome.symptoms if x.status == "unknown"]
+
+
 def log(step: str, msg: str) -> None:
     print(f"[{step}] {msg}", flush=True)
 
@@ -78,7 +91,7 @@ def check_repeatedly(
     check는 같은 DB로 run_check를 부른다 (지속 시간 규칙이 앞 점검의 관찰 기록을 이어 본다).
     elapsed는 주입 시각부터 지난 초. 일정은 첫 점검 시작 시각 기준 interval_s 간격이고,
     다음 점검 시작이 max_s를 넘으면 멈춘다. 기대 신호가 없으면(H0·B·C 시나리오) 한 번만 점검한다.
-    수집 실패가 나면 멈춘다 (무효 처리는 호출한 쪽이 한다).
+    수집 실패나 실행하지 못한 증상 시나리오가 있으면 멈춘다 (무효 처리는 호출한 쪽이 한다).
     반환: (마지막 점검 결과, 점검별 기록, 기대 신호별 첫 적발 경과 초)
     """
     want = set(expected.get("must_signals") or [])
@@ -105,7 +118,12 @@ def check_repeatedly(
         on_check(record)
         next_start = first_start + n * interval_s
         # 채점은 마지막 점검으로 하므로, 그 점검 하나에서 기대 신호가 모두 적발되어야 멈춘다
-        if outcome.snapshot.failed or want <= set(s["detected"]) or next_start > max_s:
+        if (
+            outcome.snapshot.failed
+            or unknown_symptoms(outcome)
+            or want <= set(s["detected"])
+            or next_start > max_s
+        ):
             return outcome, checks, first
         sleep(max(0.0, next_start - elapsed()))
 
@@ -246,7 +264,7 @@ def run(
                 config,
                 engine,
                 trigger="check",
-                http=NamespacedHttp(config.target.namespace),
+                http=target_http(config),
             ),
             expected,
             interval_s=interval_s,
@@ -262,6 +280,12 @@ def run(
         if outcome.snapshot.failed:
             # 수집이 실패하면 규칙이 "확인하지 못함"이 되고 게이트가 C로 가서 H0이 통과처럼 보인다
             result["invalid"] = f"수집 실패: {', '.join(outcome.snapshot.failed)}"
+            return exit_code
+        unknown = unknown_symptoms(outcome)
+        if unknown:
+            # 시나리오를 실행하지 못하면 증상 유무를 모른다. 게이트가 C로 가서 통과처럼 보인다
+            result["unknown_symptoms"] = unknown
+            result["invalid"] = f"증상 감지 확인하지 못함: {'; '.join(unknown)}"
             return exit_code
         result["score"] = score(expected, outcome.signals, outcome.gate.path)
         s = result["score"]
@@ -286,7 +310,7 @@ def run(
                     engine,
                     run_id=f"eval-{scenario}-{started:%Y%m%dT%H%M%S}",
                     k8s=reader,
-                    http=NamespacedHttp(config.target.namespace),
+                    http=target_http(config),
                 ),
                 judge=lambda conclusion: judge_top1(
                     conclusion, expected, build_chat_model(JUDGE_MODEL)
