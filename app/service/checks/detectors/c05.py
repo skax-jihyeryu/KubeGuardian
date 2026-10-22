@@ -6,14 +6,14 @@
 - 선언한 서비스가 없으면 설정 오류로 적발한다 (오타가 조용히 통과하지 않게).
 - 없는 ConfigMap·Secret을 참조하는 envFrom이 그 이름을 낼 수 있으면(prefix 일치) 확인하지 못함.
   없는 참조 자체는 C01이 적발한다.
-- Service는 서비스 이름을 묶는 데만 쓰므로 수집 실패 시 Deployment 이름으로 묶어 판정한다 (§0.3).
+- Service 수집에 실패하면 선언한 서비스가 있는지 알 수 없으므로 확인하지 못함.
 """
 
 from typing import Any
 
 from service.checks.detectors._common import (
     Workloads,
-    grouping_inputs,
+    inputs,
     make_signal,
     name_of,
     primary_severity,
@@ -33,7 +33,7 @@ def detect(ctx: DetectorContext) -> list[Signal]:
     required = ctx.config.required_config
     if not required:
         return []
-    data, degraded = grouping_inputs(ctx, KINDS, grouping=("Service",))
+    data = inputs(ctx, *KINDS)
     if data is None:
         return [rule_unknown(ctx, RULE, KINDS)]
     wl = Workloads([], None, data["Service"])
@@ -45,7 +45,7 @@ def detect(ctx: DetectorContext) -> list[Signal]:
     by_service: dict[str, list[Obj]] = {}
     for dep in data["Deployment"]:
         by_service.setdefault(wl.service_of_deployment(dep), []).append(dep)
-    service_names = {name_of(s) for s in data["Service"] or []}
+    service_names = {name_of(s) for s in data["Service"]}
     signals = []
     for service in sorted(required):
         kind = "Service" if service in service_names else "Deployment"
@@ -54,9 +54,7 @@ def detect(ctx: DetectorContext) -> list[Signal]:
         deployments = by_service.get(service)
         if not deployments:
             values: dict[str, Any] = {"service": service, "error": "선언한 서비스 없음"}
-            signals.append(
-                make_signal(RULE, "detected", subj, service, values, severity, degraded=degraded)
-            )
+            signals.append(make_signal(RULE, "detected", subj, service, values, severity))
             continue
         containers = [
             c
@@ -81,9 +79,7 @@ def detect(ctx: DetectorContext) -> list[Signal]:
             "missing": missing,
             "unchecked": unchecked,
         }
-        signals.append(
-            make_signal(RULE, verdict, subj, service, values, severity, degraded=degraded)
-        )
+        signals.append(make_signal(RULE, verdict, subj, service, values, severity))
     return signals
 
 

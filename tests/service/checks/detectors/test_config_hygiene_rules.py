@@ -337,3 +337,32 @@ def test_severity_follows_core_paths():
     critical = _verdict(_c05({"gateway": ["X"]}))
     other = _verdict(_c05({"gateway": ["X"]}, core_paths={"chat": ["agent"]}))
     assert (critical.severity, other.severity) == ("critical", "warning")
+
+
+def test_service_collection_failure_is_unknown_not_detected():
+    signals = run("C05", context(failed_snapshot("Service"), config=_config({"gatway": ["X"]})))
+
+    assert [(s.verdict, s.subject) for s in signals] == [("unknown", "dev")]
+    assert "Service" in signals[0].values["failed_kinds"]
+
+
+def test_missing_ref_with_other_prefix_does_not_hide_missing_name():
+    def mutate(o):
+        o["ConfigMap"] = []
+        _containers(o, "agent")[0]["envFrom"][0]["prefix"] = "APP_"
+
+    s = _verdict(_c05({"agent": ["LOG_LEVEL"]}, mutate), "agent")
+    assert (s.verdict, s.values["missing"]) == ("detected", ["LOG_LEVEL"])
+
+
+def test_detected_wins_over_unchecked_in_same_service():
+    def mutate(o):
+        o["ConfigMap"] = []
+        _containers(o, "agent")[0]["envFrom"][0]["prefix"] = "APP_"
+
+    s = _verdict(_c05({"agent": ["APP_LOG_LEVEL", "NOPE"]}, mutate), "agent")
+    assert (s.verdict, s.values["missing"], s.values["unchecked"]) == (
+        "detected",
+        ["NOPE"],
+        ["APP_LOG_LEVEL"],
+    )
