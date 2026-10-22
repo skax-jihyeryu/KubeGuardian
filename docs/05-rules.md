@@ -99,11 +99,11 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | S03 | targetPort 불일치 | 선언 | 즉시 | 🔴 긴급 / 🟠 주의 | K8s Debug Services | service-unreachable |
 | S04 | 서비스 주소 설정 오류 | 선언 | 즉시 | 🔴 긴급 / 🟠 주의 | 운영 사례 (템플릿 결함 T1) | service-unreachable |
 | C01 | 설정 참조 누락 | 선언 | 즉시 | 🔴 긴급 / 🟠 주의 | K8s ConfigMap 사용 문서 | failure-after-deploy |
+| C05 | 필수 설정 누락 | 선언 | 즉시 | 🔴 긴급 / 🟠 주의 | 운영자 선언 (`required_config`, C01 확장) | failure-after-deploy, service-unreachable |
 | H01 | readinessProbe 없음·TCP만 | 선언 | 즉시 | ⚪ 참고 | Polaris `readinessProbeMissing`, K8s Probes | partial-failure |
 | H02 | requests·limits 미설정 | 선언 | 즉시 | ⚪ 참고 | Polaris (항목 미확인) | — |
 
 - 근거 열의 "설계값"·"미확인"은 외부 기준으로 확인하지 못한 항목이다. W4 평가 결과로 조정한다 (§6).
-- C05(`required_config`, §4)는 #64에서 구현과 함께 이 표에 추가한다 (`test_catalog`가 표와 `catalog.py`를 1:1로 대조한다).
 - W02는 v2.3의 확장 후보였던 규칙(같은 판정 조건)을 MVP 범위로 올린 것이다. 이유는 §5.1.
 
 ## 3. 1차 심각도

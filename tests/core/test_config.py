@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from core.config import load_kubeguardian_config
+from core.config import KubeGuardianConfig, load_kubeguardian_config
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "kubeguardian.example.yaml"
 
@@ -59,3 +59,12 @@ def test_namespace_must_be_dns_label(tmp_path, namespace):
 
     with pytest.raises(ValidationError):
         load_kubeguardian_config(path)
+
+
+def test_required_config_must_map_service_to_name_list():
+    base = {"target": {"namespace": "dev"}}
+    ok = KubeGuardianConfig.model_validate({**base, "required_config": {"gateway": ["A"]}})
+    assert ok.required_config == {"gateway": ["A"]}
+    assert KubeGuardianConfig.model_validate(base).required_config == {}
+    with pytest.raises(ValidationError):
+        KubeGuardianConfig.model_validate({**base, "required_config": {"gateway": "A"}})

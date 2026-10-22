@@ -69,4 +69,4 @@ def test_hygiene_rules_are_advice_and_others_are_signals():
     grades = {rule_id: rule.grade for rule_id, rule in CATALOG.items()}
 
     assert [r for r, g in grades.items() if g == "advice"] == ["H01", "H02"]
-    assert sum(g == "signal" for g in grades.values()) == 11
+    assert sum(g == "signal" for g in grades.values()) == 12

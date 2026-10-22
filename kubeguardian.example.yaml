@@ -9,6 +9,8 @@ core_paths:                 # 사용자 기능 → 서비스 (1차 심각도 판
   chat: [front-chat, gateway, agent, llm-gateway]
 external_hosts:             # S04 제외: 클러스터 밖 호스트
   - "*.openai.azure.com"
+# required_config:          # C05: 서비스가 반드시 가져야 할 env 이름 (선언한 것의 부재만 적발, docs/05-rules.md §4)
+#   gateway: [ADMIN_SERVICE_URL, AGENT_SERVICE_URL]
 topology:
   url_env_patterns: ["*_SERVICE_URL", "*_URL"]
 api_scenarios:               # run_api_scenario. 단계 형식은 app/core/config.py ApiScenarioStep
