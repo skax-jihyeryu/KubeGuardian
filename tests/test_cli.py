@@ -230,6 +230,33 @@ def test_investigate_skips_agent_on_path_c(tmp_path, capsys):
     assert "조사하지 않음" in out
 
 
+def test_investigate_exits_1_when_the_agent_fails(tmp_path, capsys):
+    llm = ScriptedLLM(script=[RuntimeError("boom")], calls=[])
+    code = cli.main(
+        _investigate_args(tmp_path),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=_llm_factory(llm),
+    )
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "조사 상태: failed" in out
+
+
+def test_blank_symptom_is_treated_as_no_symptom(tmp_path, capsys):
+    def no_llm(model):
+        raise AssertionError("공백 증상은 증상이 아니다")
+
+    code = cli.main(
+        _investigate_args(tmp_path, "   "),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=no_llm,
+    )
+    assert code == 0
+    assert "게이트: 경로 C" in capsys.readouterr().out
+
+
 def test_investigate_rejects_too_long_symptom(tmp_path, capsys):
     code = cli.main(
         _investigate_args(tmp_path, "가" * 501),

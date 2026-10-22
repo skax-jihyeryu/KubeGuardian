@@ -5,7 +5,8 @@ kg investigate ["증상"]: kg check와 같은 점검 뒤 게이트가 열렸으�
   증상 문구를 주면 사용자 증상으로 게이트(경로 B)와 조사 요청에 전달한다. 경로 C면 조사하지 않는다.
 kg check: 규칙 점검과 증상 감지(API 시나리오)를 한 번 돌리고
 규칙별 판정 결과·판정에 쓴 값·증상 결과·게이트 경로를 출력한다.
-종료 코드: 0 점검 완료(게이트 경로와 무관), 2 입력 오류, 1 서버 오류 (ServiceException.exit_code).
+종료 코드: 0 점검 완료(게이트 경로와 무관, 조사는 완료 또는 상한 도달), 2 입력 오류,
+1 서버 오류(ServiceException.exit_code) 또는 조사 실패(investigate의 조사 상태 failed).
 """
 
 import argparse
@@ -86,8 +87,8 @@ def investigate(
     make_reader: ReaderFactory,
     make_http: HttpFactory,
     make_llm: LlmFactory,
-) -> None:
-    symptom = args.symptom
+) -> int:
+    symptom = (args.symptom or "").strip() or None  # 공백뿐이면 증상이 아니다
     if symptom is not None and len(symptom) > MAX_SYMPTOM_LENGTH:
         raise ServiceException(
             ErrorCode.VALIDATION_ERROR, f"증상은 {MAX_SYMPTOM_LENGTH}자 이하로 쓴다"
@@ -111,6 +112,7 @@ def investigate(
         symptom=symptom,
     )
     print_investigation(result)
+    return 1 if result is not None and result.status == "failed" else 0
 
 
 def print_investigation(result: AgentResult | None) -> None:
@@ -183,7 +185,7 @@ def main(
         if args.command == "check":
             check(args, make_reader, make_http)
         elif args.command == "investigate":
-            investigate(args, make_reader, make_http, make_llm)
+            return investigate(args, make_reader, make_http, make_llm)
     except ServiceException as e:
         print(
             f"오류 {e.error_code.code} {e.error_code.name}: {e.error_code.message}", file=sys.stderr

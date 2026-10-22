@@ -13,6 +13,7 @@ from sqlalchemy import Engine
 from core.config import KubeGuardianConfig
 from core.db import EvidenceStore
 from core.guard.budget import BudgetTracker
+from core.guard.redact import redact_text
 from core.llm import build_chat_model
 from core.tracing import setup_tracing
 from service.agent import registry
@@ -41,7 +42,7 @@ def build_request(
         signal_board=outcome.board,
         topology=topology,
         symptoms=outcome.gate.symptoms,
-        user_symptom=symptom,
+        user_symptom=redact_text(symptom) if symptom else None,
     )
 
 

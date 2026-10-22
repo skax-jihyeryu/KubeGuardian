@@ -130,3 +130,14 @@ def test_build_request_carries_failed_symptoms_from_the_gate(engine):
 
     assert req.gate_path == "B"
     assert [(x.scenario, x.failed_step) for x in req.symptoms] == [("chat", 1)]
+
+
+def test_build_request_masks_secrets_in_user_symptom(engine):
+    out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
+
+    req = build_request(
+        out, CONFIG, trigger="investigate", symptom="로그인이 안 돼요 password=hunter22abc"
+    )
+
+    assert "hunter22abc" not in req.user_symptom
+    assert "로그인이 안 돼요" in req.user_symptom
