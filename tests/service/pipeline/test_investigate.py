@@ -3,11 +3,13 @@ import json
 import pytest
 from langchain_core.messages import AIMessage
 
+from core.config import ApiScenario
 from core.db import EvidenceStore, create_db_engine
 from service.pipeline.check import run_check
 from service.pipeline.investigate import build_request, run_investigation
 from tests.service.agent.investigator.test_v1_graph import ScriptedLLM
 from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
+from tests.service.tools.fakes import FakeHttp
 
 
 @pytest.fixture
@@ -98,3 +100,33 @@ def test_run_investigation_passes_symptom_to_the_agent(engine):
     )
 
     assert any("채팅이 안 돼요" in str(m.content) for m in llm.calls[0])
+
+
+def test_build_request_carries_failed_symptoms_from_the_gate(engine):
+    config = CONFIG.model_copy(
+        update={
+            "core_paths": {"chat": ["gateway"]},
+            "api_scenarios": [
+                ApiScenario.model_validate(
+                    {
+                        "name": "chat",
+                        "feature": "chat",
+                        "steps": [{"call": {"via": "gateway", "path": "/chat", "method": "GET"}}],
+                    }
+                )
+            ],
+        }
+    )
+    out = run_check(
+        _reader(),
+        config,
+        engine,
+        trigger="check",
+        now=NOW,
+        http=FakeHttp({("gateway", "/chat"): 500}),
+    )
+
+    req = build_request(out, config, trigger="check")
+
+    assert req.gate_path == "B"
+    assert [(x.scenario, x.failed_step) for x in req.symptoms] == [("chat", 1)]

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from service.checks.detectors.catalog import CATALOG
-from service.model import SignalBoard
+from service.model import SignalBoard, Symptom
 from service.model.report import Fact
 
 _VERDICT = {"detected": "적발", "observing": "관찰 중", "unknown": "확인하지 못함"}
@@ -42,3 +42,12 @@ def render_board(board: SignalBoard) -> str:
 
 def render_facts(facts: list[Fact]) -> str:
     return "\n".join(f"- {f.statement} [{', '.join(f.evidence_ids)}]" for f in facts) or "(없음)"
+
+
+def render_symptoms(symptoms: list[Symptom]) -> str:
+    """점검에서 실패한 API 시나리오: 이름·실패 단계·근거 번호·요약."""
+    lines = []
+    for x in symptoms:
+        ev = f" [{x.evidence_id}]" if x.evidence_id else ""
+        lines.append(f"- {x.scenario} · {x.failed_step}단계 실패{ev} · {x.summary}")
+    return "\n".join(lines) or "(없음)"

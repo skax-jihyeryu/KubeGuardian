@@ -62,10 +62,28 @@ def test_prompts_render_without_missing_variables():
             "total_budget": "20",
             "knowledge": "K",
         },
-        "triage": {"board": "B", "facts": "F", "symptom": "S", "gate_path": "A"},
+        "triage": {
+            "board": "B",
+            "facts": "F",
+            "symptoms": "Y",
+            "symptom": "S",
+            "gate_path": "A",
+        },
         "investigate": {"issue": "I", "runbook": "R", "facts": "F"},
         "report": {"issue": "I", "facts": "F"},
     }
     for name, kw in values.items():
         text = load_prompt(SPEC.prompts_dir, name, **kw)
         assert not re.search(r"\$[a-z_]", text), name
+
+
+def test_render_symptoms_shows_scenario_step_and_evidence_id():
+    from service.agent.investigator.v1.context import render_symptoms
+    from service.model import Symptom
+
+    failed = Symptom(
+        scenario="chat", status="failed", failed_step=2, summary="요약", evidence_id="ev-0003"
+    )
+
+    assert render_symptoms([failed]) == "- chat · 2단계 실패 [ev-0003] · 요약"
+    assert render_symptoms([]) == "(없음)"

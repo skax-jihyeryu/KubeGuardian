@@ -40,6 +40,7 @@ def build_request(
         gate_path=outcome.gate.path,
         signal_board=outcome.board,
         topology=topology,
+        symptoms=outcome.gate.symptoms,
         user_symptom=symptom,
     )
 

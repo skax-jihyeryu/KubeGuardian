@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from service.model.gate import Symptom
 from service.model.signal import SignalBoard
 from service.model.topology import Topology
 
@@ -18,3 +19,4 @@ class InvestigationRequest(BaseModel):
     signal_board: SignalBoard
     topology: Topology = Topology()
     user_symptom: str | None = Field(default=None, max_length=500)  # 마스킹 후
+    symptoms: list[Symptom] = []  # 점검에서 실패한 API 시나리오 (게이트가 담은 것)
