@@ -58,6 +58,19 @@ def test_topology_returns_edges_and_service_hierarchy(make_ctx):
     assert result.summary == "서비스 2개, 호출 관계 2개 (unresolved 1개: gateway→localhost)"
 
 
+def test_topology_shows_sidecar_edge_via(make_ctx):
+    gateway = deployment("gateway", env=[{"name": "CACHE_URL", "value": "http://localhost:6379"}])
+    gateway["spec"]["template"]["spec"]["containers"].append(
+        {"name": "cache", "ports": [{"containerPort": 6379}]}
+    )
+    result = GetTopology(CONFIG).run({}, make_ctx(_cluster(Deployment=[gateway])))
+
+    sidecar = [e for e in result.data["edges"] if e.get("via")]
+    assert [(e["source"], e["via"], e["status"]) for e in sidecar] == [
+        ("gateway", "sidecar", "declared")
+    ]
+
+
 def test_topology_reads_only_needed_kinds_via_ctx_k8s(make_ctx):
     k8s = _cluster()
 

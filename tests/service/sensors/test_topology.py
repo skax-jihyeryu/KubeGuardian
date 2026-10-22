@@ -422,6 +422,13 @@ def test_loopback_to_sidecar_port_is_declared():
     (edge,) = _sidecar_edges("http://localhost:6379", sidecar_ports=[6379])
 
     assert (edge.status, edge.target, edge.port) == ("declared", edge.source, 6379)
+    assert edge.via == "sidecar"
+
+
+def test_regular_edge_has_no_via():
+    (edge,) = _edges(_env("http://agent:8080"))
+
+    assert edge.via is None
 
 
 def test_loopback_to_native_sidecar_init_container_is_declared():

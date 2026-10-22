@@ -31,7 +31,7 @@ from service.model import ClusterSnapshot, Topology, TopologyEdge
 
 Obj = dict[str, Any]
 
-_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 _MASKED_PORT = re.compile(r":\*\*\*(?=[/?#]|$)")
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
@@ -163,10 +163,10 @@ def _edge(
         bad_port = False
     except ValueError:  # 숫자가 아니거나 범위 밖인 포트는 맞춰 볼 수 없다
         port, bad_port = None, True
-    service = None if bad_port or host in _LOOPBACK else _service_name(host, namespace)
+    service = None if bad_port or host in LOOPBACK else _service_name(host, namespace)
     declared = service is not None and service in ports and (port is None or port in ports[service])
     # 같은 Pod 사이드카를 가리키는 루프백은 정상이다. 포트를 모르면 맞춰 볼 수 없다
-    sidecar = host in _LOOPBACK and not port_masked and port is not None and port in sibling_ports
+    sidecar = host in LOOPBACK and not port_masked and port is not None and port in sibling_ports
     if sidecar:
         service, declared = source, True
     return TopologyEdge(
@@ -175,6 +175,7 @@ def _edge(
         port=port,
         env_name=env_name,
         status="declared" if declared else "unresolved",
+        via="sidecar" if sidecar else None,
     )
 
 

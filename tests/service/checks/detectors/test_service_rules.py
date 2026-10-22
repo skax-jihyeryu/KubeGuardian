@@ -267,6 +267,9 @@ def test_s04_sidecar_localhost_passes():
     s = one(run("S04", context(snapshot("s04/sidecar"))), GW_SVC)
     assert s.verdict == "passed"
     assert s.values["addresses"][0]["status"] == "declared"
+    # 사이드카 주소임을 근거에 남긴다 (대상이 서비스 자신이라 값이 빠지지 않게)
+    assert s.values["addresses"][0]["via"] == "sidecar"
+    assert s.values["addresses"][0]["value"].startswith("http://localhost:")
 
 
 def test_s04_localhost_to_own_container_port_is_still_detected():
