@@ -3,7 +3,13 @@ id: XX
 level: L1                 # L1~L3 (기획서 §8.1)
 k8s_visible: true         # K8s 상태만으로 원인이 드러나는가
 gate_path: A              # 기대 게이트 경로 A / B / C
-expected_signals: []      # 적발되어야 할 장애 신호 규칙 ID (N·P·W·S·C, 개선 권고 H는 넣지 않는다), 예: [S04]
+must_signals: []          # 반드시 적발되어야 할 장애 신호 규칙 ID (N·P·W·S·C, 개선 권고 H는 넣지 않는다), 예: [S04]
+allowed_signals: []       # 나와도 되는 장애 신호 (오탐이 아님), 예: [P03]
+forbidden_signals: []     # 나오면 오탐인 장애 신호. ["*"]는 장애 신호 전부 (정상 기준선용)
+# must_check:             # 선택. 조사가 확인해야 할 사실. run|config|wiring|logs 중 해당하는 것만 (기록만, 채점 안 함)
+#   config: "확인할 사실 한 문장"
+# not_a_cause:            # 선택. 원인으로 지목하면 안 되는 것 (기록만, 채점 안 함)
+#   - "원인이 아닌 것 한 문장"
 root_cause: ""            # 정답 원인
 affected_services: []     # 영향 서비스
 expected_top1: ""         # 기대 요약 1순위

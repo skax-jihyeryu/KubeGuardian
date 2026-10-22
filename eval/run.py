@@ -33,7 +33,7 @@ from core.k8s import K8sClient  # noqa: E402
 from core.llm import build_chat_model  # noqa: E402
 from core.tracing import setup_tracing  # noqa: E402
 from judge import JUDGE_MODEL, JudgeResult, judge_top1  # noqa: E402
-from scoring import score  # noqa: E402
+from scoring import expected_record, score  # noqa: E402
 from service.agent.base import AgentResult  # noqa: E402
 from service.pipeline.check import run_check  # noqa: E402
 from service.pipeline.investigate import run_investigation  # noqa: E402
@@ -81,7 +81,7 @@ def check_repeatedly(
     수집 실패가 나면 멈춘다 (무효 처리는 호출한 쪽이 한다).
     반환: (마지막 점검 결과, 점검별 기록, 기대 신호별 첫 적발 경과 초)
     """
-    want = set(expected.get("expected_signals") or [])
+    want = set(expected.get("must_signals") or [])
     checks: list[dict] = []
     first: dict[str, int] = {}
     first_start = elapsed()
@@ -199,6 +199,7 @@ def run(
         "scenario": scenario,
         "condition": "ai" if condition == "ai" else "rules-only",
         "started_at": started.isoformat(),
+        "expected": expected_record(expected),
     }
     exit_code = EXIT_INVALID
 
@@ -248,7 +249,7 @@ def run(
             on_check=on_check,
         )
         result["first_detected_s"] = {
-            r: first.get(r) for r in sorted(expected.get("expected_signals") or [])
+            r: first.get(r) for r in sorted(expected.get("must_signals") or [])
         }
         result["check_run_id"] = outcome.run_id
         result["collect_failed"] = outcome.snapshot.failed
@@ -266,7 +267,8 @@ def run(
         log(
             "score",
             f"기대 {s['expected']} 적발 {s['detected']} 놓침 {s['missed']}"
-            f" 기대 밖 {s['unexpected']} 관찰 중 {s['observing']} 확인하지 못함 {s['unknown']}",
+            f" 금지 적발 {s['forbidden_hit']} 기대 밖 {s['unexpected']}"
+            f" 관찰 중 {s['observing']} 확인하지 못함 {s['unknown']}",
         )
         passed = s["passed"]
         if condition == "ai":
