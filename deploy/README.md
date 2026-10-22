@@ -19,3 +19,4 @@ KubeGuardian을 클러스터 안에서 실행하는 Pod다. 클러스터 주소(
 - runner는 `sleep infinity`로 떠 있고 점검 DB는 emptyDir(`/data`)다. Pod가 다시 뜨면 DB가 사라진다.
 - 추적은 클러스터 안 주소 `phoenix.kubeguardian.svc`로 보낸다 (port-forward 불필요).
 - 설정(`kubeguardian.yaml`)이나 코드를 바꾸면 `make kg-up`을 다시 한다 (runner를 재시작한다).
+- Secret `kg-test-user`(증상 시나리오 login 계정)는 `/etc/kubeguardian/accounts/kg-test-user`에 읽기 전용으로 마운트한다 (`optional`이라 없어도 Pod는 뜬다). `make kg-up`은 이 Secret을 만들지 않는다 — 원본(dev의 `kg-test-user`)을 읽는 것이 권한 검사에 막혀 사용자가 직접 만들어야 한다: `kubectl -n dev get secret kg-test-user -o json | <namespace만 kubeguardian으로 바꿈> | kubectl apply -f - >/dev/null`.

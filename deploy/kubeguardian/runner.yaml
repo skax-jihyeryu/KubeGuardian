@@ -36,6 +36,7 @@ spec:
             - { name: config, mountPath: /etc/kubeguardian, readOnly: true }
             - { name: ca, mountPath: /etc/kubeguardian/ca, readOnly: true }
             - { name: data, mountPath: /data }
+            - { name: test-user, mountPath: /etc/kubeguardian/accounts/kg-test-user, readOnly: true }
       volumes:
         - name: config
           configMap: { name: kubeguardian-config }
@@ -43,3 +44,6 @@ spec:
           configMap: { name: kubeguardian-ca }
         - name: data
           emptyDir: {}
+        # 증상 시나리오(login 단계)용 테스트 계정. Secret이 없어도 Pod는 뜬다.
+        - name: test-user
+          secret: { secretName: kg-test-user, optional: true }
