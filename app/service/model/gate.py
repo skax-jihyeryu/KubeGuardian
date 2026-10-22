@@ -28,5 +28,5 @@ class GateResult(BaseModel):
     path: GatePath
     severity: Severity | None = None  # 1차 심각도 (05-rules §3)
     signals: list[Signal] = []  # 게이트를 연 신호
-    symptoms: list[Symptom] = []  # 게이트를 연 증상 (경로 B)
+    symptoms: list[Symptom] = []  # 실패한 증상 (경로 B는 게이트를 연 증상, 경로 A는 함께 있던 증상)
     reason: str = ""

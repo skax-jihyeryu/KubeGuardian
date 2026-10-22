@@ -128,7 +128,8 @@ def test_signal_keeps_path_a_even_if_scenario_fails(engine):
         now=NOW,
         http=_http(500),
     )
-    assert out.gate.path == "A"
+    assert (out.gate.path, out.gate.severity) == ("A", "critical")  # 신호 critical, 증상 critical
+    assert [s.scenario for s in out.gate.symptoms] == ["chat"]
     assert [s.failed_step for s in out.symptoms] == [1]
 
 

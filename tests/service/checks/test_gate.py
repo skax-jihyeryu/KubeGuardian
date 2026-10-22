@@ -105,10 +105,22 @@ def test_unknown_scenario_next_to_failed_one_still_opens_path_b():
     assert gate.path == "B" and [x.scenario for x in gate.symptoms] == ["b"]
 
 
-def test_signal_beats_symptom_and_stays_path_a():
+def test_signal_keeps_path_a_and_severity_is_max_of_signal_and_symptom():
     gate = decide_gate([_s("S01", severity="warning")], [_sym("chat", 1, "critical")])
-    assert (gate.path, gate.severity) == ("A", "warning")
-    assert gate.symptoms == []
+    assert (gate.path, gate.severity) == ("A", "critical")
+    assert [x.scenario for x in gate.symptoms] == ["chat"]
+    assert [s.rule_id for s in gate.signals] == ["S01"]
+
+
+def test_path_a_keeps_signal_severity_when_symptom_is_milder():
+    gate = decide_gate([_s("S01", severity="critical")], [_sym("export", 1, "warning")])
+    assert (gate.path, gate.severity) == ("A", "critical")
+    assert [x.scenario for x in gate.symptoms] == ["export"]
+
+
+def test_path_a_ignores_passed_and_unknown_symptoms():
+    gate = decide_gate([_s("S01", severity="warning")], [_sym("a", None), _unknown("b")])
+    assert (gate.path, gate.severity, gate.symptoms) == ("A", "warning", [])
 
 
 def test_user_symptom_alone_opens_path_b_as_warning():
