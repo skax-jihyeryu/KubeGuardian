@@ -5,8 +5,8 @@
 - 도구가 시나리오를 실행하지 못한 경우(계정 없음, Service·포트 못 읽음 등)는 증상이 아니라
   `unknown`(확인하지 못함)으로 남긴다. 사용자 흐름이 깨졌다는 근거가 없으니 게이트는 열지 않되
   표시한다. 단계에서 HTTP 연결이 실패한 것은 시나리오가 돌았으므로 증상(failed)이다.
-- 심각도는 시나리오의 `feature`가 `core_paths`의 키면 critical, 아니면 warning (05-rules §3).
-  설정 로드가 feature를 core_paths 키로 제한하므로 실제로는 실패한 시나리오가 모두 critical이다.
+- 설정 로드가 시나리오의 `feature`를 `core_paths` 키로 제한하므로 실패한 시나리오는 항상
+  critical이다 (05-rules §3). warning은 사용자 증상만 있을 때 게이트가 정한다.
 """
 
 from core.config import KubeGuardianConfig
@@ -20,7 +20,7 @@ def detect_symptoms(config: KubeGuardianConfig, ctx: ToolContext) -> list[Sympto
     tool = RunApiScenario(config.api_scenarios)
     out = []
     for scenario in config.api_scenarios:
-        name, feature = scenario.name, scenario.feature
+        name = scenario.name
         result = tool.run({"name": name}, ctx)
         if not result.ok:
             out.append(
@@ -33,9 +33,7 @@ def detect_symptoms(config: KubeGuardianConfig, ctx: ToolContext) -> list[Sympto
             )
             continue
         failed = result.data["failed_step"]
-        severity = None
-        if failed is not None:
-            severity = "critical" if feature in config.core_paths else "warning"
+        severity = None if failed is None else "critical"
         out.append(
             Symptom(
                 scenario=name,

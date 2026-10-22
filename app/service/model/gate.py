@@ -20,7 +20,7 @@ class Symptom(BaseModel):
     status: Literal["passed", "failed", "unknown"]
     failed_step: int | None = None  # 처음 실패한 단계(1부터). 모두 성공이면 None
     summary: str  # 마스킹된 한 줄 요약. unknown이면 실행하지 못한 사유
-    severity: Severity | None = None  # 실패일 때만: core_paths 시나리오 critical, 그 밖 warning
+    severity: Severity | None = None  # 실패일 때만 critical (시나리오 feature는 core_paths 키)
     evidence_id: str | None = None
 
 
