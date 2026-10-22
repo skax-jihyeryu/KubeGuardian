@@ -19,7 +19,7 @@ from core.tracing import setup_tracing
 from service.agent import registry
 from service.agent.base import AgentResult, RunContext
 from service.model import InvestigationRequest, Topology, Trigger
-from service.pipeline.check import CheckOutcome
+from service.pipeline.check import CheckOutcome, clean_symptom
 from service.sensors.topology import build_topology
 from service.tools import build_tools
 
@@ -35,6 +35,7 @@ def build_request(
 ) -> InvestigationRequest | None:
     if outcome.gate.path == "C":
         return None
+    symptom = clean_symptom(symptom)
     topology = build_topology(outcome.snapshot, config) or Topology()
     return InvestigationRequest(
         trigger=trigger,

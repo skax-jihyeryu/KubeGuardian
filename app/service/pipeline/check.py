@@ -33,6 +33,11 @@ from service.sensors.collector import KubeReader, collect
 from service.tools.base import ToolContext
 
 
+def clean_symptom(text: str | None) -> str | None:
+    """사용자 증상의 앞뒤 공백을 떼고, 비면 None (공백뿐인 입력은 증상이 아니다)."""
+    return (text or "").strip() or None
+
+
 @dataclass(frozen=True)
 class CheckOutcome:
     run_id: int
@@ -84,7 +89,7 @@ def run_check(
         run_id=run_id,
         snapshot=snapshot,
         signals=signals,
-        gate=decide_gate(signals, symptoms, user_symptom),
+        gate=decide_gate(signals, symptoms, clean_symptom(user_symptom)),
         board=build_signal_board(signals),
         symptoms=symptoms,
     )

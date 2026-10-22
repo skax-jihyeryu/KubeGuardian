@@ -27,7 +27,7 @@ from core.http import NamespacedHttp
 from core.llm import build_chat_model
 from service.agent.base import AgentResult
 from service.checks.detectors.catalog import CATALOG
-from service.pipeline.check import CheckOutcome, run_check
+from service.pipeline.check import CheckOutcome, clean_symptom, run_check
 from service.pipeline.investigate import run_investigation
 from service.sensors.collector import KubeReader
 
@@ -88,8 +88,8 @@ def investigate(
     make_http: HttpFactory,
     make_llm: LlmFactory,
 ) -> int:
-    symptom = (args.symptom or "").strip() or None  # 공백뿐이면 증상이 아니다
-    if symptom is not None and len(symptom) > MAX_SYMPTOM_LENGTH:
+    symptom = args.symptom  # 공백 처리는 run_check·build_request가 한다
+    if len(clean_symptom(symptom) or "") > MAX_SYMPTOM_LENGTH:
         raise ServiceException(
             ErrorCode.VALIDATION_ERROR, f"증상은 {MAX_SYMPTOM_LENGTH}자 이하로 쓴다"
         )

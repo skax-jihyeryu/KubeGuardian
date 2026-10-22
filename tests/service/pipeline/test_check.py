@@ -147,3 +147,8 @@ def test_missing_target_service_opens_path_b_critical(engine):
     out = run_check(reader, _symptom_config(), engine, trigger="check", now=NOW, http=_http(200))
     assert (out.gate.path, out.gate.severity) == ("B", "critical")
     assert [(x.scenario, x.status) for x in out.gate.symptoms] == [("chat", "failed")]
+
+
+def test_blank_user_symptom_is_not_a_symptom(engine):
+    out = run_check(_reader(), CONFIG, engine, trigger="investigate", now=NOW, user_symptom="  \n")
+    assert out.gate.path == "C"

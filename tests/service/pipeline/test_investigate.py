@@ -141,3 +141,9 @@ def test_build_request_masks_secrets_in_user_symptom(engine):
 
     assert "hunter22abc" not in req.user_symptom
     assert "로그인이 안 돼요" in req.user_symptom
+
+
+def test_build_request_drops_blank_user_symptom(engine):
+    out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
+
+    assert build_request(out, CONFIG, trigger="investigate", symptom="  ").user_symptom is None
