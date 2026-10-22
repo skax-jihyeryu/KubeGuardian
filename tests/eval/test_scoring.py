@@ -71,6 +71,20 @@ def test_forbidden_star_means_all_signals():
     assert score(exp, [], "C")["passed"] is True
 
 
+def test_forbidden_star_excludes_must_and_allowed_signals():
+    exp = {
+        "must_signals": ["S04"],
+        "allowed_signals": ["P03"],
+        "forbidden_signals": ["*"],
+        "gate_path": "A",
+    }
+    result = score(exp, [_sig("S04"), _sig("P03"), _sig("C05")], "A")
+
+    assert result["forbidden_hit"] == ["C05"]
+    assert result["passed"] is False
+    assert score(exp, [_sig("S04"), _sig("P03")], "A")["passed"] is True
+
+
 def test_allowed_signal_not_unexpected():
     exp = {"must_signals": ["W02"], "allowed_signals": ["P03"], "gate_path": "A"}
     result = score(exp, [_sig("W02"), _sig("P03"), _sig("P06")], "A")

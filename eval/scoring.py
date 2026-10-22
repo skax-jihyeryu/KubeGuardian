@@ -3,7 +3,8 @@
 정답 파일의 신호 구분 (05-rules §0.1.1):
 - must_signals: 반드시 적발되어야 하는 장애 신호
 - allowed_signals: 나와도 되는 장애 신호 (예: A3의 P03)
-- forbidden_signals: 나오면 오탐인 장애 신호. `"*"`는 장애 신호 전부 (개선 권고 H는 포함하지 않는다)
+- forbidden_signals: 나오면 오탐인 장애 신호. `"*"`는 must·allowed를 뺀 장애 신호 전부
+  (개선 권고 H는 포함하지 않는다)
 
 통과 = must를 모두 적발 + 게이트 경로가 기대와 같음 + forbidden을 하나도 적발하지 않음.
 그 밖의 적발(unexpected)은 오탐 후보로 기록만 한다.
@@ -35,7 +36,7 @@ def score(expected: dict[str, Any], signals: list[Signal], gate_path: GatePath) 
     detected = _rules(signals, "detected", "signal")
     allowed = set(expected.get("allowed_signals") or [])
     forbidden = set(expected.get("forbidden_signals") or [])
-    forbidden_hit = detected if "*" in forbidden else detected & forbidden
+    forbidden_hit = detected - want - allowed if "*" in forbidden else detected & forbidden
     gate_ok = gate_path == expected["gate_path"]
     missed = want - detected
     return {
