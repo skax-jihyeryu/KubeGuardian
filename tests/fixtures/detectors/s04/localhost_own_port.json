@@ -1,0 +1,55 @@
+{
+  "_description": "A5 모양: 자기 컨테이너가 여는 포트로 localhost 호출 (여전히 적발)",
+  "merge": {
+    "Deployment": [
+      {
+        "metadata": {
+          "name": "gateway"
+        },
+        "spec": {
+          "template": {
+            "spec": {
+              "containers": [
+                {
+                  "name": "gateway",
+                  "image": "gateway:1.0",
+                  "ports": [
+                    {
+                      "name": "http",
+                      "containerPort": 8000
+                    },
+                    {
+                      "containerPort": 8006
+                    }
+                  ],
+                  "readinessProbe": {
+                    "httpGet": {
+                      "path": "/health",
+                      "port": 8000
+                    }
+                  },
+                  "resources": {
+                    "requests": {
+                      "cpu": "100m",
+                      "memory": "128Mi"
+                    },
+                    "limits": {
+                      "cpu": "500m",
+                      "memory": "256Mi"
+                    }
+                  },
+                  "env": [
+                    {
+                      "name": "AGENT_SERVICE_URL",
+                      "value": "http://localhost:8006"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

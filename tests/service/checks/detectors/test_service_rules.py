@@ -263,6 +263,17 @@ def test_s04_detects_localhost_as_critical_on_core_path():
     assert s.values["addresses"][0]["value"] == "http://localhost:8006"
 
 
+def test_s04_sidecar_localhost_passes():
+    s = one(run("S04", context(snapshot("s04/sidecar"))), GW_SVC)
+    assert s.verdict == "passed"
+    assert s.values["addresses"][0]["status"] == "declared"
+
+
+def test_s04_localhost_to_own_container_port_is_still_detected():
+    s = one(run("S04", context(snapshot("s04/localhost_own_port"))), GW_SVC)
+    assert s.verdict == "detected"
+
+
 def test_s04_detects_missing_service_and_port():
     s = one(run("S04", context(snapshot("s04/unresolved"))), GW_SVC)
     assert s.verdict == "detected"
