@@ -28,6 +28,7 @@ import yaml  # noqa: E402
 
 from core.config import load_kubeguardian_config  # noqa: E402
 from core.db import create_db_engine  # noqa: E402
+from core.guard.redact import redact_text  # noqa: E402
 from core.http import NamespacedHttp  # noqa: E402
 from core.k8s import K8sClient  # noqa: E402
 from core.llm import build_chat_model  # noqa: E402
@@ -222,6 +223,7 @@ def run(
         result["invalid"] = "주입 전 정상 기준선(H0) 확인 실패"
         return finish(result, out_dir, exit_code)
 
+    check_started = False  # 점검을 한 번이라도 시작했을 때만 Pod의 DB를 가져온다
     try:
         injected_at = time.monotonic()
         r = sh(scenario, "inject.sh")
@@ -243,6 +245,7 @@ def run(
         result["check_interval_s"] = interval_s
         result["check_max_s"] = max_s
         result["checks"] = []
+        check_started = True
 
         def on_check(c: dict) -> None:
             # 바로 쌓아 둔다. 반복 중 예외가 나도 그때까지의 점검이 result.json에 남는다
@@ -327,12 +330,6 @@ def run(
         result["invalid"] = f"{type(e).__name__}: {e}"
         exit_code = EXIT_INVALID
     finally:
-        if remote:
-            try:
-                remote.fetch(out_dir)
-            except RemoteError as e:
-                result["db_fetch_failed"] = str(e)
-                log("fetch", f"점검 DB를 가져오지 못함: {e}")
         r = sh(scenario, "reset.sh")
         log("reset", (r.stdout + r.stderr).strip())
         recovered = r.returncode == 0
@@ -340,6 +337,15 @@ def run(
             recovered, out = until_ok("H0", "verify_symptom.sh", 180)
             log("recover", out)
         result["recovered"] = recovered
+        # 원복을 먼저 끝낸 뒤 DB를 가져온다. 가져오기가 어떻게 실패해도 원복은 이미 끝나 있다
+        if remote and check_started:
+            try:
+                remote.fetch(out_dir)
+            except Exception as e:
+                result["db_fetch_failed"] = redact_text(f"{type(e).__name__}: {e}")
+                log("fetch", f"점검 DB를 가져오지 못함: {result['db_fetch_failed']}")
+            if remote.db_incomplete:
+                result["db_incomplete"] = True
         if not recovered:
             result["invalid"] = result.get("invalid") or "원복 확인 실패"
             exit_code = EXIT_INVALID

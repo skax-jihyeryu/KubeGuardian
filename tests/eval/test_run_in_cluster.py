@@ -67,7 +67,7 @@ def test_check_parses_exec_json_into_outcome():
     assert outcome.snapshot.failed == {}
     exec_cmd = next(c for c in fake.calls if "exec" in c)
     assert "kg-runner-aaa" in exec_cmd
-    assert exec_cmd[exec_cmd.index("--") + 1 :][:3] == ["python", "-m", "runner_step"]
+    assert exec_cmd[exec_cmd.index("--") + 3 :][:3] == ["python", "-m", "runner_step"]
     assert "/data/20261022T000000Z-A1/kg.db" in exec_cmd
 
 
@@ -183,6 +183,9 @@ class StubRemote:
         self.calls = 0
         self.fetched = None
         self.outcomes = outcomes
+        self.fetch_error: Exception | None = None
+        self.db_incomplete = False
+        self.events: list[str] = []
 
     def start(self):
         return self.pod
@@ -194,22 +197,27 @@ class StubRemote:
         return self.outcomes(self.calls)
 
     def fetch(self, dest):
+        self.events.append("fetch")
+        if self.fetch_error:
+            raise self.fetch_error
         self.fetched = dest
 
 
-def _run_in_cluster(tmp_path, monkeypatch, scenario, fail_at=None):
+def _run_in_cluster(tmp_path, monkeypatch, scenario, fail_at=None, stub_hook=None, symptom_ok=True):
     import run as run_mod
 
     cfg = tmp_path / "kg.yaml"
     cfg.write_text("target: {namespace: dev}\ncore_paths: {chat: [gateway, agent]}\n")
     monkeypatch.setattr(run_mod, "ROOT", tmp_path)
     monkeypatch.setattr(run_mod, "HISTORY", tmp_path / "history")
-    monkeypatch.setattr(run_mod, "until_ok", lambda *a, **k: (True, "ok"))
-    monkeypatch.setattr(
-        run_mod,
-        "sh",
-        lambda *a, **k: subprocess.CompletedProcess([], 0, stdout="", stderr=""),
-    )
+    monkeypatch.setattr(run_mod, "until_ok", lambda sc, *a, **k: (symptom_ok or sc == "H0", "ok"))
+    events: list[str] = []
+
+    def fake_sh(scenario_id, script):
+        events.append(script)
+        return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+    monkeypatch.setattr(run_mod, "sh", fake_sh)
     monkeypatch.setattr(
         run_mod,
         "K8sClient",
@@ -218,6 +226,9 @@ def _run_in_cluster(tmp_path, monkeypatch, scenario, fail_at=None):
     stub = StubRemote(
         "x", fail_at=fail_at, outcomes=lambda n: _stub_outcome(detected=(scenario != "H0"))
     )
+    if stub_hook:
+        stub_hook(stub)
+    stub.events = events  # reset.sh와 fetch의 순서를 한 목록으로 본다
     monkeypatch.setattr(run_mod, "RemoteRunner", lambda name: stub)
     code = run_mod.run(scenario, str(cfg), 1, 300, 2700, "rules", in_cluster=True)
     result = json.loads(next((tmp_path / "history").glob("*/result.json")).read_text())
@@ -247,3 +258,65 @@ def test_run_in_cluster_pod_error_is_invalid_and_still_fetches(tmp_path, monkeyp
     assert code == 2
     assert "RemoteError" in result["invalid"] and "Pod" in result["invalid"]
     assert result["recovered"] is True
+
+
+def test_reset_runs_before_fetch_and_fetch_failure_does_not_block_it(tmp_path, monkeypatch):
+    def hook(stub):
+        stub.fetch_error = OSError("disk full AZURE_OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwx")
+
+    code, result, stub = _run_in_cluster(tmp_path, monkeypatch, "H0", stub_hook=hook)
+
+    assert stub.events.index("reset.sh") < stub.events.index("fetch")
+    assert result["recovered"] is True
+    assert "disk full" in result["db_fetch_failed"]
+    assert "sk-abcdefghijklmnopqrstuvwx" not in result["db_fetch_failed"]
+    assert code == 0, result
+
+
+def test_symptom_failure_before_any_check_does_not_fetch(tmp_path, monkeypatch):
+    code, result, stub = _run_in_cluster(tmp_path, monkeypatch, "A1", symptom_ok=False)
+
+    assert code == 2 and result["invalid"] == "증상이 나지 않음"
+    assert "fetch" not in stub.events
+
+
+def test_db_incomplete_is_recorded_when_exec_timed_out(tmp_path, monkeypatch):
+    def hook(stub):
+        stub.db_incomplete = True
+
+    _, result, _ = _run_in_cluster(tmp_path, monkeypatch, "H0", stub_hook=hook)
+
+    assert result["db_incomplete"] is True
+
+
+def test_exec_timeout_marks_db_incomplete_and_wraps_command_in_pod_timeout():
+    def run(cmd, **kw):
+        if "exec" in cmd:
+            raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+        return subprocess.CompletedProcess(cmd, 0, stdout="kg-runner-aaa", stderr="")
+
+    runner = RemoteRunner("RUN1", run=run)
+    runner.start()
+    with pytest.raises(RemoteError, match="시간 초과"):
+        runner.check()
+
+    assert runner.db_incomplete is True
+
+
+def test_exec_command_runs_under_pod_side_timeout():
+    fake = FakeKubectl(execs=[_check_payload()])
+    _runner(fake).check()
+
+    cmd = next(c for c in fake.calls if "exec" in c)
+    i = cmd.index("--")
+    assert cmd[i + 1] == "timeout" and cmd[i + 2].isdigit() and cmd[i + 3] == "python"
+
+
+def test_repeated_checks_send_the_same_db_to_every_exec():
+    fake = FakeKubectl(execs=[_check_payload(1), _check_payload(2)])
+    runner = _runner(fake, run_name="RUN1")
+    runner.check()
+    runner.check()
+
+    dbs = [c[c.index("--db") + 1] for c in fake.calls if "exec" in c]
+    assert dbs == ["/data/RUN1/kg.db"] * 2

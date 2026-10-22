@@ -21,7 +21,9 @@ from service.model import GateResult, Signal
 NAMESPACE = "kubeguardian"
 SELECTOR = "app=kg-runner"
 EXEC_TIMEOUT_S = 1800
+_KUBECTL_MARGIN_S = 30  # Pod 안 timeout이 먼저 끝내도록 kubectl 쪽은 조금 더 준다
 _STDERR_TAIL = 800
+_POD_TIMEOUT_EXIT = 124  # coreutils timeout이 시간 초과로 끊을 때의 종료 코드
 
 Run = Callable[..., subprocess.CompletedProcess]
 
@@ -30,11 +32,17 @@ class RemoteError(Exception):
     """runner Pod 호출 실패. 메시지는 사유(마스킹됨)다."""
 
 
+class RemoteTimeout(RemoteError):
+    """kubectl 호출이 시간 안에 끝나지 않았다."""
+
+
 class RemoteRunner:
     def __init__(self, run_name: str, *, run: Run = subprocess.run):
         self._run = run
         self.run_name = run_name
         self.pod: str | None = None
+        # exec이 시간 초과로 끊기면 Pod 안 점검이 DB를 쓰다 말았을 수 있다
+        self.db_incomplete = False
 
     @property
     def db_path(self) -> str:
@@ -110,17 +118,25 @@ class RemoteRunner:
 
     def _exec(self, *args: str) -> dict:
         pod = self._same_pod()
-        r = self._kubectl(
-            "exec",
-            pod,
-            "--",
-            "python",
-            "-m",
-            "runner_step",
-            *args,
-            "--json",
-            timeout=EXEC_TIMEOUT_S,
-        )
+        try:
+            r = self._kubectl(
+                "exec",
+                pod,
+                "--",
+                "timeout",
+                str(EXEC_TIMEOUT_S),
+                "python",
+                "-m",
+                "runner_step",
+                *args,
+                "--json",
+                timeout=EXEC_TIMEOUT_S + _KUBECTL_MARGIN_S,
+            )
+        except RemoteTimeout:
+            self.db_incomplete = True
+            raise
+        if r.returncode == _POD_TIMEOUT_EXIT:
+            self.db_incomplete = True
         if r.returncode != 0:
             raise RemoteError(f"exec 실패 (exit {r.returncode}): {_tail(r.stderr)}")
         lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
@@ -137,7 +153,7 @@ class RemoteRunner:
         try:
             return self._run(cmd, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired as e:
-            raise RemoteError(f"kubectl 시간 초과 ({timeout}초): {args[0]}") from e
+            raise RemoteTimeout(f"kubectl 시간 초과 ({timeout}초): {args[0]}") from e
 
 
 def _tail(text: str) -> str:
