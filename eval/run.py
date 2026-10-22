@@ -211,7 +211,8 @@ def run(
     if in_cluster:
         remote = RemoteRunner(out_dir.name)
         try:
-            result["in_cluster"] = {"pod": remote.start()}
+            pod = remote.start()
+            result["in_cluster"] = {"pod": pod, **remote.describe()}
         except RemoteError as e:
             result["invalid"] = f"runner Pod 확인 실패: {e}"
             return finish(result, out_dir, exit_code)

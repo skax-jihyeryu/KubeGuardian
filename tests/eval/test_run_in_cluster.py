@@ -39,6 +39,10 @@ class FakeKubectl:
 
     def __call__(self, cmd, **kw):
         self.calls.append(cmd)
+        if "get" in cmd and "configmap" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, stdout="4242", stderr="")
+        if "get" in cmd and "pod" in cmd:  # Pod 하나의 imageID 조회 (목록 조회는 "pods")
+            return subprocess.CompletedProcess(cmd, 0, stdout="docker://sha256:abc", stderr="")
         if "get" in cmd:
             name = self.pods.pop(0) if len(self.pods) > 1 else self.pods[0]
             return subprocess.CompletedProcess(cmd, 0, stdout=name, stderr="")
@@ -190,6 +194,9 @@ class StubRemote:
     def start(self):
         return self.pod
 
+    def describe(self):
+        return {"image_id": "docker://sha256:abc", "config_resource_version": "4242"}
+
     def check(self):
         self.calls += 1
         if self.fail_at == self.calls:
@@ -255,7 +262,11 @@ def test_run_in_cluster_h0_passes_and_fetches_db(tmp_path, monkeypatch):
     code, result, stub = _run_in_cluster(tmp_path, monkeypatch, "H0")
 
     assert code == 0, result
-    assert result["in_cluster"] == {"pod": "kg-runner-aaa"}
+    assert result["in_cluster"] == {
+        "pod": "kg-runner-aaa",
+        "image_id": "docker://sha256:abc",
+        "config_resource_version": "4242",
+    }
     assert result["checks"][0]["n"] == 1
     assert stub.fetched is not None and stub.fetched.name.endswith("-H0")
 
@@ -354,3 +365,12 @@ def test_ai_path_records_the_trace_id_from_the_pod(tmp_path, monkeypatch):
     _, result, _ = _run_in_cluster(tmp_path, monkeypatch, "H0", stub_hook=hook, condition="ai")
 
     assert result["ai"]["trace_id"] == "0af7651916cd43dd8448eb211c80319c"
+
+
+def test_describe_reports_image_id_and_config_resource_version():
+    runner = _runner(FakeKubectl())
+
+    assert runner.describe() == {
+        "image_id": "docker://sha256:abc",
+        "config_resource_version": "4242",
+    }

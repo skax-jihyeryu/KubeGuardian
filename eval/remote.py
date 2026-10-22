@@ -53,6 +53,24 @@ class RemoteRunner:
         self.pod = self._current_pod()
         return self.pod
 
+    def describe(self) -> dict[str, str]:
+        """결과에 남길 실행 환경: runner 이미지 ID와 점검 설정 ConfigMap의 resourceVersion."""
+        pod = self._same_pod()
+        image = self._kubectl(
+            "get", "pod", pod, "-o", "jsonpath={.status.containerStatuses[0].imageID}"
+        )
+        cm = self._kubectl(
+            "get",
+            "configmap",
+            "kubeguardian-config",
+            "-o",
+            "jsonpath={.metadata.resourceVersion}",
+        )
+        for r in (image, cm):
+            if r.returncode != 0:
+                raise RemoteError(f"실행 환경 조회 실패 (exit {r.returncode}): {_tail(r.stderr)}")
+        return {"image_id": image.stdout.strip(), "config_resource_version": cm.stdout.strip()}
+
     def check(self) -> Any:
         """점검 한 번. check_repeatedly가 받는 outcome 모양(run_id·signals·gate·snapshot.failed)."""
         data = self._exec("check", "--db", self.db_path)
