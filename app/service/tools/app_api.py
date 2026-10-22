@@ -20,7 +20,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from core.config import ApiScenario, ApiScenarioStep, CallStep, LoginStep, ResponseCheck
+from core.config import (
+    SCENARIO_NAME_PATTERN,
+    ApiScenario,
+    ApiScenarioStep,
+    CallStep,
+    LoginStep,
+    ResponseCheck,
+)
 from core.error.service_exception import ErrorCode, ServiceException
 from core.http import HttpCallError, HttpResponse
 from service.tools._common import (
@@ -97,9 +104,7 @@ class RunApiScenario(Tool):
     failure_kind = "app_api"
 
     class Input(BaseModel):
-        name: str = Field(
-            pattern=r"^[A-Za-z0-9_-]{1,64}$", description="설정에 등록한 시나리오 이름"
-        )
+        name: str = Field(pattern=SCENARIO_NAME_PATTERN, description="설정에 등록한 시나리오 이름")
 
     def __init__(self, scenarios: list[ApiScenario]):
         self._scenarios = {s.name: s for s in scenarios}

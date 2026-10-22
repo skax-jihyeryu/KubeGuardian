@@ -82,6 +82,7 @@ def _symptom_config(core_paths=None):
                 ApiScenario.model_validate(
                     {
                         "name": "chat",
+                        "feature": "chat",
                         "steps": [
                             {"call": {"via": "gateway", "path": "/chat", "method": "GET"}},
                         ],

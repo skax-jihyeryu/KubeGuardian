@@ -28,21 +28,26 @@ def make_ctx(evidence):
     return make
 
 
-def _scenario(name):
+def _scenario(name, feature="chat"):
     return {
         "name": name,
+        "feature": feature,
         "steps": [
             {"call": {"via": "gateway", "path": f"/{name}", "method": "GET", "expect": 200}},
         ],
     }
 
 
-def _config(*names, core_paths=None):
+def _config(*names, features=None):
+    """features: 시나리오 이름 → 기능 (기본 chat). core_paths는 쓰인 기능을 모두 등록한다."""
+    features = features or {}
+    scenarios = [_scenario(n, features.get(n, "chat")) for n in names]
+    core_paths = {s["feature"]: ["gateway"] for s in scenarios}
     return KubeGuardianConfig.model_validate(
         {
             "target": {"namespace": "dev"},
-            "core_paths": core_paths or {},
-            "api_scenarios": [_scenario(n) for n in names],
+            "core_paths": core_paths,
+            "api_scenarios": scenarios,
         }
     )
 
@@ -65,22 +70,16 @@ def test_passing_scenario_is_not_a_symptom(make_ctx):
     assert s.evidence_id == "ev-0001"
 
 
-def test_failed_scenario_in_core_paths_is_critical(make_ctx, evidence):
-    http = FakeHttp({("gateway", "/chat"): 500})
+def test_failed_scenario_severity_follows_its_feature_not_its_name(make_ctx, evidence):
+    http = FakeHttp({("gateway", "/chat-flow"): 500})
 
-    [s] = detect_symptoms(_config("chat", core_paths={"chat": ["gateway"]}), _ctx(make_ctx, http))
+    [s] = detect_symptoms(
+        _config("chat-flow", features={"chat-flow": "chat"}), _ctx(make_ctx, http)
+    )
 
-    assert (s.scenario, s.failed_step, s.severity) == ("chat", 1, "critical")
+    assert (s.scenario, s.failed_step, s.severity) == ("chat-flow", 1, "critical")
     assert "1단계 실패" in s.summary
-    assert evidence.saved[0].subject == "dev/Scenario/chat"
-
-
-def test_failed_scenario_outside_core_paths_is_warning(make_ctx):
-    http = FakeHttp({("gateway", "/export"): 500})
-
-    [s] = detect_symptoms(_config("export", core_paths={"chat": ["gateway"]}), _ctx(make_ctx, http))
-
-    assert (s.failed_step, s.severity) == (1, "warning")
+    assert evidence.saved[0].subject == "dev/Scenario/chat-flow"
 
 
 def test_runs_every_scenario_in_config_order(make_ctx):

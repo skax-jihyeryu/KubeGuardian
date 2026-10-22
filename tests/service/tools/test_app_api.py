@@ -100,6 +100,7 @@ def test_query_app_api_text_body_and_call_failure(make_ctx):
 SCENARIOS = [
     ApiScenario(
         name="chat",
+        feature="chat",
         steps=[
             {
                 "login": {
@@ -203,7 +204,7 @@ def test_scenario_input_is_name_only():
 )
 def test_scenario_step_format_is_validated_at_config_load(step):
     with pytest.raises(ValidationError):
-        ApiScenario(name="bad", steps=[step])
+        ApiScenario(name="bad", feature="chat", steps=[step])
 
 
 def test_scenario_name_validation(make_ctx):
@@ -283,7 +284,7 @@ def test_example_config_scenario_fails_on_template_error_answer_with_200(make_ct
 
 
 def _steps(*steps):
-    return [ApiScenario(name="s", steps=list(steps))]
+    return [ApiScenario(name="s", feature="chat", steps=list(steps))]
 
 
 LOGIN = {"via": "gateway", "path": "/api/v1/auth/login", "account_secret": "kg-test-user"}
@@ -350,7 +351,7 @@ def test_get_step_sends_login_token_and_ignores_non_string_token(make_ctx):
         {"login": {"via": "gateway", "path": "/login", "account_secret": "kg-test-user"}},
         {"call": {"via": "gateway", "path": "/me", "method": "GET"}},
     ]
-    scenarios = [ApiScenario(name="me", steps=steps)]
+    scenarios = [ApiScenario(name="me", feature="chat", steps=steps)]
     ok_http = FakeHttp(
         {("gateway", "/login"): HttpResponse(200, 1.0, '{"token": "tok-abcdefgh12345678"}')},
         accounts=ACCOUNTS,

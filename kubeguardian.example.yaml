@@ -15,6 +15,7 @@ topology:
   url_env_patterns: ["*_SERVICE_URL", "*_URL"]
 api_scenarios:               # run_api_scenario. 단계 형식은 app/core/config.py ApiScenarioStep
   - name: chat               # 템플릿 로그인 → 채팅 (scripts/target/smoke.sh와 같은 흐름)
+    feature: chat            # core_paths의 키(필수). 이 시나리오가 실패하면 그 기능의 심각도를 쓴다
     steps:
       # 본문은 Secret kg-test-user의 키·값 그대로({"id", "password"}). 계정을 여기에 적지 않는다.
       # 응답 {"access_token", "user"}에서 토큰과 사용자의 첫 조직을 꺼낸다

@@ -101,8 +101,12 @@ class ApiScenarioStep(_Strict):
         return self
 
 
+SCENARIO_NAME_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"  # run_api_scenario 도구 입력과 같다
+
+
 class ApiScenario(_Strict):
-    name: str
+    name: str = Field(pattern=SCENARIO_NAME_PATTERN)
+    feature: str  # 이 시나리오가 지키는 사용자 기능. core_paths의 키 (심각도 판정, 05-rules §3)
     steps: list[ApiScenarioStep]
 
 
@@ -140,6 +144,16 @@ class KubeGuardianConfig(_Strict):
     app_apis: dict[str, list[str]] = {}  # query_app_api 허용 목록 (GET만)
     slack: SlackConfig | None = None
     knowledge: KnowledgeConfig = KnowledgeConfig()
+
+    @model_validator(mode="after")
+    def _scenarios_are_consistent(self) -> "KubeGuardianConfig":
+        names = [s.name for s in self.api_scenarios]
+        if len(names) != len(set(names)):
+            raise ValueError("api_scenarios 이름 중복")
+        unknown = sorted({s.feature for s in self.api_scenarios} - set(self.core_paths))
+        if unknown:
+            raise ValueError(f"api_scenarios feature가 core_paths에 없음: {unknown}")
+        return self
 
 
 def load_kubeguardian_config(path: str | Path | None = None) -> KubeGuardianConfig:

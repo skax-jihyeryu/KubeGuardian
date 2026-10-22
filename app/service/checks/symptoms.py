@@ -4,7 +4,8 @@
 - 어떤 단계가 실패한 시나리오가 증상이다.
 - 도구가 시나리오를 실행하지 못한 경우(Service 없음·수집 실패 등)는 증상으로 치지 않고
   결과에서 뺀다. 그 원인은 규칙이 따로 잡는다.
-- 심각도는 시나리오 이름이 `core_paths`의 키와 같으면 critical, 아니면 warning (05-rules §3).
+- 심각도는 시나리오의 `feature`가 `core_paths`의 키면 critical, 아니면 warning (05-rules §3).
+  설정 로드가 feature를 core_paths 키로 제한하므로 실제로는 실패한 시나리오가 모두 critical이다.
 """
 
 from core.config import KubeGuardianConfig
@@ -17,14 +18,15 @@ def detect_symptoms(config: KubeGuardianConfig, ctx: ToolContext) -> list[Sympto
     """모든 시나리오를 설정 순서대로 실행한 결과. 실행하지 못한 시나리오는 없다."""
     tool = RunApiScenario(config.api_scenarios)
     out = []
-    for name in tool.scenario_names:
+    for scenario in config.api_scenarios:
+        name, feature = scenario.name, scenario.feature
         result = tool.run({"name": name}, ctx)
         if not result.ok:
             continue
         failed = result.data["failed_step"]
         severity = None
         if failed is not None:
-            severity = "critical" if name in config.core_paths else "warning"
+            severity = "critical" if feature in config.core_paths else "warning"
         out.append(
             Symptom(
                 scenario=name,

@@ -25,6 +25,7 @@ SCENARIO_YAML = (
     + """
 api_scenarios:
   - name: chat
+    feature: chat
     steps:
       - call: {via: gateway, path: /chat, method: GET}
 """
