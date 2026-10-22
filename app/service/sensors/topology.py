@@ -7,17 +7,21 @@
   (덮인 값으로 잘못 판정하지 않기 위해).
 - envFrom이 가리키는 ConfigMap·Secret을 수집하지 못했으면 그 호출 서비스와 객체 이름을
   `unchecked`에 넣는다 (envFrom 값은 확인하지 못함). 없는 객체 참조는 C01이 다룬다.
-- containers만 본다 (initContainers는 보지 않는다).
+- env를 읽는 것은 containers만이다. 사이드카 판단에는 같은 Pod의 다른 컨테이너와
+  `restartPolicy: Always`인 initContainers의 containerPort를 쓴다.
 - 마스킹으로 포트가 `***`가 된 값은 포트를 모르는 것으로 보고 호스트만 맞춘다.
 
 - declared: 호스트가 네임스페이스의 Service이고 포트가 그 Service에 있음
   (포트를 알 수 없으면 호스트만 본다)
-- unresolved: `localhost`·루프백, 네임스페이스에 없는 Service(다른 네임스페이스 포함),
+- declared(사이드카): 루프백 주소의 포트가 같은 Pod의 다른 컨테이너 containerPort와 맞음
+  (target = 호출 서비스 자신). 자기 컨테이너 포트·포트 마스킹은 해당하지 않는다
+- unresolved: 위 경우를 뺀 `localhost`·루프백, 네임스페이스에 없는 Service(다른 네임스페이스 포함),
   Service에 없는 포트
 - `external_hosts`(glob)에 맞는 호스트는 클러스터 밖 의존이라 관계에서 뺀다
 - inferred(에이전트 추정)는 여기서 만들지 않는다
 """
 
+import re
 from fnmatch import fnmatchcase
 from typing import Any, NamedTuple
 from urllib.parse import urlsplit
@@ -27,7 +31,8 @@ from service.model import ClusterSnapshot, Topology, TopologyEdge
 
 Obj = dict[str, Any]
 
-_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+_MASKED_PORT = re.compile(r":\*\*\*(?=[/?#]|$)")
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
@@ -48,14 +53,18 @@ def build_topology(snapshot: ClusterSnapshot, config: KubeGuardianConfig) -> Top
     for dep in deployments:
         template = dep["spec"].get("template") or {}
         source = _source_name(dep, template, services)
-        for container in (template.get("spec") or {}).get("containers") or []:
+        pod_spec = template.get("spec") or {}
+        for container in pod_spec.get("containers") or []:
+            siblings = _sibling_ports(pod_spec, container)
             values, unread = _container_env(container, sources)
             if unread:
                 unchecked.setdefault(source, set()).update(unread)
             for name, value in values.items():
                 if not value or not _matches(name, config.topology.url_env_patterns):
                     continue
-                edge = _edge(source, name, value, snapshot.namespace, ports, config.external_hosts)
+                edge = _edge(
+                    source, name, value, snapshot.namespace, ports, config.external_hosts, siblings
+                )
                 if edge is not None:
                     edges.append(edge)
     return Topology(
@@ -107,6 +116,17 @@ def _matches(name: str, patterns: list[str]) -> bool:
     return any(fnmatchcase(name, p) for p in patterns)
 
 
+def _sibling_ports(pod_spec: Obj, container: Obj) -> set[int]:
+    """같은 Pod의 다른 컨테이너(restartPolicy Always인 initContainers 포함)의 containerPort."""
+    others = [c for c in pod_spec.get("containers") or [] if c is not container]
+    others += [
+        c for c in pod_spec.get("initContainers") or [] if c.get("restartPolicy") == "Always"
+    ]
+    return {
+        p["containerPort"] for c in others for p in c.get("ports") or [] if "containerPort" in p
+    }
+
+
 def _service_ports(service: Obj) -> set[int]:
     return {p["port"] for p in service["spec"].get("ports") or [] if "port" in p}
 
@@ -127,8 +147,13 @@ def _edge(
     namespace: str,
     ports: dict[str, set[int]],
     external_hosts: list[str],
+    sibling_ports: set[int],
 ) -> TopologyEdge | None:
-    value = value.replace(":***", "")  # 마스킹된 포트는 모르는 것으로 본다 (호스트만 맞춘다)
+    # 호스트 뒤의 마스킹된 포트만 모르는 것으로 본다 (호스트만 맞춘다). userinfo의 `:***@`는 아니다
+    # authority 안에서만 본다 (경로·쿼리 끝의 `:***`는 포트가 아니다)
+    netloc = urlsplit(value if "://" in value else f"//{value}").netloc
+    port_masked = netloc.rpartition("@")[2].endswith(":***")
+    value = _MASKED_PORT.sub("", value)
     url = urlsplit(value if "://" in value else f"//{value}")
     host = url.hostname
     if not host:
@@ -140,14 +165,19 @@ def _edge(
         bad_port = False
     except ValueError:  # 숫자가 아니거나 범위 밖인 포트는 맞춰 볼 수 없다
         port, bad_port = None, True
-    service = None if bad_port or host in _LOOPBACK else _service_name(host, namespace)
+    service = None if bad_port or host in LOOPBACK else _service_name(host, namespace)
     declared = service is not None and service in ports and (port is None or port in ports[service])
+    # 같은 Pod 사이드카를 가리키는 루프백은 정상이다. 포트를 모르면 맞춰 볼 수 없다
+    sidecar = host in LOOPBACK and not port_masked and port is not None and port in sibling_ports
+    if sidecar:
+        service, declared = source, True
     return TopologyEdge(
         source=source,
         target=service if declared else host,
         port=port,
         env_name=env_name,
         status="declared" if declared else "unresolved",
+        via="sidecar" if sidecar else None,
     )
 
 

@@ -397,3 +397,85 @@ def test_masked_values_resolve_by_host(value):
     )
 
     assert [e.status for e in build_topology(snap, CONFIG).edges] == ["declared"]
+
+
+def _sidecar_edges(value, sidecar_ports=(), init_ports=None, own_ports=()):
+    """app 컨테이너(env 값)와 같은 Pod의 다른 컨테이너·initContainer를 가진 gateway Deployment."""
+    dep = _deployment("gateway", _env(value, "CACHE_URL"))
+    spec = dep["spec"]["template"]["spec"]
+    spec["containers"][0]["ports"] = [{"containerPort": p} for p in own_ports]
+    if sidecar_ports:
+        spec["containers"].append(
+            {"name": "cache", "ports": [{"containerPort": p} for p in sidecar_ports]}
+        )
+    if init_ports is not None:
+        restart, ports = init_ports
+        init = {"name": "init", "ports": [{"containerPort": p} for p in ports]}
+        if restart:
+            init["restartPolicy"] = restart
+        spec["initContainers"] = [init]
+    snapshot = _snapshot([_service("gateway", [80])], [dep])
+    return build_topology(snapshot, CONFIG).edges
+
+
+def test_loopback_to_sidecar_port_is_declared():
+    (edge,) = _sidecar_edges("http://localhost:6379", sidecar_ports=[6379])
+
+    assert (edge.status, edge.target, edge.port) == ("declared", edge.source, 6379)
+    assert edge.via == "sidecar"
+
+
+def test_regular_edge_has_no_via():
+    (edge,) = _edges(_env("http://agent:8080"))
+
+    assert edge.via is None
+
+
+def test_loopback_to_native_sidecar_init_container_is_declared():
+    (edge,) = _sidecar_edges("http://localhost:9000", init_ports=("Always", [9000]))
+    assert edge.status == "declared"
+
+    (edge,) = _sidecar_edges("http://localhost:9000", init_ports=(None, [9000]))
+    assert edge.status == "unresolved"
+
+
+def test_loopback_to_own_container_port_is_still_unresolved():
+    (edge,) = _sidecar_edges("http://localhost:8080", own_ports=[8080], sidecar_ports=[6379])
+
+    assert edge.status == "unresolved"
+
+
+def test_loopback_without_port_uses_scheme_default():
+    (edge,) = _sidecar_edges("http://localhost", sidecar_ports=[80])
+    assert edge.status == "declared"
+
+    (edge,) = _sidecar_edges("http://localhost", sidecar_ports=[8080])
+    assert edge.status == "unresolved"
+
+
+def test_loopback_masked_port_is_unresolved():
+    (edge,) = _sidecar_edges("http://localhost:***", sidecar_ports=[80])
+
+    assert edge.status == "unresolved"
+
+
+@pytest.mark.parametrize(
+    "value", ["http://localhost:6379/?token:***", "http://localhost:6379/#a:***"]
+)
+def test_masked_suffix_outside_authority_does_not_hide_sidecar(value):
+    (edge,) = _sidecar_edges(value, sidecar_ports=[6379])
+
+    assert (edge.status, edge.port, edge.via) == ("declared", 6379, "sidecar")
+
+
+@pytest.mark.parametrize("value", ["redis://:***@localhost:6379", "http://user:***@localhost:6379"])
+def test_loopback_with_masked_password_is_sidecar(value):
+    (edge,) = _sidecar_edges(value, sidecar_ports=[6379])
+
+    assert (edge.status, edge.port) == ("declared", 6379)
+
+
+def test_loopback_scheme_without_default_port_is_unresolved():
+    (edge,) = _sidecar_edges("redis://localhost", sidecar_ports=[6379])
+
+    assert edge.status == "unresolved"

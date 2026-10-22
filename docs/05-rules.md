@@ -99,11 +99,11 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | S03 | targetPort 불일치 | 선언 | 즉시 | 🔴 긴급 / 🟠 주의 | K8s Debug Services | service-unreachable |
 | S04 | 서비스 주소 설정 오류 | 선언 | 즉시 | 🔴 긴급 / 🟠 주의 | 운영 사례 (템플릿 결함 T1) | service-unreachable |
 | C01 | 설정 참조 누락 | 선언 | 즉시 | 🔴 긴급 / 🟠 주의 | K8s ConfigMap 사용 문서 | failure-after-deploy |
+| C05 | 필수 설정 누락 | 선언 | 즉시 | 🔴 긴급 / 🟠 주의 | 운영자 선언 (`required_config`, C01 확장) | failure-after-deploy, service-unreachable |
 | H01 | readinessProbe 없음·TCP만 | 선언 | 즉시 | ⚪ 참고 | Polaris `readinessProbeMissing`, K8s Probes | partial-failure |
 | H02 | requests·limits 미설정 | 선언 | 즉시 | ⚪ 참고 | Polaris (항목 미확인) | — |
 
 - 근거 열의 "설계값"·"미확인"은 외부 기준으로 확인하지 못한 항목이다. W4 평가 결과로 조정한다 (§6).
-- C05(`required_config`, §4)는 #64에서 구현과 함께 이 표에 추가한다 (`test_catalog`가 표와 `catalog.py`를 1:1로 대조한다).
 - W02는 v2.3의 확장 후보였던 규칙(같은 판정 조건)을 MVP 범위로 올린 것이다. 이유는 §5.1.
 
 ## 3. 1차 심각도
@@ -269,7 +269,7 @@ required_config:
 | 판정 조건 | 선언한 서비스의 컨테이너 `env`와 `envFrom` 어디에도 선언한 이름이 없음. ConfigMap envFrom은 키를 읽어 확인하고, Secret envFrom은 값을 읽지 않고 키 이름만 확인한다. envFrom에 `prefix`가 있으면 붙인 이름으로 본다. 컨테이너가 여럿이면 어느 컨테이너에도 없을 때 적발한다. `valueFrom` env와 빈 문자열 값은 **있는 것**으로 본다 (값을 읽지 않는 원칙) |
 | 서비스 이름 | `kubeguardian.yaml`의 다른 서비스 키(`core_paths`)와 같은 기준이다. 코드(`sensors/topology.py` `_source_name`, `detectors/_common.py` `Workloads`)가 쓰는 규칙대로, Deployment 템플릿 라벨을 선택하는 Service 이름(여럿이면 이름순 첫째), 없으면 Deployment 이름이다 |
 | 선언 오류 | 선언한 서비스가 네임스페이스에 없으면 "확인하지 못함"이 아니라 **설정 오류로 적발**한다 (오타가 조용히 통과하지 않게). 근거 값에 "선언한 서비스 없음"을 남긴다 |
-| 확인하지 못함 | envFrom ConfigMap·Secret·Deployment를 수집하지 못했을 때. 참조한 ConfigMap 자체가 없으면 C01이 적발하므로 C05는 그 출처를 "확인하지 못함"으로 두고 중복 적발하지 않는다 |
+| 확인하지 못함 | envFrom ConfigMap·Secret·Deployment·Service를 수집하지 못했을 때. Service는 서비스 이름과 선언 오류 판정에 직접 쓰므로 §0.3의 묶음 대체를 하지 않는다. 참조한 ConfigMap 자체가 없으면 C01이 적발하므로 C05는 그 출처를 "확인하지 못함"으로 두고 중복 적발하지 않는다 |
 | 지속 시간 | 없음 (선언 비교) |
 | 제외 | 선언하지 않은 서비스와 이름 (판정 대상이 아님) |
 | 1차 심각도 | S04와 같은 기준: 그 서비스가 핵심 경로면 🔴 긴급, 아니면 🟠 주의 |

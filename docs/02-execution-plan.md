@@ -115,7 +115,7 @@ KubeGuardian/
 | 계약 | 위치 | 정하는 것 | 시점 |
 |---|---|---|---|
 | 도메인 모델 | `service/model/` | `ClusterSnapshot`(정규화된 수집 결과), `Evidence`, `Signal`, `SignalBoard`, `GateResult`, `InvestigationRequest`, `Issue`, `Hypothesis`, `Report` (기획서 §6.4, 상세설계 §2.1) | W1 |
-| 규칙 목록 | `service/checks/detectors/catalog.py` | [규칙 점검 명세](05-rules.md)의 코드 표현. ID·이름·성격·판정 시점(지속 시간)·1차 심각도·관련 지침. **명세는 05-rules.md가 정본**이고, 명세와 목록이 일치하는지 테스트로 확인한다. 감지기 구현, `expected.yaml`의 `expected_signals`, 보고서가 이 ID를 참조한다 | W1 |
+| 규칙 목록 | `service/checks/detectors/catalog.py` | [규칙 점검 명세](05-rules.md)의 코드 표현. ID·이름·성격·판정 시점(지속 시간)·1차 심각도·관련 지침. **명세는 05-rules.md가 정본**이고, 명세와 목록이 일치하는지 테스트로 확인한다. 감지기 구현, `expected.yaml`의 `must_signals`, 보고서가 이 ID를 참조한다 | W1 |
 | 감지기 인터페이스 | `service/checks/detectors/` | `ClusterSnapshot` + 관측 기록 → 판정 결과(적발·관찰 중·통과·확인하지 못함)인 결정적 함수 + `@detector("S04")` 등록. 테스트는 `tests/fixtures/`의 스냅샷으로 돌린다 | W1 |
 | 에러 코드 | `core/error/` | 템플릿 방식 `ErrorCode`(HTTP 상태·코드·메시지) + `ServiceException`. 영역: X0 공통·X1 수집·X2 점검·X3 에이전트·LLM·X4 가드레일·X5 알림·X6 저장소·X9 시스템. 화면·CLI 종료 코드·Slack M8에 같은 코드를 쓴다. 진단 규칙(S04 등)과 섞지 않는다 | W1 |
 | LLM 생성 | `core/llm.py` | `build_chat_model(model) -> BaseChatModel`. 어디에 연결할지(`LLM_PROVIDER`, 엔드포인트·키·API 버전)는 설정, **어떤 모델을 쓸지는 에이전트 버전의 `config.py`**(역할별 모델)가 정한다. 모델마다 다른 API 제약은 `MODEL_OPTIONS` 표에 모은다 (예: `gpt-6.1-sol`은 temperature 고정, 도구 호출은 Responses API). 에이전트는 `bind_tools`·`with_structured_output`만 쓴다. 다른 제공사는 이 함수에 분기를 더해 붙인다 | W1 |

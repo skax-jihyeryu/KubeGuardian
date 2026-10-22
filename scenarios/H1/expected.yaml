@@ -1,0 +1,15 @@
+# H1 정답 파일 (기획서 §8.2). 부재 정상 기준선: 설정이 없어도 장애가 아닌 서비스.
+# ConfigMap·Secret 참조도 *_SERVICE_URL도 없고, localhost 주소는 같은 Pod 사이드카를 가리킨다 (05-rules §0.1.1, S04 제외).
+id: H1
+level: L1
+k8s_visible: true
+gate_path: C              # 장애 신호 없음. 개선 권고(H01 등)만 나올 수 있다
+must_signals: []
+allowed_signals: []
+forbidden_signals: ["*"]  # 장애 신호가 하나라도 나오면 오탐
+not_a_cause:
+  - "h1-noconfig에 ConfigMap·Secret이 없음"
+  - "h1-noconfig client의 localhost 주소(같은 Pod 사이드카)"
+root_cause: ""
+affected_services: []
+expected_top1: ""

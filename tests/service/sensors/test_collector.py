@@ -515,3 +515,13 @@ def test_collect_node_without_pod_kind_is_unknown():
 
     assert snapshot.items("Node") is None
     assert "Node" in snapshot.failed
+
+
+def test_init_container_keeps_restart_policy_for_sidecar_detection():
+    from service.sensors.collector import _pod_spec
+
+    spec = _pod_spec(
+        {"initContainers": [{"name": "side", "restartPolicy": "Always", "command": ["x"]}]}
+    )
+
+    assert spec["initContainers"] == [{"name": "side", "restartPolicy": "Always"}]

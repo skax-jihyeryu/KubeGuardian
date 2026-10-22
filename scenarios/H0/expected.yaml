@@ -3,7 +3,11 @@ id: H0
 level: L1
 k8s_visible: true
 gate_path: C              # 장애 신호 없음. 개선 권고(H01 TCP probe 등)만 나온다
-expected_signals: []
+must_signals: []
+allowed_signals: []
+forbidden_signals: ["*"]
+not_a_cause:
+  - "readinessProbe가 tcpSocket만 씀 (개선 권고)"
 root_cause: ""
 affected_services: []
 expected_top1: ""

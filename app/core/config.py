@@ -134,6 +134,7 @@ class KubeGuardianConfig(_Strict):
     schedule: str = Field(default="*/5 * * * *", pattern=r"^\S+( \S+){4}$")  # cron 5필드
     core_paths: dict[str, list[str]] = {}  # 사용자 기능 → 서비스 목록 (1차 심각도, 05-rules §3)
     external_hosts: list[str] = []  # S04 제외: 외부 호스트 허용 목록
+    required_config: dict[str, list[str]] = {}  # C05: 서비스 → 반드시 있어야 할 env 이름
     topology: TopologyConfig = TopologyConfig()
     api_scenarios: list[ApiScenario] = []
     app_apis: dict[str, list[str]] = {}  # query_app_api 허용 목록 (GET만)

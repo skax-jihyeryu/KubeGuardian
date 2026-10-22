@@ -197,7 +197,9 @@ _PROBES = ("readinessProbe", "livenessProbe", "startupProbe")
 
 
 def _container(c: Obj) -> Obj:
-    out = _pick(c, "name", "image", "ports", "env", "envFrom", "resources", *_PROBES)
+    out = _pick(
+        c, "name", "image", "restartPolicy", "ports", "env", "envFrom", "resources", *_PROBES
+    )
     for key in _PROBES:
         if key in out:
             out[key] = _probe(out[key])

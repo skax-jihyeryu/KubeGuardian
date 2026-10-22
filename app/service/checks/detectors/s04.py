@@ -20,7 +20,7 @@ from service.checks.detectors._common import (
 )
 from service.checks.detectors.base import DetectorContext, detector
 from service.model import Signal, TopologyEdge, Verdict
-from service.sensors.topology import build_topology
+from service.sensors.topology import LOOPBACK, build_topology
 
 RULE = "S04"
 KINDS = ("Service", "Deployment")
@@ -83,10 +83,18 @@ def _env_values(
 def _address(edge: TopologyEdge, env_values: dict[str, list[str]]) -> dict[str, Any]:
     out: dict[str, Any] = {"env": edge.env_name}
     # 이 엣지의 호스트를 가리키는 값만 쓴다. envFrom 값은 여기 없어 생략될 수 있다
-    values = {v for v in env_values.get(edge.env_name or "", []) if _points_to(v, edge.target)}
+    # 사이드카 엣지의 대상은 서비스 자신이라 값의 호스트(루프백)와 맞지 않는다
+    values = {
+        v
+        for v in env_values.get(edge.env_name or "", [])
+        if (_host(v) in LOOPBACK if edge.via else _points_to(v, edge.target))
+    }
     if len(values) == 1:
         out["value"] = values.pop()
-    return out | {"target": edge.target, "port": edge.port, "status": edge.status}
+    out |= {"target": edge.target, "port": edge.port, "status": edge.status}
+    if edge.via:
+        out["via"] = edge.via
+    return out
 
 
 def _host(value: str) -> str | None:

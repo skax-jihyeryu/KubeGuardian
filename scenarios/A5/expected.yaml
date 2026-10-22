@@ -3,7 +3,11 @@ id: A5
 level: L1                 # 신호 하나로 원인 확정
 k8s_visible: true         # gateway env의 서비스 주소만 보면 원인이 드러난다
 gate_path: A
-expected_signals: [S04]   # 선언 규칙이라 다음 점검에서 바로 적발 (05-rules §5)
+must_signals: [S04]   # 선언 규칙이라 다음 점검에서 바로 적발 (05-rules §5)
+allowed_signals: []
+forbidden_signals: []
+must_check:
+  config: "gateway 주소 env 값이 localhost"
 root_cause: "gateway의 하위 서비스 주소 설정(ADMIN_SERVICE_URL 등)이 localhost를 가리켜 gateway가 하위 서비스를 호출하지 못한다"
 affected_services: [gateway, front-chat, front-admin]
 expected_top1: "gateway의 서비스 주소 env가 localhost를 가리켜 로그인·채팅 등 모든 API가 실패"

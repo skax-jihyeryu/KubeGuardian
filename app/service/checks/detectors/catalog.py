@@ -101,6 +101,14 @@ _RULES = [
         ("critical", "warning"),
         ("failure-after-deploy",),
     ),
+    RuleSpec(
+        "C05",
+        "필수 설정 누락",
+        "declared",
+        None,
+        ("critical", "warning"),
+        ("failure-after-deploy", "service-unreachable"),
+    ),
     RuleSpec("H01", "readinessProbe 없음·TCP만", "declared", None, ("info",), ("partial-failure",)),
     RuleSpec("H02", "requests·limits 미설정", "declared", None, ("info",), ()),
 ]
