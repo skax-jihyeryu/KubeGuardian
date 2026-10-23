@@ -1,0 +1,61 @@
+# KubeGuardian runner: 클러스터 안에서 점검·조사를 실행하는 Pod (이슈 #72).
+# 평가 러너(Mac)가 `kubectl exec`로 `python -m runner_step ...`을 실행한다. 조회 전용 SA(rbac.yaml)를 쓴다.
+# 이미지는 minikube 노드에 직접 빌드한다(make kg-build). 점검 DB는 emptyDir라 Pod가 바뀌면 사라진다.
+# 전제: Secret kubeguardian-env, ConfigMap kubeguardian-config·kubeguardian-ca (make kg-up이 만든다).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kg-runner
+  namespace: kubeguardian
+  labels: { app: kg-runner }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: kg-runner }
+  template:
+    metadata:
+      labels: { app: kg-runner }
+    spec:
+      serviceAccountName: kubeguardian
+      securityContext:
+        fsGroup: 10001  # emptyDir(/data, /tmp)을 비root가 쓴다
+      containers:
+        - name: runner
+          image: kubeguardian:local
+          imagePullPolicy: Never
+          command: ["sleep", "infinity"]
+          envFrom:
+            - secretRef: { name: kubeguardian-env }
+          env:
+            - { name: KG_CONFIG_PATH, value: /etc/kubeguardian/config/kubeguardian.yaml }
+            - { name: KG_ACCOUNTS_DIR, value: /etc/kubeguardian/accounts }
+            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://phoenix.kubeguardian.svc:6006/v1/traces" }
+            - { name: SSL_CERT_FILE, value: /etc/kubeguardian/ca/ca-bundle.pem }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          volumeMounts:
+            - { name: config, mountPath: /etc/kubeguardian/config, readOnly: true }
+            - { name: ca, mountPath: /etc/kubeguardian/ca, readOnly: true }
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+            - { name: test-user, mountPath: /etc/kubeguardian/accounts/kg-test-user, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: kubeguardian-config }
+        - name: ca
+          configMap: { name: kubeguardian-ca }
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        # 증상 시나리오(login 단계)용 테스트 계정. Secret이 없어도 Pod는 뜬다.
+        - name: test-user
+          secret: { secretName: kg-test-user, optional: true }

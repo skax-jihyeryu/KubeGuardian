@@ -3,6 +3,7 @@
 평가 러너, 채점, 리포트. `kg` 점검 흐름과 SQLite 결과만 사용한다.
 
 - `make eval S=<ID>`: 시나리오 하나 (주입 → 증상 확인 → 점검·게이트 → 채점 → 원복). 기본은 규칙만이고, AI 조건은 `make eval S=A5 ARGS="--condition ai"` (아래 "AI 조건")
+- `make eval S=<ID> ARGS="--in-cluster"`: 점검·조사를 클러스터 안 runner Pod에서 실행 (아래 "클러스터 안 실행")
 - `make eval`: 전체 시나리오 × 2조건 × 3회 (W2 이후)
 - 결과는 `eval/history/<시각>-<ID>/`에 `result.json`과 점검 DB로 쌓는다 (커밋하지 않음)
 
@@ -47,6 +48,22 @@
 - `result.json`의 `ai` 블록: `status`, `conclusion`, `expected_top1`, `judge`(match·reason, 채점 실패는 match null), `usage`(토큰·도구 호출·초), `trace_id`(Phoenix에서 찾는 키, 추적이 꺼져 있으면 null), `passed`, `conclusion_supported`, `demoted`(근거 검증에서 강등된 항목), `fail_reason`(실패 사유), `invalid`(무효 사유)
 - history에는 `report.json`(보고서 전체)과 `steps.json`(조사 단계 기록)을 저장한다. Phoenix 추적은 `.env`의 `OTEL_EXPORTER_OTLP_ENDPOINT`로 켜지고 port-forward가 필요하다
 - 러너가 로컬에서 돌면 클러스터 DNS를 찾지 못해 HTTP 도구(probe·run_api_scenario·query_app_api)가 실패한다. k8s 조회 도구는 동작한다
+
+### 클러스터 안 실행 (`--in-cluster`)
+
+로컬(Mac)에서 점검하면 클러스터 주소(`<svc>.dev.svc`)를 못 찾아 증상 감지(API 시나리오)와 AI의 HTTP 도구가 실패한다. `--in-cluster`는 **점검(반복 점검 포함)과 AI 조사만** kubeguardian 네임스페이스의 runner Pod에서 실행한다. 주입·증상 확인·원복·judge 채점은 Mac에서 그대로 한다 (쓰기는 Mac의 사용자 kubeconfig로만, runner는 조회 전용).
+
+```bash
+make kg-up                                          # 이미지 빌드 + runner Pod (설정·코드를 바꿀 때마다 다시)
+make eval S=A1 ARGS="--in-cluster"                  # 규칙 조건
+make eval S=A1 ARGS="--in-cluster --condition ai"   # AI 조건
+```
+
+- 러너가 `kubectl exec <pod> -- python -m runner_step check|investigate ... --json`을 부르고, Pod는 결과를 stdout 한 줄 JSON으로 낸다 (`runner_step.py`). 점검 DB는 Pod의 `/data/<실행 이름>/kg.db`에 쌓이고, 실행이 끝나면 `kubectl cp`로 `eval/history/<실행 이름>/kg.db`에 가져온다. `result.json`·`report.json`·`steps.json` 형식은 로컬 실행과 같고, `result.json`에 `in_cluster.pod`가 더해진다
+- 점검 설정은 ConfigMap `kubeguardian-config`(`make kg-up` 때의 `kubeguardian.yaml`)를 쓴다. `--config`는 Mac 쪽 읽기에만 쓰이므로 설정을 바꾸면 `make kg-up`을 다시 한다
+- 무효(2): runner Pod가 없거나 실행 중 **Pod가 바뀜**(emptyDir DB가 사라져 지속 시간 규칙을 이어 볼 수 없음), exec 비정상 종료, 출력이 JSON이 아님. 사유는 마스킹해 `result.json`의 `invalid`에 남는다. 점검 DB를 가져오지 못하면 `db_fetch_failed`에 남는다
+- `ai.trace_id`는 Pod 안 조사의 추적 id다. 추적은 클러스터 안 주소로 Phoenix에 보내므로 port-forward 없이 남는다
+- 조사 도구(`probe`·`run_api_scenario`·`query_app_api`)가 클러스터 주소로 동작한다 (위 AI 조건의 "로컬이면 실패" 제약이 없다)
 
 ### 결과 (`result.json`)
 

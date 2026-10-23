@@ -5,7 +5,7 @@
 점검은 같은 DB로 간격(기본 300초)마다 반복하고, 기대 신호를 모두 적발하거나
 상한(기본 2700초)에 닿으면 마지막 점검으로 채점한다. 기대 신호가 없는 시나리오는 한 번만 점검한다.
 실행: uv run python eval/run.py <시나리오 ID> [--config kubeguardian.yaml]
-      [--check-interval 300] [--check-max 2700] [--condition rules|ai]
+      [--check-interval 300] [--check-max 2700] [--condition rules|ai] [--in-cluster]
 종료 코드: 0 통과, 1 실패, 2 무효(증상이 나지 않음·원복 실패 등 실행 자체를 믿을 수 없음)
 결과는 eval/history/<시각>-<ID>/에 result.json과 점검 DB로 남긴다 (커밋하지 않음).
 """
@@ -29,11 +29,13 @@ import yaml  # noqa: E402
 from core.accounts import load_accounts  # noqa: E402
 from core.config import get_setting, load_kubeguardian_config  # noqa: E402
 from core.db import create_db_engine  # noqa: E402
+from core.guard.redact import redact_text  # noqa: E402
 from core.http import NamespacedHttp  # noqa: E402
 from core.k8s import K8sClient  # noqa: E402
 from core.llm import build_chat_model  # noqa: E402
 from core.tracing import setup_tracing  # noqa: E402
 from judge import JUDGE_MODEL, JudgeResult, judge_top1  # noqa: E402
+from remote import RemoteError, RemoteRunner  # noqa: E402
 from scoring import expected_record, score  # noqa: E402
 from service.agent.base import AgentResult  # noqa: E402
 from service.pipeline.check import run_check  # noqa: E402
@@ -207,6 +209,7 @@ def run(
     interval_s: int,
     max_s: int,
     condition: str = "rules",
+    in_cluster: bool = False,
 ) -> int:
     expected = yaml.safe_load((SCENARIOS / scenario / "expected.yaml").read_text(encoding="utf-8"))
     config = load_kubeguardian_config(config_path)
@@ -221,6 +224,17 @@ def run(
     }
     exit_code = EXIT_INVALID
 
+    # --in-cluster: 점검·조사는 runner Pod에서 한다. 주입 전에 Pod부터 확인한다 (없으면 주입 안 함)
+    remote: RemoteRunner | None = None
+    if in_cluster:
+        remote = RemoteRunner(out_dir.name)
+        try:
+            pod = remote.start()
+            result["in_cluster"] = {"pod": pod, **remote.describe()}
+        except RemoteError as e:
+            result["invalid"] = f"runner Pod 확인 실패: {e}"
+            return finish(result, out_dir, exit_code)
+
     # 주입 전에 정상 기준선을 확인한다. 이미 깨져 있으면 증상 확인이 다른 원인으로 통과할 수 있다
     ok, out = until_ok("H0", "verify_symptom.sh", 60)
     log("baseline", out)
@@ -228,6 +242,7 @@ def run(
         result["invalid"] = "주입 전 정상 기준선(H0) 확인 실패"
         return finish(result, out_dir, exit_code)
 
+    check_started = False  # 점검을 한 번이라도 시작했을 때만 Pod의 DB를 가져온다
     try:
         injected_at = time.monotonic()
         r = sh(scenario, "inject.sh")
@@ -243,11 +258,13 @@ def run(
             return exit_code
 
         # 같은 DB로 반복 점검한다. 지속 시간 규칙(W02 등)은 앞 점검의 관찰 기록이 있어야 적발된다
-        reader = K8sClient.from_config(config)
-        engine = create_db_engine(str(out_dir / "kg.db"))
+        if remote is None:
+            reader = K8sClient.from_config(config)
+            engine = create_db_engine(str(out_dir / "kg.db"))
         result["check_interval_s"] = interval_s
         result["check_max_s"] = max_s
         result["checks"] = []
+        check_started = True
 
         def on_check(c: dict) -> None:
             # 바로 쌓아 둔다. 반복 중 예외가 나도 그때까지의 점검이 result.json에 남는다
@@ -259,7 +276,9 @@ def run(
             )
 
         outcome, checks, first = check_repeatedly(
-            lambda: run_check(
+            remote.check
+            if remote
+            else lambda: run_check(
                 reader,
                 config,
                 engine,
@@ -302,13 +321,22 @@ def run(
         )
         passed = s["passed"]
         if condition == "ai":
+            run_id = f"eval-{scenario}-{started:%Y%m%dT%H%M%S}"
+            remote_trace: dict = {}
+
+            def investigate_remote() -> AgentResult | None:
+                res, remote_trace["id"] = remote.investigate(outcome.run_id, run_id)
+                return res
+
             ai, report, steps = investigate_and_judge(
                 expected,
-                investigate=lambda: run_investigation(
+                investigate=investigate_remote
+                if remote
+                else lambda: run_investigation(
                     outcome,
                     config,
                     engine,
-                    run_id=f"eval-{scenario}-{started:%Y%m%dT%H%M%S}",
+                    run_id=run_id,
                     k8s=reader,
                     http=target_http(config),
                 ),
@@ -316,6 +344,8 @@ def run(
                     conclusion, expected, build_chat_model(JUDGE_MODEL)
                 ),
             )
+            if remote:
+                ai["trace_id"] = remote_trace.get("id")  # Pod 안 추적의 id (Mac의 span이 아니다)
             result["ai"] = ai
             save_ai_artifacts(out_dir, report, steps)
             log(
@@ -340,6 +370,15 @@ def run(
             recovered, out = until_ok("H0", "verify_symptom.sh", 180)
             log("recover", out)
         result["recovered"] = recovered
+        # 원복을 먼저 끝낸 뒤 DB를 가져온다. 가져오기가 어떻게 실패해도 원복은 이미 끝나 있다
+        if remote and check_started:
+            try:
+                remote.fetch(out_dir)
+            except Exception as e:
+                result["db_fetch_failed"] = redact_text(f"{type(e).__name__}: {e}")
+                log("fetch", f"점검 DB를 가져오지 못함: {result['db_fetch_failed']}")
+            if remote.db_incomplete:
+                result["db_incomplete"] = True
         if not recovered:
             result["invalid"] = result.get("invalid") or "원복 확인 실패"
             exit_code = EXIT_INVALID
@@ -372,6 +411,11 @@ def main() -> int:
         "--check-max", type=int, default=2700, help="반복 점검 상한, 주입 시각 기준 (초)"
     )
     p.add_argument(
+        "--in-cluster",
+        action="store_true",
+        help="점검·조사를 kubeguardian 네임스페이스의 runner Pod에서 실행 (make kg-up 필요)",
+    )
+    p.add_argument(
         "--condition", choices=["rules", "ai"], default="rules", help="rules: 규칙만, ai: 조사 포함"
     )
     args = p.parse_args()
@@ -388,6 +432,7 @@ def main() -> int:
             args.check_interval,
             args.check_max,
             args.condition,
+            args.in_cluster,
         )
     except Exception as e:  # 설정 파일 오류 등 주입 전에 난 오류
         print(f"무효: {type(e).__name__}: {e}", file=sys.stderr)

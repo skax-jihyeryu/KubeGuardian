@@ -60,3 +60,10 @@ def test_permission_error_is_reported_with_secret_and_key(tmp_path):
         path.chmod(0o600)
 
     assert "kg-test-user/id" in e.value.detail and "PermissionError" in e.value.detail
+
+
+def test_empty_secret_directory_is_not_an_account(tmp_path):
+    """optional Secret이 없으면 kubelet이 빈 디렉터리를 마운트한다. 계정 없음이어야 한다."""
+    _secret(tmp_path, "kg-test-user")
+
+    assert load_accounts(tmp_path) == {}
