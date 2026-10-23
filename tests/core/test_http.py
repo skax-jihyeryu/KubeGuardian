@@ -107,7 +107,7 @@ def test_account_reads_injected_test_account():
     http = NamespacedHttp("dev", accounts={"kg-test-user": {"username": "u", "password": "p"}})
 
     assert http.account("kg-test-user") == {"username": "u", "password": "p"}
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError, match="테스트 계정 Secret other 없음"):
         http.account("other")
 
 

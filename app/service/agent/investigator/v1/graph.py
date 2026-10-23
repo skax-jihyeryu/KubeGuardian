@@ -17,7 +17,12 @@ from core.guard.validate import validate_report
 from service.agent._common.prompts import load_prompt
 from service.agent._common.structured import invoke_structured
 from service.agent._common.tool_adapter import to_langchain_tool, wrap_tool_output
-from service.agent.investigator.v1.context import load_knowledge, render_board, render_facts
+from service.agent.investigator.v1.context import (
+    load_knowledge,
+    render_board,
+    render_facts,
+    render_symptoms,
+)
 from service.agent.investigator.v1.state import InvestigationState, TriageResult
 from service.model import Report
 from service.model.report import Fact
@@ -65,6 +70,7 @@ def build_graph(agent: "InvestigatorV1"):
     def load_context(state: InvestigationState) -> InvestigationState:
         board = state["request"].signal_board
         seen = [s.evidence_id for ss in board.by_service.values() for s in ss if s.evidence_id]
+        seen += [x.evidence_id for x in state["request"].symptoms if x.evidence_id]
         return {"seen": seen, "limited": False, "report_attempts": 0, "status": "running"}
 
     def preliminary(state: InvestigationState) -> InvestigationState:
@@ -73,7 +79,12 @@ def build_graph(agent: "InvestigatorV1"):
             calls = [("get_topology", {}), ("get_events", {"since_minutes": EVENTS_MINUTES})]
             scenario = tools.get("run_api_scenario")
             if state["request"].gate_path == "B" and scenario is not None:
-                calls += [("run_api_scenario", {"name": n}) for n in scenario.scenario_names[:1]]
+                # 점검에서 실패한 시나리오를 먼저 다시 돌린다. 없으면(사용자 증상만) 첫 시나리오
+                failed = [x.scenario for x in state["request"].symptoms]
+                calls += [
+                    ("run_api_scenario", {"name": n})
+                    for n in (failed or scenario.scenario_names)[:1]
+                ]
             facts = [f for name, args in calls if (f := call_tool(name, args))]
             s.evidence_ids = [i for f in facts for i in f.evidence_ids]
         return {"facts": facts, "seen": state["seen"] + s.evidence_ids}
@@ -86,6 +97,7 @@ def build_graph(agent: "InvestigatorV1"):
                 gate_path=req.gate_path,
                 board=render_board(req.signal_board),
                 facts=render_facts(state["facts"]),
+                symptoms=render_symptoms(req.symptoms),
                 symptom=req.user_symptom or "(없음)",
             )
             result = invoke_structured(

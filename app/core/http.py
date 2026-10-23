@@ -37,6 +37,16 @@ class HttpCallError(Exception):
     """HTTP 호출 실패 (연결 오류·시간 초과). 메시지는 사유 한 줄이다."""
 
 
+class AccountNotFoundError(KeyError):
+    """주입되지 않은 테스트 계정. 메시지에 계정 값은 없고 Secret 이름만 있다.
+
+    이름에 `Key`를 두지 않는다: 마스킹이 `KeyError: ...`의 값을 비밀값으로 가린다.
+    """
+
+    def __str__(self) -> str:
+        return str(self.args[0])
+
+
 @dataclass(frozen=True)
 class HttpResponse:
     status: int
@@ -99,7 +109,7 @@ class NamespacedHttp:
     def account(self, secret_name: str) -> dict[str, str]:
         """시나리오용 테스트 계정 (Secret으로 주입). 없으면 KeyError."""
         if secret_name not in self._accounts:
-            raise KeyError(f"테스트 계정이 주입되지 않음: {secret_name}")
+            raise AccountNotFoundError(f"테스트 계정 Secret {secret_name} 없음")
         return dict(self._accounts[secret_name])
 
     def _url(self, service: str | None, pod_ip: str | None, port: int, path: str) -> str:

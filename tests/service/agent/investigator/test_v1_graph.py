@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from core.guard.budget import Budget, BudgetTracker
 from service.agent.base import RunContext
 from service.agent.investigator.v1.agent import InvestigatorV1
-from service.model import Evidence, InvestigationRequest, Signal, SignalBoard
+from service.model import Evidence, InvestigationRequest, Signal, SignalBoard, Symptom
 from service.tools.base import Tool, ToolContext, ToolObservation
 
 NOW = datetime(2026, 10, 20, 1, 0, tzinfo=UTC)
@@ -303,3 +303,38 @@ def test_path_a_preliminary_does_not_run_scenario():
     sources = [e.source for e in ctx.evidence.saved]
     # 사전 확인은 토폴로지·이벤트뿐
     assert len(sources) == 2 and "GET run_api_scenario" not in sources
+
+
+def test_path_b_reruns_the_failed_scenario_and_shows_it_in_triage():
+    scenario_tool = _fake_tool("run_api_scenario")
+    scenario_tool.scenario_names = ["login-chat", "second"]  # 두 번째만 실패했다
+    failed = Symptom(
+        scenario="second",
+        status="failed",
+        failed_step=2,
+        summary="시나리오 second: 3단계 중 2단계 실패 (call /x → 500)",
+        severity="critical",
+        evidence_id="ev-9",
+    )
+    req = InvestigationRequest(
+        trigger="check", gate_path="B", signal_board=SignalBoard(), symptoms=[failed]
+    )
+    llm = ScriptedLLM(script=[TRIAGE, AIMessage(content="조사 완료"), _report(["ev-9"])], calls=[])
+    ctx = RunContext(
+        run_id="r1",
+        namespace="dev",
+        evidence=MemoryEvidence(),
+        budget=BudgetTracker(Budget()),
+        now=lambda: NOW,
+    )
+
+    result = InvestigatorV1(
+        llm_factory=lambda model: llm, tools=[*TOOLS, scenario_tool], ctx=ctx
+    ).run(req)
+
+    assert result.status == "done", result.error
+    assert ctx.evidence.saved[2].subject == "dev/Service/second"  # 첫 시나리오가 아니라 실패한 것
+    triage_prompt = llm.calls[0][-1].content
+    assert "second" in triage_prompt and "2단계" in triage_prompt and "ev-9" in triage_prompt
+    assert "증상(API 시나리오 실패 또는 사용자 입력)" in triage_prompt
+    assert result.report.evidence_ids == ["ev-9"]  # 점검 때의 증상 근거는 인용할 수 있다
