@@ -44,3 +44,6 @@ node_modules/
 
 # 로컬 설정 (예시는 kubeguardian.example.yaml)
 kubeguardian.yaml
+
+# 로컬 superpowers 계획·설계 문서
+docs/superpowers/
