@@ -21,12 +21,14 @@ from typing import Any
 
 from sqlalchemy import Engine
 
+from core.accounts import load_accounts
 from core.config import KubeGuardianConfig, get_setting, load_kubeguardian_config
 from core.db import create_db_engine
 from core.error.service_exception import ErrorCode, ServiceException
 from core.guard.redact import redact_text
+from core.http import NamespacedHttp
 from service.checks.signal_board import build_signal_board
-from service.model import ClusterSnapshot, GateResult, Signal
+from service.model import ClusterSnapshot, GateResult, Signal, Symptom
 from service.pipeline.check import CheckOutcome, run_check
 from service.sensors.collector import KubeReader
 
@@ -68,6 +70,7 @@ def check_payload(out: CheckOutcome) -> dict:
         "gate": out.gate.model_dump(mode="json"),
         "signals": [s.model_dump(mode="json") for s in out.signals],
         "snapshot_failed": dict(out.snapshot.failed),
+        "symptoms": [x.model_dump(mode="json") for x in out.symptoms],
     }
 
 
@@ -83,12 +86,26 @@ def load_outcome(db: Path, run_id: int) -> CheckOutcome:
         signals=signals,
         gate=GateResult.model_validate(data["gate"]),
         board=build_signal_board(signals),
+        symptoms=[Symptom.model_validate(x) for x in data["symptoms"]],
+    )
+
+
+def _account_http(config: KubeGuardianConfig) -> NamespacedHttp:
+    """테스트 계정(KG_ACCOUNTS_DIR, Secret 마운트)을 넣은 HTTP 클라이언트. 계정이 없으면 빈 계정."""
+    return NamespacedHttp(
+        config.target.namespace, accounts=load_accounts(get_setting().KG_ACCOUNTS_DIR)
     )
 
 
 def do_check(args: argparse.Namespace, make_reader: ReaderFactory) -> dict:
     config = load_kubeguardian_config(args.config)
-    out = run_check(make_reader(config), config, _engine(Path(args.db)), trigger="check")
+    out = run_check(
+        make_reader(config),
+        config,
+        _engine(Path(args.db)),
+        trigger="check",
+        http=_account_http(config),
+    )
     full = check_payload(out) | {"snapshot": out.snapshot.model_dump(mode="json")}
     outcome_file(Path(args.db), out.run_id).write_text(
         json.dumps(scrub(full), ensure_ascii=False), encoding="utf-8"
@@ -101,7 +118,6 @@ def do_investigate(
 ) -> dict:
     from opentelemetry import trace
 
-    from core.http import NamespacedHttp
     from core.llm import build_chat_model
     from core.tracing import setup_tracing
     from service.pipeline.investigate import run_investigation
@@ -118,7 +134,7 @@ def do_investigate(
             run_id=args.run_id,
             llm_factory=llm_factory or build_chat_model,
             k8s=make_reader(config),
-            http=NamespacedHttp(config.target.namespace),
+            http=_account_http(config),
         )
         ctx = span.get_span_context()
         trace_id = format(ctx.trace_id, "032x") if ctx.is_valid else None

@@ -18,7 +18,7 @@ SIGNAL = {
 }
 
 
-def _check_payload(run_id=1, detected=True, failed=None):
+def _check_payload(run_id=1, detected=True, failed=None, symptoms=None):
     signals = [SIGNAL] if detected else []
     return {
         "run_id": run_id,
@@ -26,6 +26,7 @@ def _check_payload(run_id=1, detected=True, failed=None):
         "gate": {"path": "A" if detected else "C", "reason": "적발: S01" if detected else ""},
         "signals": signals,
         "snapshot_failed": failed or {},
+        "symptoms": symptoms or [],
     }
 
 
@@ -254,8 +255,9 @@ def _boom(*a, **k):
     raise AssertionError("--in-cluster는 Mac에서 클러스터를 읽지 않는다")
 
 
-def _stub_outcome(detected):
-    return _runner(FakeKubectl(execs=[_check_payload(1, detected=detected)])).check()
+def _stub_outcome(detected, symptoms=None):
+    payload = _check_payload(1, detected=detected, symptoms=symptoms)
+    return _runner(FakeKubectl(execs=[payload])).check()
 
 
 def test_run_in_cluster_h0_passes_and_fetches_db(tmp_path, monkeypatch):
@@ -374,3 +376,30 @@ def test_describe_reports_image_id_and_config_resource_version():
         "image_id": "docker://sha256:abc",
         "config_resource_version": "4242",
     }
+
+
+UNKNOWN = {"scenario": "chat", "status": "unknown", "summary": "조회 실패: Service 목록"}
+FAILED = {"scenario": "chat", "status": "failed", "failed_step": 2, "summary": "로그인 500"}
+
+
+def test_check_restores_symptoms_with_status_from_exec_json():
+    fake = FakeKubectl(execs=[_check_payload(symptoms=[FAILED, UNKNOWN])])
+
+    outcome = _runner(fake).check()
+
+    assert [(x.scenario, x.status) for x in outcome.symptoms] == [
+        ("chat", "failed"),
+        ("chat", "unknown"),
+    ]
+    assert outcome.symptoms[0].failed_step == 2
+
+
+def test_unknown_symptom_from_the_pod_makes_the_in_cluster_run_invalid(tmp_path, monkeypatch):
+    def hook(stub):
+        stub.outcomes = lambda n: _stub_outcome(detected=False, symptoms=[UNKNOWN])
+
+    code, result, _ = _run_in_cluster(tmp_path, monkeypatch, "H0", stub_hook=hook)
+
+    assert code == 2
+    assert result["unknown_symptoms"] == ["chat: 조회 실패: Service 목록"]
+    assert result["invalid"].startswith("증상 감지 확인하지 못함")

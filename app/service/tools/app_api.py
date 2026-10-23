@@ -20,7 +20,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from core.config import ApiScenario, ApiScenarioStep, CallStep, LoginStep, ResponseCheck
+from core.config import (
+    SCENARIO_NAME_PATTERN,
+    ApiScenario,
+    ApiScenarioStep,
+    CallStep,
+    LoginStep,
+    ResponseCheck,
+)
 from core.error.service_exception import ErrorCode, ServiceException
 from core.http import HttpCallError, HttpResponse
 from service.tools._common import (
@@ -47,7 +54,10 @@ def _port(ctx: ToolContext, service: str, port: int | None = None) -> int:
     if svc is None:
         raise ServiceException(ErrorCode.NOT_FOUND, f"Service {service}이 대상 네임스페이스에 없음")
     ensure_in_namespace(svc)
-    return port or service_port(svc)
+    try:
+        return port or service_port(svc)
+    except ValueError as e:  # 포트가 없는 Service도 연결할 대상이 없는 것이다
+        raise ServiceException(ErrorCode.NOT_FOUND, str(e)) from e
 
 
 class QueryAppApi(Tool):
@@ -97,9 +107,7 @@ class RunApiScenario(Tool):
     failure_kind = "app_api"
 
     class Input(BaseModel):
-        name: str = Field(
-            pattern=r"^[A-Za-z0-9_-]{1,64}$", description="설정에 등록한 시나리오 이름"
-        )
+        name: str = Field(pattern=SCENARIO_NAME_PATTERN, description="설정에 등록한 시나리오 이름")
 
     def __init__(self, scenarios: list[ApiScenario]):
         self._scenarios = {s.name: s for s in scenarios}
@@ -170,7 +178,14 @@ def _run_step(
     # call의 기본 메서드는 POST다 (예시 설정의 /agent/invoke). 조회 단계는 method: GET을 적는다
     method = "POST" if isinstance(spec, LoginStep) else spec.method
     out: dict[str, Any] = {"action": action, "via": spec.via, "path": spec.path, "method": method}
-    port = _port(ctx, spec.via, spec.port)
+    try:
+        port = _port(ctx, spec.via, spec.port)
+    except ServiceException as e:
+        # Service 목록은 읽었는데 대상 Service·포트가 없다 = 사용자 요청이 갈 곳이 없다 (실패 단계).
+        # 목록 수집 실패(COLLECT_FAILED)·ExternalName(ValueError)은 판단할 수 없어 그대로 올린다
+        if e.error_code is not ErrorCode.NOT_FOUND:
+            raise
+        return {**out, "status": None, "latency_ms": None, "ok": False, "error": e.detail}, None
     send = {"service": spec.via, "port": port, "path": spec.path, "timeout_s": spec.timeout_s}
     try:
         if isinstance(spec, LoginStep):

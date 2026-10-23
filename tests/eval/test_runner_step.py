@@ -177,3 +177,80 @@ def test_main_output_is_scrubbed_before_printing(tmp_path, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert code == 0
     assert "sk-abcdefghijklmnopqrstuvwx" not in out
+
+
+ACCOUNTS = {"kg-test-user": {"username": "u", "password": "p"}}
+
+
+def _capture_run_check(monkeypatch, symptoms=()):
+    """run_check가 받은 http를 기록하고, 결과에는 지정한 증상을 넣는다."""
+    from dataclasses import replace
+
+    real = runner_step.run_check
+    seen: dict = {}
+
+    def fake(*args, **kwargs):
+        seen.update(kwargs)
+        return replace(real(*args, **{**kwargs, "http": None}), symptoms=list(symptoms))
+
+    monkeypatch.setattr(runner_step, "run_check", fake)
+    monkeypatch.setattr(runner_step, "load_accounts", lambda directory: ACCOUNTS)
+    return seen
+
+
+def test_check_passes_account_http_to_run_check(tmp_path, capsys, monkeypatch):
+    seen = _capture_run_check(monkeypatch)
+
+    _check(tmp_path, capsys, "s01/detected")
+
+    assert seen["http"] is not None
+    assert seen["http"]._accounts == ACCOUNTS
+    assert seen["http"].namespace == "dev"
+
+
+def test_check_prints_symptoms_and_investigate_restores_them(tmp_path, capsys, monkeypatch):
+    from service.model import Symptom
+
+    symptoms = [
+        Symptom(scenario="chat", status="failed", failed_step=2, summary="로그인 500"),
+        Symptom(scenario="upload", status="unknown", summary="계정 없음"),
+    ]
+    _capture_run_check(monkeypatch, symptoms)
+
+    _, out, db = _check(tmp_path, capsys, "s01/detected")
+
+    data = json.loads(out)
+    assert [(x["scenario"], x["status"]) for x in data["symptoms"]] == [
+        ("chat", "failed"),
+        ("upload", "unknown"),
+    ]
+    assert runner_step.load_outcome(db, data["run_id"]).symptoms == symptoms
+
+
+def test_investigate_passes_account_http_to_run_investigation(tmp_path, capsys, monkeypatch):
+    import service.pipeline.investigate as investigate_mod
+
+    _, out, db = _check(tmp_path, capsys, "s04/localhost")
+    seen: dict = {}
+    monkeypatch.setattr(runner_step, "load_accounts", lambda directory: ACCOUNTS)
+    monkeypatch.setattr(
+        investigate_mod, "run_investigation", lambda *a, **kw: seen.update(kw) or None
+    )
+
+    runner_step.main(
+        [
+            "investigate",
+            "--config",
+            _config(tmp_path),
+            "--db",
+            str(db),
+            "--check-run-id",
+            str(json.loads(out)["run_id"]),
+            "--run-id",
+            "eval-x",
+            "--json",
+        ],
+        make_reader=_reader("s04/localhost"),
+    )
+
+    assert seen["http"]._accounts == ACCOUNTS

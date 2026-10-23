@@ -18,6 +18,8 @@
 | 채점 | `scoring.py` | — |
 | 원복 | `reset.sh` 후 H0 `verify_symptom.sh`(로그인 → 채팅)로 복구 확인 | 무효 |
 
+증상 감지(API 시나리오)는 클러스터 DNS(`<service>.<namespace>.svc`)로 호출한다. `--in-cluster` 없이 Mac에서 돌리면 증상 감지가 클러스터 DNS에 닿지 않아 무효이거나 경로가 어긋난다. 클러스터 안에서 실행한다.
+
 종료 코드(`run.py` 기준): 0 통과, 1 실패, 2 무효. 예외(설정·kubeconfig·저장소 오류)도 무효다. `make eval`로 실행하면 make가 실패를 모두 2로 바꾸므로, 결과는 `result.json`의 `exit_code`·`invalid`로 본다.
 
 ### 반복 점검

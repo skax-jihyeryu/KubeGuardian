@@ -16,7 +16,7 @@ from typing import Any
 from core.guard.redact import redact_text
 from runner_step import scrub
 from service.agent.base import AgentResult
-from service.model import GateResult, Signal
+from service.model import GateResult, Signal, Symptom
 
 NAMESPACE = "kubeguardian"
 SELECTOR = "app=kg-runner"
@@ -72,13 +72,14 @@ class RemoteRunner:
         return {"image_id": image.stdout.strip(), "config_resource_version": cm.stdout.strip()}
 
     def check(self) -> Any:
-        """점검 한 번. check_repeatedly가 받는 outcome 모양(run_id·signals·gate·snapshot.failed)."""
+        """점검 한 번. check_repeatedly가 받는 outcome 모양 (증상 포함)."""
         data = self._exec("check", "--db", self.db_path)
         return SimpleNamespace(
             run_id=data["run_id"],
             signals=[Signal.model_validate(s) for s in data["signals"]],
             gate=GateResult.model_validate(data["gate"]),
             snapshot=SimpleNamespace(failed=data["snapshot_failed"]),
+            symptoms=[Symptom.model_validate(x) for x in data["symptoms"]],
         )
 
     def investigate(self, check_run_id: int, run_id: str) -> tuple[AgentResult | None, str | None]:

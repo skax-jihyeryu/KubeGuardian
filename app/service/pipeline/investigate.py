@@ -13,12 +13,13 @@ from sqlalchemy import Engine
 from core.config import KubeGuardianConfig
 from core.db import EvidenceStore
 from core.guard.budget import BudgetTracker
+from core.guard.redact import redact_text
 from core.llm import build_chat_model
 from core.tracing import setup_tracing
 from service.agent import registry
 from service.agent.base import AgentResult, RunContext
 from service.model import InvestigationRequest, Topology, Trigger
-from service.pipeline.check import CheckOutcome
+from service.pipeline.check import CheckOutcome, clean_symptom
 from service.sensors.topology import build_topology
 from service.tools import build_tools
 
@@ -34,13 +35,15 @@ def build_request(
 ) -> InvestigationRequest | None:
     if outcome.gate.path == "C":
         return None
+    symptom = clean_symptom(symptom)
     topology = build_topology(outcome.snapshot, config) or Topology()
     return InvestigationRequest(
         trigger=trigger,
         gate_path=outcome.gate.path,
         signal_board=outcome.board,
         topology=topology,
-        user_symptom=symptom,
+        symptoms=outcome.gate.symptoms,
+        user_symptom=redact_text(symptom) if symptom else None,
     )
 
 
@@ -55,9 +58,10 @@ def run_investigation(
     k8s: Any = None,
     http: Any = None,
     agent_key: str = AGENT_KEY,
+    symptom: str | None = None,
 ) -> AgentResult | None:
     """게이트가 열렸으면 조사한다. 경로 C면 None."""
-    request = build_request(outcome, config, trigger=trigger)
+    request = build_request(outcome, config, trigger=trigger, symptom=symptom)
     if request is None:
         return None
     setup_tracing()

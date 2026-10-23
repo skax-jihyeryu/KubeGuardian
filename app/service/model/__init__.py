@@ -5,7 +5,7 @@ InvestigationRequest, Issue, Hypothesis, Report.
 """
 
 from service.model.evidence import Evidence, EvidenceKind
-from service.model.gate import GatePath, GateResult
+from service.model.gate import GatePath, GateResult, Symptom
 from service.model.investigation import InvestigationRequest, Trigger
 from service.model.report import (
     CheckedScope,
@@ -41,6 +41,7 @@ __all__ = [
     "Severity",
     "Signal",
     "SignalBoard",
+    "Symptom",
     "Topology",
     "TopologyEdge",
     "Trigger",
