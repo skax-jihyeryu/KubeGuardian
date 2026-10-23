@@ -19,11 +19,14 @@ def load_accounts(directory: str | Path) -> dict[str, dict[str, str]]:
         # `..data`·`..<타임스탬프>`는 k8s 볼륨 마운트가 만드는 메타 항목이다
         if secret.name.startswith("..") or not secret.is_dir():
             continue
-        accounts[secret.name] = {
+        values = {
             f.name: _value(f)
             for f in sorted(secret.iterdir())
             if not f.name.startswith("..") and f.is_file()
         }
+        # optional Secret이 없으면 kubelet이 빈 디렉터리를 마운트한다. 그건 계정이 없는 것이다
+        if values:
+            accounts[secret.name] = values
     return accounts
 
 
