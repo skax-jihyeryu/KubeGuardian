@@ -47,6 +47,8 @@ class ScriptedLLM(BaseChatModel):
     def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
         self.calls.append(list(messages))
         item = self.script.pop(0)
+        if callable(item):
+            item = item()  # 시계를 움직이는 등 응답 직전에 할 일이 있는 각본
         if isinstance(item, Exception):
             raise item
         msg = item if isinstance(item, AIMessage) else AIMessage(content=item)
@@ -64,6 +66,8 @@ def _fake_tool(tool_name: str):
             since_minutes: int | None = None
 
         def collect(self, args, ctx: ToolContext) -> ToolObservation:
+            if args.name == "boom":
+                raise RuntimeError("조회 실패")
             return ToolObservation(
                 kind="resource",
                 subject=f"dev/Service/{args.name or 'all'}",
@@ -177,10 +181,10 @@ def test_graph_runs_end_to_end_and_report_cites_saved_evidence():
     assert [f.evidence_ids for f in result.report.preliminary_facts] == [["ev-1"], ["ev-2"]]
 
 
-def test_tool_budget_stops_loop_and_marks_incomplete():
-    # 도구 2회(문제당 상한) 뒤 세 번째 요청은 실행하지 않고 보고서로 간다
+def test_total_budget_stops_loop_and_marks_incomplete():
+    # 전체 상한 4(사전 확인 2 + 조사 2) 뒤 세 번째 요청은 실행하지 않고 보고서로 간다
     script = [TRIAGE, PLAN] + [_tool_call(i) for i in range(3)] + [_report(["ev-3"])]
-    result, llm, _ = _run(script, Budget(per_issue_tool_calls=2, total_tool_calls=20))
+    result, llm, _ = _run(script, Budget(per_issue_tool_calls=8, total_tool_calls=4))
 
     assert result.status == "incomplete"
     assert result.usage.tool_calls == 4  # 사전 확인 2 + 조사 2
@@ -259,8 +263,23 @@ def test_list_content_reply_is_read_as_text():
     assert result.status == "done"
 
 
-def test_parallel_tool_calls_over_budget_mark_incomplete():
-    # 한 응답에 호출 3개, 문제당 상한 2 -> 2회만 실행되고 상한에 걸린 것으로 본다
+def test_parallel_tool_calls_over_total_budget_mark_incomplete():
+    # 한 응답에 호출 3개, 전체 상한 4(사전 확인 2 포함) -> 2회만 실행되고 상한에 걸린 것으로 본다
+    three = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "get_resource", "args": {"kind": "Service", "name": f"s{i}"}, "id": f"c{i}"}
+            for i in range(3)
+        ],
+    )
+    script = [TRIAGE, PLAN, three, AIMessage(content="조사 완료"), _report(["ev-3"])]
+    result, _, _ = _run(script, Budget(per_issue_tool_calls=8, total_tool_calls=4))
+
+    assert result.usage.tool_calls == 4  # 사전 확인 2 + 조사 2
+    assert result.status == "incomplete"
+
+
+def test_parallel_tool_calls_over_issue_budget_stay_done():
     three = AIMessage(
         content="",
         tool_calls=[
@@ -271,8 +290,8 @@ def test_parallel_tool_calls_over_budget_mark_incomplete():
     script = [TRIAGE, PLAN, three, AIMessage(content="조사 완료"), _report(["ev-3"])]
     result, _, _ = _run(script, Budget(per_issue_tool_calls=2, total_tool_calls=20))
 
-    assert result.usage.tool_calls == 4  # 사전 확인 2 + 조사 2
-    assert result.status == "incomplete"
+    assert result.usage.tool_calls == 4
+    assert result.status == "done"
 
 
 def test_path_b_without_signals_runs_scenario_in_preliminary():
@@ -538,12 +557,190 @@ def test_no_recheck_when_budget_exhausted_and_area_marked():
     script = [
         TRIAGE,
         PLAN,
-        _tool_call(1),  # 문제당 상한 1회를 쓴다
+        _tool_call(1),  # 전체 상한 3(사전 확인 2 + 조사 1)을 다 쓴다
         AIMessage(content="조사 완료"),
         _report(["ev-1"], **_checked_config()),
     ]
-    result, _, _ = _run(script, Budget(per_issue_tool_calls=1, total_tool_calls=20))
+    result, _, _ = _run(script, Budget(per_issue_tool_calls=8, total_tool_calls=3))
 
     nodes = [s.node for s in result.steps]
     assert nodes.count("write_report") == 1
     assert "예산 소진" in result.report.coverage.config.summary
+
+
+def _two_issue_script(*middle) -> list:
+    return [_triage("첫째 문제", "둘째 문제"), PLAN, *middle]
+
+
+def test_issue_budget_exhausted_moves_to_next_issue():
+    script = _two_issue_script(
+        _tool_call(1),
+        _tool_call(2),
+        _tool_call(3),  # 문제당 상한 2 초과 요청 -> 실행하지 않고 다음 문제로
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"]),
+    )
+    result, llm, _ = _run(script, Budget(per_issue_tool_calls=2, total_tool_calls=20))
+
+    assert result.status == "done", result.error
+    nodes = [s.node for s in result.steps]
+    assert nodes.count("plan") == 2 and "limit" not in nodes
+    second_plan_act = llm.calls[6]  # triage, plan, act x3, plan, act
+    assert any("도구 호출 상한 도달" in str(m.content) for m in second_plan_act)
+    assert "둘째 문제" in second_plan_act[-1].content
+
+
+def test_issue_budget_exhausted_on_last_issue_goes_to_report_not_limited():
+    script = [TRIAGE, PLAN, _tool_call(1), _tool_call(2), _tool_call(3), _report(["ev-3"])]
+    result, _, _ = _run(script, Budget(per_issue_tool_calls=2, total_tool_calls=20))
+
+    assert result.status == "done", result.error
+    assert result.usage.tool_calls == 4  # 사전 확인 2 + 조사 2
+
+
+def test_issue_budget_exhausted_with_short_time_goes_to_report_not_limited():
+    clock = Clock()
+    script = _two_issue_script(
+        _tool_call(1),
+        lambda: (setattr(clock, "t", 120), _tool_call(2))[1],
+        _tool_call(3),  # 문제당 상한 2 초과, 남은 시간 30초 < 40초
+        _report(["ev-3"]),
+    )
+    result, _, _ = _run(script, Budget(per_issue_tool_calls=2, seconds=150), clock=clock)
+
+    assert [s.node for s in result.steps].count("plan") == 1
+    assert result.status == "done", result.error
+
+
+class Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self) -> float:
+        return self.t
+
+
+def test_recheck_limit_does_not_make_finished_investigation_incomplete():
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),  # 설정 영역을 봤다고 했지만 본 적이 없다
+        _tool_call(1),  # 재조사: 전체 상한 3 중 1회 실행
+        _tool_call(2),  # 상한 초과 요청
+        _report(["ev-1"], **_checked_config()),
+    ]
+    result, _, _ = _run(script, Budget(per_issue_tool_calls=8, total_tool_calls=3))
+
+    assert result.status == "done", result.error
+    config = result.report.coverage.config
+    assert config.status == "not_checked" and "예산 소진" in config.summary
+    assert config.evidence_ids == []
+
+
+def test_recheck_time_over_does_not_make_incomplete():
+    clock = Clock()
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+        lambda: (setattr(clock, "t", 200), _tool_call(1))[1],
+        _report(["ev-1"], **_checked_config()),
+    ]
+    result, _, _ = _run(script, clock=clock)
+
+    assert result.status == "done", result.error
+    assert "예산 소진" in result.report.coverage.config.summary
+
+
+def test_no_recheck_when_remaining_time_is_short():
+    clock = Clock()
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        lambda: (setattr(clock, "t", 120), _report(["ev-1"], **_checked_config()))[1],
+    ]
+    result, _, _ = _run(script, clock=clock)  # 남은 30초 < 40초
+
+    nodes = [s.node for s in result.steps]
+    assert nodes.count("write_report") == 1 and nodes.count("act") == 1
+    assert result.report.coverage.config.status == "not_checked"
+
+
+def test_recheck_runs_when_enough_time_remains():
+    clock = Clock()
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        lambda: (setattr(clock, "t", 100), _report(["ev-1"], **_checked_config()))[1],
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+    ]
+    result, _, _ = _run(script, clock=clock)  # 남은 50초
+
+    assert [s.node for s in result.steps].count("write_report") == 2
+
+
+def test_recheck_starts_with_fresh_issue_counter():
+    script = [
+        TRIAGE,
+        PLAN,
+        _tool_call(1),
+        _tool_call(2),  # 문제당 상한 2를 다 쓴다
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+        _tool_call(3, args={"kind": "ConfigMap", "name": "gateway"}),  # 재조사 호출은 실행된다
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+    ]
+    result, _, _ = _run(script, Budget(per_issue_tool_calls=2, total_tool_calls=20))
+
+    assert result.usage.tool_calls == 5  # 사전 확인 2 + 조사 2 + 재조사 1
+    assert result.report.coverage.config.status == "checked"
+
+
+def test_unresolved_cause_resource_lowers_confidence_but_stays_done():
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_cause(), **_checked_config()),
+        AIMessage(content="조사 완료"),  # 재조사에서도 원인 리소스를 조회하지 않는다
+        _report(["ev-1"], **_cause(), **_checked_config()),
+    ]
+    result, _, _ = _run(script)
+
+    assert result.status == "done", result.error
+    assert result.report.confidence == "medium"
+    assert result.report.issues[0].confidence == "medium"
+    assert "원인 리소스 spec 미조회" in result.report.coverage.config.summary
+
+
+def test_failed_tool_call_is_not_an_observation_of_the_resource():
+    llm = ScriptedLLM(
+        script=[
+            TRIAGE,
+            PLAN,
+            _tool_call(1, args={"kind": "Deployment", "name": "boom"}),
+            AIMessage(content="조사 완료"),
+            _report(["ev-3"]),
+        ],
+        calls=[],
+    )
+    ctx = RunContext(
+        run_id="r1",
+        namespace="dev",
+        evidence=MemoryEvidence(),
+        budget=BudgetTracker(Budget()),
+        now=lambda: NOW,
+    )
+    agent = InvestigatorV1(llm_factory=lambda model: llm, tools=TOOLS, ctx=ctx)
+
+    state = build_graph(agent).invoke({"request": REQ}, {"recursion_limit": 100})
+
+    got = {o.evidence_id: o.ok for o in state["observations"]}
+    assert got["ev-3"] is False and got["ev-1"] is True

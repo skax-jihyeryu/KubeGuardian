@@ -1,6 +1,11 @@
 """멈춤 조건 검사: 원인 리소스 설정을 직접 봤는지, 네 영역을 봤는지 (코드가 정한다)."""
 
-from service.agent.investigator.v1.coverage import find_gaps, mark_unobserved, observed_areas
+from service.agent.investigator.v1.coverage import (
+    downgrade_unresolved_cause,
+    find_gaps,
+    mark_unobserved,
+    observed_areas,
+)
 from service.agent.investigator.v1.state import Observation
 from service.model import Report
 from service.model.report import AreaCoverage, Coverage, Issue, ResourceRef
@@ -101,6 +106,64 @@ def test_mark_unobserved_downgrades_checked():
     assert out.coverage.config.summary == "확인하지 못함 (예산 소진)"
     assert out.coverage.logs.status == "checked"
     assert out.coverage.run.status == "not_applicable"
+
+
+def test_failed_get_resource_does_not_satisfy_cause_check():
+    failed = _get("Deployment", "gateway").model_copy(update={"ok": False})
+
+    gaps = find_gaps(_report([_issue()]), [failed])
+
+    assert len(gaps) == 1 and "get_resource로 직접 조회하지 않았습니다" in gaps[0]
+
+
+def test_failed_probe_does_not_cover_wiring():
+    failed = Observation(evidence_id="ev-1", tool="probe", ok=False)
+
+    assert observed_areas([failed]) == set()
+    assert observed_areas([failed.model_copy(update={"ok": True})]) == {"wiring"}
+
+
+def test_mark_unobserved_clears_evidence_ids_of_downgraded_area():
+    report = _report(config=AreaCoverage(status="checked", summary="s", evidence_ids=["ev-1"]))
+
+    out = mark_unobserved(report, [], "확인하지 못함 (예산 소진)")
+
+    assert out.coverage.config.evidence_ids == []
+
+
+def test_unresolved_cause_lowers_confidence_and_marks_config():
+    report = _report(
+        [_issue()], config=AreaCoverage(status="checked", summary="env 확인", evidence_ids=["ev-1"])
+    )
+
+    out = downgrade_unresolved_cause(report, [])
+
+    assert out.confidence == "medium" and out.issues[0].confidence == "medium"
+    assert out.coverage.config.summary == "env 확인 / 원인 리소스 spec 미조회"
+    assert out.coverage.config.status == "checked"
+
+
+def test_unresolved_cause_only_lowers_high_and_top_issue():
+    top = _issue().model_copy(update={"confidence": "low"})
+    second = _issue(rank=2, name="x")
+    report = _report([top, second]).model_copy(update={"confidence": "medium"})
+
+    out = downgrade_unresolved_cause(report, [])
+
+    assert out.confidence == "medium"
+    assert [i.confidence for i in out.issues] == ["low", "high"]
+
+
+def test_resolved_cause_leaves_report_unchanged():
+    report = _report([_issue()])
+
+    assert downgrade_unresolved_cause(report, [_get("Deployment", "gateway")]) == report
+
+
+def test_missing_cause_resource_counts_as_unresolved():
+    out = downgrade_unresolved_cause(_report([_issue(kind=None)]), [])
+
+    assert out.confidence == "medium"
 
 
 def test_no_issues_skips_cause_check():

@@ -34,6 +34,7 @@ class Observation(BaseModel):
     tool: str
     kind: str | None = None  # get_resource의 kind
     name: str | None = None  # get_resource의 name
+    ok: bool = True  # 조회 실패(ok=False)는 본 것으로 세지 않는다
 
 
 class InvestigationState(TypedDict, total=False):
