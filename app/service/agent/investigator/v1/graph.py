@@ -2,6 +2,7 @@
 
 load_context → preliminary → triage → plan → act ⇄ tools → write_report → validate
   (act가 끝나면 next_issue → plan으로 다음 문제를 조사할 수 있다)
+  validate 뒤 stop_check가 빈틈을 찾으면 1회만 act로 되돌려 재조사한다.
 - 분기·상한은 LLM이 아니라 코드가 정한다 (예산은 Tool.run이 센다).
 - plan이 문제마다 가설과 확인할 영역을 세운다. act가 도구를 더 부르지 않으면 예산이 남을 때
   next_issue가 2·3순위 문제로 넘어간다. 도구마다 판정하는 노드는 없다 (판정은 보고서에서).
@@ -26,6 +27,7 @@ from service.agent.investigator.v1.context import (
     render_plan,
     render_symptoms,
 )
+from service.agent.investigator.v1.coverage import find_gaps, mark_unobserved
 from service.agent.investigator.v1.state import (
     InvestigationPlan,
     InvestigationState,
@@ -104,6 +106,7 @@ def build_graph(agent: "InvestigatorV1"):
             "plans": [],
             "observations": [],
             "rechecked": False,
+            "recheck": False,
         }
 
     def preliminary(state: InvestigationState) -> InvestigationState:
@@ -284,7 +287,31 @@ def build_graph(agent: "InvestigatorV1"):
 
     def after_validate(state: InvestigationState) -> str:
         unsupported = not state["report"].evidence_ids
-        return "write_report" if unsupported and state["report_attempts"] < 2 else END
+        return "write_report" if unsupported and state["report_attempts"] < 2 else "stop_check"
+
+    def stop_check(state: InvestigationState) -> InvestigationState:
+        """보고서 뒤 코드 검사: 빈틈이 있으면 1회만 재조사하고, 아니면 못 본 영역을 내려 끝낸다."""
+        report, obs = state["report"], state["observations"]
+        with agent.step("stop_check") as s:
+            gaps = find_gaps(report, obs)
+            recheck = bool(gaps) and not state["rechecked"] and ctx.budget.can_call_tool()
+            s.detail = {"gaps": gaps, "recheck": recheck}
+        if recheck:
+            note = "[재조사] 보고서 전에 다음을 확인하세요:\n" + "\n".join(f"- {g}" for g in gaps)
+            return {
+                "messages": state["messages"] + [HumanMessage(note)],
+                "rechecked": True,
+                "recheck": True,
+                "report_attempts": 0,
+            }
+        exhausted = state["limited"] or not ctx.budget.can_call_tool()
+        reason = (
+            "확인하지 못함 (예산 소진)" if exhausted else "확인하지 못함 (재조사 후에도 근거 없음)"
+        )
+        return {"report": mark_unobserved(report, obs, reason), "recheck": False}
+
+    def after_stop_check(state: InvestigationState) -> str:
+        return "act" if state["recheck"] else END
 
     def after_tools(state: InvestigationState) -> str:
         return "limit_time" if ctx.budget.time_over() else "act"
@@ -305,6 +332,7 @@ def build_graph(agent: "InvestigatorV1"):
         ("limit_time", limit_time),
         ("write_report", write_report),
         ("validate", validate),
+        ("stop_check", stop_check),
     ]:
         g.add_node(name, fn)
     g.add_edge(START, "load_context")
@@ -318,7 +346,8 @@ def build_graph(agent: "InvestigatorV1"):
     g.add_edge("limit", "write_report")
     g.add_edge("limit_time", "write_report")
     g.add_edge("write_report", "validate")
-    g.add_conditional_edges("validate", after_validate, ["write_report", END])
+    g.add_conditional_edges("validate", after_validate, ["write_report", "stop_check"])
+    g.add_conditional_edges("stop_check", after_stop_check, ["act", END])
     return g.compile()
 
 

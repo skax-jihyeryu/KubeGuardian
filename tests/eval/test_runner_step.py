@@ -94,6 +94,10 @@ def test_investigate_rebuilds_outcome_from_the_check_and_prints_result(tmp_path,
             "conclusion": "gateway 주소 env가 localhost",
             "confidence": "high",
             "impact_scope": "전체",
+            "coverage": {
+                a: {"status": "not_applicable", "summary": "테스트"}
+                for a in ("run", "config", "wiring", "logs")
+            },
             "evidence_ids": [s04["evidence_id"]],
         }
     )

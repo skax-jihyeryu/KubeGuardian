@@ -116,13 +116,18 @@ def _tool_call(i: int, name: str = "get_resource", args: dict | None = None) -> 
     )
 
 
-def _report(evidence_ids: list[str]) -> str:
+def _report(evidence_ids: list[str], **extra) -> str:
     return json.dumps(
         {
             "conclusion": "gateway 주소 env가 localhost",
             "confidence": "high",
             "impact_scope": "전체",
+            "coverage": {
+                a: {"status": "not_applicable", "summary": "테스트"}
+                for a in ("run", "config", "wiring", "logs")
+            },
             "evidence_ids": evidence_ids,
+            **extra,
         }
     )
 
@@ -461,3 +466,84 @@ def test_observations_record_get_resource_kind_and_name():
     got = [(o.evidence_id, o.tool, o.kind, o.name) for o in state["observations"]]
     assert ("ev-3", "get_resource", "Deployment", "gateway") in got
     assert ("ev-1", "get_topology", None, None) in got
+
+
+def _cause(kind="Deployment", name="gateway") -> dict:
+    return {
+        "issues": [
+            {
+                "rank": 1,
+                "title": "gateway 주소 설정 오류",
+                "impact": "core_path_broken",
+                "confidence": "high",
+                "evidence_ids": ["ev-1"],
+                "cause_resource": {"kind": kind, "name": name},
+            }
+        ]
+    }
+
+
+def _checked_config() -> dict:
+    return {
+        "coverage": {
+            "run": {"status": "not_applicable", "summary": "x"},
+            "config": {"status": "checked", "summary": "env 확인", "evidence_ids": ["ev-1"]},
+            "wiring": {"status": "not_applicable", "summary": "x"},
+            "logs": {"status": "not_applicable", "summary": "x"},
+        }
+    }
+
+
+def test_gap_triggers_one_recheck_then_report():
+    deployment = _tool_call(1, args={"kind": "Deployment", "name": "gateway"})
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_cause()),  # 원인 리소스를 조회하지 않았다
+        deployment,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_cause()),
+    ]
+    result, llm, _ = _run(script)
+
+    assert result.status == "done", result.error
+    nodes = [s.node for s in result.steps]
+    assert nodes.count("write_report") == 2 and nodes.count("stop_check") == 2
+    recheck = llm.calls[4][-1].content  # triage, plan, act, report 다음의 재조사 act
+    assert recheck.startswith("[재조사]") and "Deployment/gateway" in recheck
+    first, second = [s for s in result.steps if s.node == "stop_check"]
+    assert first.detail["recheck"] is True and second.detail["recheck"] is False
+    assert second.detail["gaps"] == []
+
+
+def test_recheck_happens_at_most_once():
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),  # 설정 영역을 봤다고 했지만 본 적이 없다
+        AIMessage(content="조사 완료"),  # 재조사에서도 도구를 부르지 않는다
+        _report(["ev-1"], **_checked_config()),
+    ]
+    result, _, _ = _run(script)
+
+    nodes = [s.node for s in result.steps]
+    assert nodes.count("write_report") == 2 and nodes.count("act") == 2
+    config = result.report.coverage.config
+    assert config.status == "not_checked" and "재조사 후에도 근거 없음" in config.summary
+
+
+def test_no_recheck_when_budget_exhausted_and_area_marked():
+    script = [
+        TRIAGE,
+        PLAN,
+        _tool_call(1),  # 문제당 상한 1회를 쓴다
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+    ]
+    result, _, _ = _run(script, Budget(per_issue_tool_calls=1, total_tool_calls=20))
+
+    nodes = [s.node for s in result.steps]
+    assert nodes.count("write_report") == 1
+    assert "예산 소진" in result.report.coverage.config.summary

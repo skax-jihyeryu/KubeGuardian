@@ -63,6 +63,10 @@ def test_run_investigation_uses_registered_agent_and_stores_evidence(engine):
             "conclusion": "gateway 주소 env가 localhost",
             "confidence": "high",
             "impact_scope": "전체",
+            "coverage": {
+                a: {"status": "not_applicable", "summary": "테스트"}
+                for a in ("run", "config", "wiring", "logs")
+            },
             "evidence_ids": [s04.evidence_id],
         }
     )
