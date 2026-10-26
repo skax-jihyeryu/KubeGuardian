@@ -2,13 +2,16 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from service.model.signal import Severity
 
 Impact = Literal["core_path_broken", "partial_users", "latent_risk", "improvement"]
 Confidence = Literal["high", "medium", "low"]
 HypothesisStatus = Literal["supported", "refuted", "inconclusive"]
+Area = Literal["run", "config", "wiring", "logs"]  # 구동·설정·연결·로그 (eval must_check와 같은 키)
+AREAS: tuple[Area, ...] = ("run", "config", "wiring", "logs")
+CoverageStatus = Literal["checked", "not_checked", "not_applicable"]
 
 _SEVERITY_BY_IMPACT: dict[Impact, Severity] = {
     "core_path_broken": "critical",
@@ -23,12 +26,18 @@ def severity_for(impact: Impact) -> Severity:
     return _SEVERITY_BY_IMPACT[impact]
 
 
+class ResourceRef(BaseModel):
+    kind: str
+    name: str
+
+
 class Issue(BaseModel):
     rank: int
     title: str
     impact: Impact
     confidence: Confidence
     evidence_ids: list[str] = []
+    cause_resource: ResourceRef | None = None  # 원인으로 지목한 리소스 (1순위는 필수, 모르면 None)
 
     @computed_field
     @property
@@ -50,9 +59,25 @@ class Fact(BaseModel):
     evidence_ids: list[str] = Field(min_length=1)  # 사실 문장은 근거를 1개 이상 인용한다
 
 
-class CheckedScope(BaseModel):
-    checked: list[str] = []
-    not_checked: list[str] = []
+class AreaCoverage(BaseModel):
+    status: CoverageStatus = "not_checked"
+    summary: str = ""  # 확인함: 본 것 / 확인하지 못함·해당 없음: 사유
+    evidence_ids: list[str] = []
+
+
+def _missing_area() -> AreaCoverage:
+    return AreaCoverage(summary="보고서에 없음")
+
+
+class Coverage(BaseModel):
+    """영역별 확인 범위. 빠진 영역은 not_checked, 모르는 키는 무시한다."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    run: AreaCoverage = Field(default_factory=_missing_area)
+    config: AreaCoverage = Field(default_factory=_missing_area)
+    wiring: AreaCoverage = Field(default_factory=_missing_area)
+    logs: AreaCoverage = Field(default_factory=_missing_area)
 
 
 class Report(BaseModel):
@@ -64,6 +89,6 @@ class Report(BaseModel):
     preliminary_facts: list[Fact] = []
     evidence_ids: list[str] = []
     hypotheses: list[Hypothesis] = []
-    checked_scope: CheckedScope = CheckedScope()
+    coverage: Coverage = Field(default_factory=Coverage)
     actions: list[str] = []  # 권장 조치 (명령 수준, 자동 실행 안 함)
     verification: str = ""  # 재검증 방법

@@ -7,6 +7,8 @@
 - 근거가 빈 가설(지어낸 번호만 있던 경우와 처음부터 빈 경우 모두)은 supported·refuted를
   판단 보류(inconclusive)로 바꾸고 문장 앞에 "(추정)"을 붙인다.
 - 근거가 빈 문제는 신뢰도를 low로 내리고 제목 앞에 "(추정)"을 붙인다.
+- 영역별 coverage는 근거를 거른다. 확인함(checked)인데 남은 근거가 없으면 확인하지 못함으로 내리고
+  `demoted`에 `coverage.<영역>`을 남긴다. 확인하지 못함·해당 없음인데 사유가 비면 "(사유 미기재)".
 - 결론의 근거가 없으면 conclusion_supported=False. 호출한 쪽이 보고서를 1회 다시 쓰게 한다.
 """
 
@@ -14,7 +16,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from service.model import Report
+from service.model import AREAS, Report
 
 _ESTIMATE = "(추정) "
 
@@ -57,6 +59,17 @@ def validate_report(report: Report, known: Callable[[str], bool]) -> ValidationO
             demoted.append(i.title)
             i = i.model_copy(update={"confidence": "low", "title": _estimate(i.title)})
         issues.append(i.model_copy(update={"evidence_ids": ids}))
+    coverage = report.coverage
+    for area in AREAS:
+        cov = getattr(coverage, area)
+        ids = keep(cov.evidence_ids)
+        update: dict = {"evidence_ids": ids}
+        if cov.status == "checked" and not ids:
+            demoted.append(f"coverage.{area}")
+            update.update(status="not_checked", summary="(근거 없음) " + cov.summary)
+        elif cov.status != "checked" and not cov.summary.strip():
+            update["summary"] = "(사유 미기재)"
+        coverage = coverage.model_copy(update={area: cov.model_copy(update=update)})
     evidence_ids = keep(report.evidence_ids)
     cleaned = report.model_copy(
         update={
@@ -64,6 +77,7 @@ def validate_report(report: Report, known: Callable[[str], bool]) -> ValidationO
             "preliminary_facts": facts,
             "hypotheses": hypotheses,
             "issues": issues,
+            "coverage": coverage,
         }
     )
     return ValidationOutcome(
