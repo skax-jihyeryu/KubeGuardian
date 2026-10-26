@@ -744,3 +744,62 @@ def test_failed_tool_call_is_not_an_observation_of_the_resource():
 
     got = {o.evidence_id: o.ok for o in state["observations"]}
     assert got["ev-3"] is False and got["ev-1"] is True
+
+
+def test_recheck_issue_limit_reason_is_budget_exhausted():
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+        _tool_call(1),  # 재조사: 문제당 상한 1을 다 쓴다
+        _tool_call(2),  # 상한 초과 요청 (전체 상한은 남아 있다)
+        _report(["ev-1"], **_checked_config()),
+    ]
+    result, _, _ = _run(script, Budget(per_issue_tool_calls=1, total_tool_calls=20))
+
+    assert result.status == "done", result.error
+    summary = result.report.coverage.config.summary
+    assert "예산 소진" in summary and "재조사 후에도 근거 없음" not in summary
+
+
+def test_recheck_time_over_after_tools_goes_through_limit_time_and_stays_done():
+    clock = Clock()
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+        lambda: (setattr(clock, "t", 200), _tool_call(1))[1],
+        _report(["ev-1"], **_checked_config()),
+    ]
+    result, _, _ = _run(script, clock=clock)
+
+    nodes = [s.node for s in result.steps]
+    assert nodes.count("write_report") == 2
+    assert result.status == "done", result.error
+    assert result.report.coverage.config.status == "not_checked"
+
+
+def test_recheck_parallel_tool_calls_over_total_budget_stay_done():
+    three = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "get_resource", "args": {"kind": "Service", "name": f"s{i}"}, "id": f"c{i}"}
+            for i in range(3)
+        ],
+    )
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+        three,  # 재조사: 전체 상한 4 중 사전 확인 2를 빼고 2회만 실행
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+    ]
+    result, _, _ = _run(script, Budget(per_issue_tool_calls=8, total_tool_calls=4))
+
+    assert result.usage.tool_calls == 4
+    assert result.status == "done", result.error
+    assert "예산 소진" in result.report.coverage.config.summary

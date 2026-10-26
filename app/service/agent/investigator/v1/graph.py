@@ -333,7 +333,7 @@ def build_graph(agent: "InvestigatorV1"):
                 "recheck": True,
                 "report_attempts": 0,
             }
-        exhausted = state["limited"] or not ctx.budget.total_left()
+        exhausted = state["limited"] or not ctx.budget.total_left() or ctx.budget.issue_exhausted()
         reason = (
             "확인하지 못함 (예산 소진)" if exhausted else "확인하지 못함 (재조사 후에도 근거 없음)"
         )

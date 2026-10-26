@@ -62,3 +62,10 @@ def test_judge_prompt_accepts_different_messages_of_same_injection_generically()
 
     assert "같은 주입이 만든 서로 다른 오류 문구" in PROMPT
     assert "레지스트리" not in PROMPT  # 시나리오 고유 예시를 넣지 않는다
+
+
+def test_prompt_treats_connectivity_causes_without_setting_item_as_same():
+    from judge import PROMPT
+
+    assert "설정 항목이 없는 원인" in PROMPT
+    assert "연결 차단" in PROMPT and "출발→도착" in PROMPT
