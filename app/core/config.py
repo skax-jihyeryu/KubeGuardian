@@ -25,6 +25,7 @@ class Settings(BaseSettings):
 
     # 실행 추적 (Phoenix, OpenTelemetry)
     OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
+    PHOENIX_PROJECT_NAME: str = "test"  # Phoenix 프로젝트 이름. 실서비스 전까지 test
 
     # 진단 대상·점검 설정 파일 (kubeguardian.example.yaml 참고)
     KG_CONFIG_PATH: str = "kubeguardian.yaml"
