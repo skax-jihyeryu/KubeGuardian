@@ -7,7 +7,7 @@
 ## 진입 조건
 
 - 최근 롤아웃·ReplicaSet 변경이 있고 그 뒤로 실패가 시작됐다
-- 규칙 P03·P06·P07·W01·W02·C01 중 하나가 적발됐다
+- 규칙 P03·P06·P07·W01·W02·C01 중 하나가 적발됐거나 관찰 중이다
 - 해당하지 않음: 배포 변경 없이 갑자기 실패 → app-layer-failure / service-unreachable
 
 ## 먼저 확인할 사실 (가설 없이)
@@ -23,7 +23,7 @@
 
 | 원인 후보 | 지지 근거 | 배제 근거 | 확인에 쓸 진단 API | 확정에 필요한 영역 |
 |---|---|---|---|---|
-| 이미지 받기 실패 | `ErrImagePull`·`ImagePullBackOff`, 이벤트의 오류 | 컨테이너가 한 번이라도 시작됨 | `get_resource`, `get_events` | 설정(이미지 참조·이전 revision 차이) + 구동(대기 사유) |
+| 이미지 받기 실패 | `ErrImagePull`·`ImagePullBackOff`, 이벤트의 태그·인증 오류, 레지스트리 주소 해석 실패 | 컨테이너가 한 번이라도 시작됨 | `get_resource`, `get_events` | 설정(이미지 참조) + 구동 |
 | 설정·Secret 참조 누락 | `CreateContainerConfigError`, 이벤트에 없는 ConfigMap·키 | 참조 객체·키가 모두 있음 | `get_resource`, `get_events` | 설정 + 구동 |
 | 기동 중 예외 (설정값·의존 서비스) | CrashLoop, previous 로그의 예외 | 재시작 없음 | `get_pod_logs` | 로그 + 설정 |
 | 메모리 부족 | 종료 사유 `OOMKilled` | 종료 사유가 다름 | `get_resource` | 구동 + 설정(limits) |

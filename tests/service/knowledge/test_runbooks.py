@@ -82,3 +82,16 @@ def test_runbook_fact_table_has_area_column(path):
 
     assert "영역" in header
     assert "확정에 필요한 영역" in text
+
+
+def test_failure_after_deploy_keeps_entry_condition_and_registry_clues():
+    text = (RUNBOOKS / "failure-after-deploy.md").read_text()
+
+    assert "적발됐거나 관찰 중이다" in text
+    assert "태그·인증 오류" in text and "주소 해석 실패" in text
+
+
+def test_service_unreachable_warns_missing_edge_is_not_normal():
+    text = (RUNBOOKS / "service-unreachable.md").read_text()
+
+    assert "엣지 없음은 정상이 아니다" in text
