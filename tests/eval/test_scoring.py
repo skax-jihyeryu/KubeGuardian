@@ -1,4 +1,4 @@
-from scoring import expected_record, score
+from scoring import coverage_record, expected_record, score
 from service.model import Signal
 
 
@@ -123,3 +123,28 @@ def test_must_check_and_not_a_cause_are_recorded_not_scored():
         "not_a_cause": ["개선 권고"],
     }
     assert expected_record({"gate_path": "C"}) == {"must_check": {}, "not_a_cause": []}
+
+
+def test_coverage_record_marks_status_and_evidence():
+    must_check = {"config": "이미지 참조가 이전 revision과 다름", "run": "새 Pod 이미지 받기 실패"}
+    coverage = {
+        "config": {"status": "checked", "summary": "이미지 비교", "evidence_ids": ["ev-3"]},
+        "run": {"status": "not_checked", "summary": "확인하지 못함", "evidence_ids": []},
+    }
+
+    record = coverage_record(must_check, coverage)
+
+    assert record["config"] == {
+        "expected": "이미지 참조가 이전 revision과 다름",
+        "status": "checked",
+        "has_evidence": True,
+    }
+    assert record["run"]["status"] == "not_checked" and record["run"]["has_evidence"] is False
+
+
+def test_coverage_record_ignores_areas_not_in_must_check():
+    coverage = {"logs": {"status": "checked", "summary": "x", "evidence_ids": ["ev-1"]}}
+
+    assert coverage_record({"config": "x"}, coverage) == {
+        "config": {"expected": "x", "status": "not_checked", "has_evidence": False}
+    }

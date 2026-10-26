@@ -81,7 +81,7 @@ make eval S=A1 ARGS="--in-cluster --condition ai"   # AI 조건
 
 - 통과 = `expected.yaml`의 `must_signals`를 모두 적발 + 게이트 경로가 `gate_path`와 같음 + `forbidden_signals`를 하나도 적발하지 않음
 - 정답 파일의 신호 구분 (05-rules §0.1.1): `must_signals` 반드시, `allowed_signals` 나와도 됨(오탐 아님), `forbidden_signals` 나오면 오탐(`"*"`는 반드시·허용 신호를 뺀 장애 신호 전부, 개선 권고 H는 제외)
-- `must_check`(`run`·`config`·`wiring`·`logs`별 확인할 사실)와 `not_a_cause`(원인으로 지목하면 안 되는 것)는 채점하지 않고 `result.json`의 `expected` 블록에 기록만 한다 (보고서 대조·판정은 #21)
+- `must_check`(`run`·`config`·`wiring`·`logs`별 확인할 사실)와 `not_a_cause`(원인으로 지목하면 안 되는 것)는 채점하지 않고 `result.json`의 `expected` 블록에 기록만 한다. AI 조건에서는 `ai.must_check`에 영역마다 보고서 `coverage`의 상태와 근거 유무(`status`·`has_evidence`)를 함께 기록하고, 1순위 원인 리소스는 `ai.cause_resource`에 남긴다. 둘 다 통과 조건이 아니다 (W4 평가부터 통과 조건, spec D2)
 - 개선 권고(H 규칙)는 장애 신호로 세지 않고 `advice`로 따로 남긴다
 - 금지 적발(`forbidden_hit`)은 실패 사유다. 허용·금지 밖의 적발(`unexpected`, 오탐 후보), 관찰 중(`observing`, 지속 시간 전), 확인하지 못함(`unknown`)은 기록한다
 - 마지막 점검으로 채점한다. 상한까지 지속 시간을 채우지 못한 규칙은 "관찰 중"으로 남는다

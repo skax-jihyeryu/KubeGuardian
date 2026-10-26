@@ -8,7 +8,8 @@
 
 통과 = must를 모두 적발 + 게이트 경로가 기대와 같음 + forbidden을 하나도 적발하지 않음.
 그 밖의 적발(unexpected)은 오탐 후보로 기록만 한다.
-must_check·not_a_cause는 채점하지 않고 기록만 한다 (보고서 대조는 #21).
+must_check·not_a_cause는 채점하지 않고 기록만 한다. 보고서와의 대조는 `coverage_record`가
+영역별 확인 여부로 기록하고, 통과 조건에는 W4 평가부터 넣는다 (spec D2).
 """
 
 from typing import Any
@@ -29,6 +30,19 @@ def expected_record(expected: dict[str, Any]) -> dict[str, Any]:
         "must_check": expected.get("must_check") or {},
         "not_a_cause": expected.get("not_a_cause") or [],
     }
+
+
+def coverage_record(must_check: dict[str, str], coverage: dict[str, Any]) -> dict[str, dict]:
+    """must_check 영역마다 보고서 coverage의 상태와 근거 유무를 기록한다. 채점하지 않는다 (D2)."""
+    record = {}
+    for area, expected in must_check.items():
+        cov = coverage.get(area) or {}
+        record[area] = {
+            "expected": expected,
+            "status": cov.get("status", "not_checked"),
+            "has_evidence": bool(cov.get("evidence_ids")),
+        }
+    return record
 
 
 def score(expected: dict[str, Any], signals: list[Signal], gate_path: GatePath) -> dict[str, Any]:
