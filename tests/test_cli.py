@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from langchain_core.messages import AIMessage
 
 import cli
@@ -295,3 +296,44 @@ def test_investigate_rejects_too_long_symptom(tmp_path, capsys):
     )
     assert code == 2
     assert str(ErrorCode.VALIDATION_ERROR.code) in capsys.readouterr().err
+
+
+def _stored_triggers(tmp_path):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from core.db import create_db_engine
+    from core.db.tables import CheckRunRow
+
+    with Session(create_db_engine(str(tmp_path / "kg.db"))) as s:
+        return list(s.scalars(select(CheckRunRow.trigger)))
+
+
+def test_check_records_schedule_trigger(tmp_path):
+    code = cli.main(
+        [*_args(tmp_path), "--trigger", "schedule"],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s01/detected")),
+    )
+    assert code == 0
+    assert _stored_triggers(tmp_path) == ["schedule"]
+
+
+def test_check_trigger_defaults_to_check(tmp_path):
+    cli.main(_args(tmp_path), make_reader=lambda cfg: FixtureReader(*raw_cluster("s01/detected")))
+    assert _stored_triggers(tmp_path) == ["check"]
+
+
+def test_check_rejects_unknown_trigger(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        cli.main([*_args(tmp_path), "--trigger", "bogus"])
+    assert e.value.code == 2
+
+
+def test_investigate_records_schedule_trigger(tmp_path):
+    cli.main(
+        [*_investigate_args(tmp_path, "채팅이 안 돼요"), "--trigger", "schedule"],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=_llm_factory(_scripted()),
+    )
+    assert _stored_triggers(tmp_path) == ["schedule"]
