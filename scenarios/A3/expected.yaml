@@ -11,6 +11,6 @@ forbidden_signals: []
 must_check:
   config: "agent Deployment 이미지 참조가 이전 revision과 다름"
   run: "새 Pod 이미지 받기 실패, 이전 Pod는 Ready"
-root_cause: "agent Deployment의 이미지를 받을 수 없는 이미지(레지스트리에 없는 이미지·tag)로 바꿔 새 Pod가 이미지를 받지 못하고 롤아웃이 멈췄다"
+root_cause: "agent Deployment의 이미지 참조를 해석되지 않는 레지스트리 주소로 바꿔 새 Pod가 이미지를 받지 못하고(no such host) 롤아웃이 멈췄다"
 affected_services: [agent]
-expected_top1: "agent 신규 배포가 없는 이미지 tag 때문에 뜨지 않음 (이전 버전 Pod가 서비스 중이라 사용자 영향 없음)"
+expected_top1: "agent 신규 배포가 받을 수 없는 이미지 참조(해석되지 않는 레지스트리) 때문에 뜨지 않음 (이전 버전 Pod가 서비스 중이라 사용자 영향 없음)"

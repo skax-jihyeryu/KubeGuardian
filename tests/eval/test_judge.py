@@ -47,3 +47,10 @@ def test_judge_failure_reason_is_redacted(monkeypatch):
 
     assert result.match is None
     assert "abcdefgh12345678" not in result.reason
+
+
+def test_judge_prompt_mentions_same_target_rule():
+    from judge import PROMPT
+
+    assert "원인 대상(리소스·설정)이 같으면 같은 원인" in PROMPT
+    assert "같은 주입이 만든 서로 다른 오류 문구" in PROMPT
