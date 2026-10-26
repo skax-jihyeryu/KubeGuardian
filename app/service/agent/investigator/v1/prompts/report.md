@@ -9,13 +9,16 @@ $facts
 - 모든 사실 문장과 결론은 실제 도구 결과의 근거 번호(ev-N)를 evidence_ids로 인용합니다. 없는 번호를 만들지 않습니다.
 - 근거가 없는 판단은 hypotheses에 status "inconclusive"로 두고 reason에 "추정"이라고 씁니다.
 - actions: 운영자가 실행할 조치 (명령어 수준, 자동 실행하지 않음). verification: 조치 후 확인 방법.
-- coverage: 구동(run)·설정(config)·연결(wiring)·로그(logs) 영역마다 status(checked|not_checked|not_applicable), summary(본 것 또는 사유), evidence_ids.
+- issues[].cause_resource: 원인으로 지목한 리소스 {"kind", "name"}. 1순위는 반드시 적고, 모르면 null.
+- hypotheses: 배제(refuted)한 가설은 reason에 배제한 이유와 그 근거를 씁니다.
+- coverage: 구동(run)·설정(config)·연결(wiring)·로그(logs) 네 영역 모두에 status(checked|not_checked|not_applicable), summary, evidence_ids를 씁니다. checked는 본 것과 근거 번호를, not_checked는 확인하지 못한 이유를, not_applicable은 해당 없는 이유를 summary에 씁니다.
+- 원인 리소스의 설정은 get_resource로 직접 본 근거가 있어야 결론으로 올립니다. 없으면 hypotheses에 inconclusive로 둡니다.
 
 아래 형식의 JSON 하나로만 답합니다.
 {"conclusion": "...", "confidence": "high|medium|low", "impact_scope": "영향 범위",
- "issues": [{"rank": 1, "title": "...", "impact": "core_path_broken", "confidence": "high", "evidence_ids": ["ev-1"]}],
+ "issues": [{"rank": 1, "title": "...", "impact": "core_path_broken", "confidence": "high", "evidence_ids": ["ev-1"], "cause_resource": {"kind": "Deployment", "name": "..."}}],
  "preliminary_facts": [{"statement": "...", "evidence_ids": ["ev-1"]}],
  "evidence_ids": ["결론을 뒷받침하는 근거 번호"],
  "hypotheses": [{"statement": "...", "status": "supported|refuted|inconclusive", "reason": "...", "evidence_ids": ["ev-2"]}],
- "coverage": {"run": {"status": "checked", "summary": "...", "evidence_ids": ["ev-1"]}, "config": {...}, "wiring": {...}, "logs": {...}},
+ "coverage": {"run": {"status": "checked", "summary": "...", "evidence_ids": ["ev-1"]}, "config": {"status": "checked", "summary": "...", "evidence_ids": ["ev-2"]}, "wiring": {"status": "not_checked", "summary": "확인하지 못한 이유", "evidence_ids": []}, "logs": {"status": "not_applicable", "summary": "해당 없는 이유", "evidence_ids": []}},
  "actions": ["..."], "verification": "..."}

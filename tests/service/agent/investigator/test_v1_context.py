@@ -69,7 +69,8 @@ def test_prompts_render_without_missing_variables():
             "symptom": "S",
             "gate_path": "A",
         },
-        "investigate": {"issue": "I", "runbook": "R", "facts": "F"},
+        "plan": {"issue": "I", "runbook": "R", "facts": "F"},
+        "investigate": {"issue": "I", "runbook": "R", "facts": "F", "plan": "P"},
         "report": {"issue": "I", "facts": "F"},
     }
     for name, kw in values.items():

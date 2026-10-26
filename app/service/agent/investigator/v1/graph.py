@@ -112,6 +112,7 @@ def build_graph(agent: "InvestigatorV1"):
                 issue=issue,
                 runbook=result.runbook or "(없음)",
                 facts=render_facts(state["facts"]),
+                plan="(없음)",
             )
         )
         return {"triage": result, "messages": [system(), first]}
