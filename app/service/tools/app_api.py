@@ -70,7 +70,7 @@ class QueryAppApi(Tool):
     failure_kind = "app_api"
 
     class Input(BaseModel):
-        app: K8sName = Field(description="앱(Service) 이름, 예: llm-gateway")
+        app: K8sName = Field(description="대상 네임스페이스의 Service 이름 (허용 목록의 키)")
         path: HttpPath = Field(description="허용 목록의 경로")
 
     def __init__(self, app_apis: dict[str, list[str]]):

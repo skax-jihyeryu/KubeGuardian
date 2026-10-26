@@ -34,8 +34,10 @@ api_scenarios:               # run_api_scenario. 단계 형식은 app/core/confi
           expect: 200
           timeout_s: 60
           check: {path: data.answer, not_starts_with: "오류가 발생했습니다:"}
-app_apis:                   # query_app_api 허용 목록 (GET만)
-  llm-gateway: [/api/v1/health, /api/v1/quota]
+# query_app_api 허용 목록 (GET만). 키는 대상 앱의 Service 이름, 값은 실제 GET 경로만 적는다.
+# 비어 있으면 도구를 등록하지 않는다. 이 환경의 llm-gateway 할당량 API는 gateway 경유 인증과
+# 조직 관리자 권한이 필요하고 사용량을 돌려주지 않아 비워 둔다 (#77).
+app_apis: {}
 slack:
   alert_target: "#pr-service-ops"
   bot_token_secret: kg-slack-bot
