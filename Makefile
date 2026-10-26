@@ -1,4 +1,4 @@
-.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix eval kg-build kg-up kg-down
+.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix eval kg-build kg-up kg-down kg-cron-suspend kg-cron-resume kg-cron-run
 
 # 진단 대상(템플릿 포크) 위치. 포크 6개 + shared-infra가 이 아래에 있어야 한다.
 TARGET_DIR ?= $(HOME)/Cursor/kg-target
@@ -116,7 +116,7 @@ KG_NS := kubeguardian
 KG_ENV_KEYS := LLM_PROVIDER|AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_API_KEY|AZURE_OPENAI_API_VERSION
 KG_ENV_COUNT := 4
 
-kg-up: kg-build ca  ## runner Pod 기동 (kubeguardian 네임스페이스, 이미지·Secret·ConfigMap·CA 포함)
+kg-up: kg-build ca  ## runner Pod와 주기 점검 CronJob 기동 (kubeguardian 네임스페이스, 이미지·Secret·ConfigMap·CA 포함)
 	@kubectl get ns $(KG_NS) >/dev/null 2>&1 || kubectl create ns $(KG_NS)
 	kubectl apply -f deploy/kubeguardian/rbac.yaml
 	@# 비밀값은 .env에서 필요한 키만 골라 Secret으로 만든다. 값은 출력하지 않는다.
@@ -136,6 +136,16 @@ kg-up: kg-build ca  ## runner Pod 기동 (kubeguardian 네임스페이스, 이�
 	kubectl apply -f deploy/kubeguardian/runner.yaml || exit 1; \
 	if [ -n "$$existed" ]; then kubectl -n $(KG_NS) rollout restart deployment/kg-runner; fi
 	kubectl -n $(KG_NS) rollout status deployment/kg-runner --timeout=180s
+	kubectl apply -f deploy/kubeguardian/cronjob.yaml
 
 kg-down:  ## runner Pod·Secret·ConfigMap 삭제 (RBAC·Phoenix는 남김)
 	kubectl -n $(KG_NS) delete deployment/kg-runner secret/kubeguardian-env configmap/kubeguardian-config configmap/kubeguardian-ca --ignore-not-found
+
+kg-cron-suspend:  ## 주기 점검 CronJob 일시 중지 (평가 중 부하·LLM 호출을 피한다)
+	kubectl -n $(KG_NS) patch cronjob/kg-check -p '{"spec":{"suspend":true}}'
+
+kg-cron-resume:  ## 주기 점검 CronJob 재개
+	kubectl -n $(KG_NS) patch cronjob/kg-check -p '{"spec":{"suspend":false}}'
+
+kg-cron-run:  ## 주기 점검을 지금 1회 실행 (CronJob에서 Job 생성)
+	kubectl -n $(KG_NS) create job --from=cronjob/kg-check kg-check-$$(date +%Y%m%d%H%M%S)

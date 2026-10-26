@@ -79,7 +79,7 @@ def check(args: argparse.Namespace, make_reader: ReaderFactory, make_http: HttpF
     config = _load_config(args.config)
     reader = make_reader(config)
     engine = _open_db(args.db)
-    print_outcome(run_check(reader, config, engine, trigger="check", http=make_http(config)))
+    print_outcome(run_check(reader, config, engine, trigger=args.trigger, http=make_http(config)))
 
 
 def investigate(
@@ -97,7 +97,7 @@ def investigate(
     reader, http = make_reader(config), make_http(config)
     engine = _open_db(args.db)
     outcome = run_check(
-        reader, config, engine, trigger="investigate", http=http, user_symptom=symptom
+        reader, config, engine, trigger=args.trigger, http=http, user_symptom=symptom
     )
     print_outcome(outcome)
     result = run_investigation(
@@ -105,7 +105,7 @@ def investigate(
         config,
         engine,
         run_id=f"kg-investigate-{outcome.run_id}",
-        trigger="investigate",
+        trigger=args.trigger,
         llm_factory=make_llm,
         k8s=reader,
         http=http,
@@ -176,10 +176,22 @@ def main(
     p_check = sub.add_parser("check", help="규칙 점검을 한 번 실행하고 결과를 출력한다")
     p_check.add_argument("--config", default=get_setting().KG_CONFIG_PATH, help="kubeguardian.yaml")
     p_check.add_argument("--db", default=DEFAULT_DB, help="SQLite 파일 (기본: kubeguardian.db)")
+    p_check.add_argument(
+        "--trigger",
+        choices=["check", "schedule"],
+        default="check",
+        help="실행 방식 (CronJob은 schedule)",
+    )
     p_inv = sub.add_parser("investigate", help="점검 뒤 게이트가 열리면 조사 에이전트를 실행한다")
     p_inv.add_argument("symptom", nargs="?", help="사용자 증상 (선택, 최대 500자)")
     p_inv.add_argument("--config", default=get_setting().KG_CONFIG_PATH, help="kubeguardian.yaml")
     p_inv.add_argument("--db", default=DEFAULT_DB, help="SQLite 파일 (기본: kubeguardian.db)")
+    p_inv.add_argument(
+        "--trigger",
+        choices=["investigate", "schedule"],
+        default="investigate",
+        help="실행 방식 (기본: investigate)",
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "check":

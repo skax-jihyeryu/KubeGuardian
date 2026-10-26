@@ -1,0 +1,80 @@
+# 주기 점검 CronJob (이슈 #25, 기획서 §6.6). 5분마다 규칙 점검과 증상 감지를 돌려 PVC의 SQLite에 이력을 쌓는다.
+# runner.yaml과 같은 SA·보안 설정·설정을 쓴다. 이미지는 make kg-build(kubeguardian:local).
+# AI 조사는 돌리지 않고 `check`만 실행한다. 사건 지문(#26)이 없어 같은 장애를 5분마다 다시 조사하게 되기 때문이다.
+# #26 뒤에 `investigate`로 바꾼다.
+# 점검이 5분을 넘기면 Forbid로 다음 회차를 건너뛰고, activeDeadlineSeconds(270)로 다음 회차 전에 끝낸다.
+# PVC는 RWO라 단일 노드(minikube)를 전제한다. runner Pod는 emptyDir DB를 그대로 둬 평가와 운영 이력을 섞지 않는다.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kubeguardian-data
+  namespace: kubeguardian
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: { storage: 1Gi }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kg-check
+  namespace: kubeguardian
+  labels: { app: kg-check }
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0  # 실패해도 재시도하지 않는다 (다음 회차가 대신한다)
+      activeDeadlineSeconds: 270  # 다음 회차(300초) 전에 끝낸다
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels: { app: kg-check }
+        spec:
+          restartPolicy: Never
+          serviceAccountName: kubeguardian
+          securityContext:
+            fsGroup: 10001  # PVC·emptyDir를 비root가 쓴다
+          containers:
+            - name: check
+              image: kubeguardian:local
+              imagePullPolicy: Never
+              command: ["python", "/kg/app/cli.py", "check", "--trigger", "schedule", "--db", "/data/kubeguardian.db"]
+              envFrom:
+                - secretRef: { name: kubeguardian-env }
+              env:
+                - { name: KG_CONFIG_PATH, value: /etc/kubeguardian/config/kubeguardian.yaml }
+                - { name: KG_ACCOUNTS_DIR, value: /etc/kubeguardian/accounts }
+                - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://phoenix.kubeguardian.svc:6006/v1/traces" }
+                - { name: SSL_CERT_FILE, value: /etc/kubeguardian/ca/ca-bundle.pem }
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 10001
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              resources:
+                requests: { cpu: 100m, memory: 256Mi }
+                limits: { cpu: "1", memory: 1Gi }
+              volumeMounts:
+                - { name: config, mountPath: /etc/kubeguardian/config, readOnly: true }
+                - { name: ca, mountPath: /etc/kubeguardian/ca, readOnly: true }
+                - { name: data, mountPath: /data }
+                - { name: tmp, mountPath: /tmp }
+                - { name: test-user, mountPath: /etc/kubeguardian/accounts/kg-test-user, readOnly: true }
+          volumes:
+            - name: config
+              configMap: { name: kubeguardian-config }
+            - name: ca
+              configMap: { name: kubeguardian-ca }
+            - name: data
+              persistentVolumeClaim: { claimName: kubeguardian-data }
+            - name: tmp
+              emptyDir: {}
+            # 증상 시나리오(login 단계)용 테스트 계정. Secret이 없어도 Job은 돈다.
+            - name: test-user
+              secret: { secretName: kg-test-user, optional: true }

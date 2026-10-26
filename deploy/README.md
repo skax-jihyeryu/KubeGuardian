@@ -23,3 +23,13 @@ KubeGuardian을 클러스터 안에서 실행하는 Pod다. 클러스터 주소(
   - kubeguardian 네임스페이스에 Secret `kg-test-user`(키 `id`, `password`)를 사용자가 직접 만든다. 값은 채팅·로그에 남기지 않는다.
   - client-side `kubectl apply`는 값을 `last-applied-configuration` annotation에 남기므로 쓰지 않는다. `kubectl create secret generic ... --from-file`로 만들거나 `kubectl apply --server-side`를 쓴다.
   - `make kg-down`은 이 Secret을 지우지 않는다.
+
+## 주기 점검 CronJob (`kubeguardian/cronjob.yaml`)
+
+5분마다 `cli.py check --trigger schedule`을 실행해 규칙 점검과 증상 감지 결과를 PVC `kubeguardian-data`의 SQLite(`/data/kubeguardian.db`)에 쌓는다 (`check_run.trigger = schedule`). `make kg-up`이 함께 적용한다.
+
+- `concurrencyPolicy: Forbid`: 이전 점검이 끝나지 않았으면 다음 회차를 건너뛴다. `activeDeadlineSeconds: 270`으로 다음 회차 전에 끝내고, `backoffLimit: 0`이라 실패해도 재시도하지 않는다.
+- AI 조사는 포함하지 않는다. 사건 지문(#26)이 없어 같은 장애를 5분마다 다시 조사하기 때문이다. #26 뒤에 `investigate`로 바꾼다.
+- PVC는 RWO(단일 노드 minikube 전제)다. runner의 emptyDir DB와 분리돼 평가 이력과 섞이지 않는다.
+- 평가 중에는 `make kg-cron-suspend`로 멈추고 `make kg-cron-resume`으로 재개한다. `make kg-cron-run`은 지금 1회 실행한다.
+
