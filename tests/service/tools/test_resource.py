@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from core.config import KubeGuardianConfig
@@ -225,3 +227,29 @@ def test_get_resource_failure_is_saved_and_not_raised(make_ctx):
 def test_get_resource_rejects_bad_input(make_ctx, args):
     with pytest.raises(ServiceException):
         GetResource().run(args, make_ctx(_cluster()))
+
+
+def test_get_resource_replica_set_shows_containers_without_env_values(make_ctx):
+    rs = replicaset("agent-rs", "agent")
+    rs["spec"]["template"] = {
+        "spec": {
+            "containers": [
+                {
+                    "name": "agent",
+                    "image": "agent:v1",
+                    "env": [
+                        {"name": "ADMIN_SERVICE_URL", "value": "http://x"},
+                        {"name": "TOKEN", "valueFrom": {"secretKeyRef": {"name": "s", "key": "k"}}},
+                    ],
+                }
+            ]
+        }
+    }
+    cluster = _cluster(ReplicaSet=[rs])
+
+    result = GetResource().run({"kind": "ReplicaSet", "name": "agent-rs"}, make_ctx(cluster))
+
+    text = json.dumps(result.data, ensure_ascii=False)
+    assert "http://x" not in text
+    assert "ADMIN_SERVICE_URL" in text
+    assert result.data["items"][0]["containers"][0]["image"] == "agent:v1"
