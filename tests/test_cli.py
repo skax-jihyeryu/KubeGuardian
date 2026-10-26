@@ -15,6 +15,9 @@ core_paths: {chat: [gateway, agent]}
 """
 
 
+PLAN = '{"hypotheses": [], "order": ["run", "config", "wiring", "logs"]}'
+
+
 def _config(tmp_path):
     path = tmp_path / "kubeguardian.yaml"
     path.write_text(CONFIG_YAML, encoding="utf-8")
@@ -183,18 +186,31 @@ def _scripted():
             "conclusion": "gateway 주소 env가 localhost",
             "confidence": "high",
             "impact_scope": "전체",
+            "coverage": {
+                a: {"status": "not_applicable", "summary": "테스트"}
+                for a in ("run", "config", "wiring", "logs")
+            },
             "issues": [
                 {
                     "rank": 1,
                     "title": "gateway 주소 설정 오류",
                     "impact": "core_path_broken",
                     "confidence": "high",
+                    "cause_resource": {"kind": "Deployment", "name": "gateway"},
                 }
             ],
             "evidence_ids": ["ev-0001"],  # 새 DB의 첫 근거 (규칙 점검이 저장한 S04 적발)
         }
     )
-    return ScriptedLLM(script=[triage, AIMessage(content="조사 완료"), report], calls=[])
+    look = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "get_resource", "args": {"kind": "Deployment", "name": "gateway"}, "id": "c1"}
+        ],
+    )  # 원인 리소스의 설정을 직접 본다 (멈춤 검사)
+    return ScriptedLLM(
+        script=[triage, PLAN, look, AIMessage(content="조사 완료"), report], calls=[]
+    )
 
 
 def test_investigate_runs_agent_when_gate_opens_and_prints_report(tmp_path, capsys):

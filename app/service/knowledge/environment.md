@@ -31,7 +31,7 @@ llm-gateway ──▶ Azure OpenAI (서비스용, 클러스터 밖)
 
 - gateway는 `/api/v1/auth/*`를 그대로 admin에 넘기고, 나머지는 접두사를 떼고(`/api/v1/agent/x` → `/api/v1/x`) 하위 서비스로 넘긴다. 실패하면 2번 재시도한다. 라우팅 표는 코드에 고정되어 있고 `gateway-dynamic-conf` ConfigMap은 쓰이지 않는다.
 - gateway는 요청마다 admin `/api/v1/auth/verify`로 토큰을 검증한 뒤 사용자·조직 정보를 헤더로 붙여 넘긴다.
-- 서비스 주소는 env로 받는다. env가 없으면 코드 기본값 `localhost`로 호출한다.
+- 서비스 주소는 env로 받는다. env가 없으면 코드 기본값 `localhost`로 호출한다. env가 없다는 사실만으로는 원인이 아니며, 로그의 호출 대상·직전 ReplicaSet의 env·실패하는 사용자 경로 중 하나가 함께 있어야 한다.
 
 | 서비스 | 주소 env | 가리켜야 할 곳 |
 |---|---|---|

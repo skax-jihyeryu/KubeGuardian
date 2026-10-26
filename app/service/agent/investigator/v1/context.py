@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from service.agent.investigator.v1.state import InvestigationPlan
 from service.checks.detectors.catalog import CATALOG
 from service.model import SignalBoard, Symptom
 from service.model.report import Fact
@@ -42,6 +43,18 @@ def render_board(board: SignalBoard) -> str:
 
 def render_facts(facts: list[Fact]) -> str:
     return "\n".join(f"- {f.statement} [{', '.join(f.evidence_ids)}]" for f in facts) or "(없음)"
+
+
+_AREA_LABEL = {"run": "구동", "config": "설정", "wiring": "연결", "logs": "로그"}
+
+
+def render_plan(plan: InvestigationPlan) -> str:
+    """가설과 확인 방법, 영역을 볼 순서."""
+    lines = [
+        f"- [{_AREA_LABEL[h.area]}] {h.statement} → 확인: {h.check}" for h in plan.hypotheses
+    ] or ["- (가설 없음)"]
+    lines.append("영역 순서: " + " → ".join(f"{_AREA_LABEL[a]}({a})" for a in plan.order))
+    return "\n".join(lines)
 
 
 def render_symptoms(symptoms: list[Symptom]) -> str:

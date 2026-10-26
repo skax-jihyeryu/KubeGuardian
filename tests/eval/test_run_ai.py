@@ -159,3 +159,32 @@ def test_steps_json_is_saved_next_to_report(tmp_path):
 
     assert json.loads((tmp_path / "steps.json").read_text()) == [{"node": "triage"}]
     assert json.loads((tmp_path / "report.json").read_text())["conclusion"] == "c"
+
+
+def test_ai_block_records_must_check_and_cause_resource():
+    report = Report.model_validate(
+        {
+            "conclusion": "c",
+            "confidence": "high",
+            "impact_scope": "agent",
+            "issues": [
+                {
+                    "rank": 1,
+                    "title": "t",
+                    "impact": "core_path_broken",
+                    "confidence": "high",
+                    "cause_resource": {"kind": "Deployment", "name": "agent"},
+                }
+            ],
+            "coverage": {"config": {"status": "checked", "summary": "s", "evidence_ids": ["ev-1"]}},
+        }
+    )
+    result = AgentResult(status="done", report=report, usage=Usage())
+    expected = {**EXPECTED, "must_check": {"config": "이미지 참조 확인", "logs": "로그 확인"}}
+
+    ai, _, _ = _run(result, expected=expected)
+
+    assert ai["cause_resource"] == {"kind": "Deployment", "name": "agent"}
+    assert ai["must_check"]["config"]["status"] == "checked"
+    assert ai["must_check"]["config"]["has_evidence"] is True
+    assert ai["must_check"]["logs"]["status"] == "not_checked"

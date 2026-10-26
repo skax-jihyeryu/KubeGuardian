@@ -330,7 +330,8 @@ Report (조사 보고서):
   preliminary_facts: [...]   # 가설 없이 먼저 확인한 사실 (evidence_ids)
   evidence: [...]
   hypotheses: [{statement, status: supported|refuted|inconclusive, reason, evidence_ids}]
-  checked_scope: {checked: [...], not_checked: [...]}
+  coverage: {run|config|wiring|logs: {status: checked|not_checked|not_applicable, summary, evidence_ids}}  # 구동·설정·연결·로그 영역별 확인 범위
+  issues[].cause_resource: {kind, name}  # 1순위 원인 리소스
   actions: [...]          # 권장 조치 (실행할 명령 수준, 자동 실행 안 함)
   verification: "..."     # 재검증 방법
 ```

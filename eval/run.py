@@ -36,7 +36,7 @@ from core.llm import build_chat_model  # noqa: E402
 from core.tracing import setup_tracing  # noqa: E402
 from judge import JUDGE_MODEL, JudgeResult, judge_top1  # noqa: E402
 from remote import RemoteError, RemoteRunner  # noqa: E402
-from scoring import expected_record, score  # noqa: E402
+from scoring import coverage_record, expected_record, score  # noqa: E402
 from service.agent.base import AgentResult  # noqa: E402
 from service.pipeline.check import run_check  # noqa: E402
 from service.pipeline.investigate import run_investigation  # noqa: E402
@@ -171,6 +171,10 @@ def investigate_and_judge(
     if result.report is None:
         return ai, None, steps
     ai["conclusion"] = result.report.conclusion
+    report_dict = result.report.model_dump(mode="json")
+    ai["must_check"] = coverage_record(expected.get("must_check") or {}, report_dict["coverage"])
+    top = min(result.report.issues, key=lambda i: i.rank, default=None)
+    ai["cause_resource"] = top.cause_resource.model_dump() if top and top.cause_resource else None
     verdict = judge(result.report.conclusion)
     ai["judge"] = {"match": verdict.match, "reason": verdict.reason}
     ai["passed"] = verdict.match is True
@@ -183,7 +187,7 @@ def investigate_and_judge(
         # 근거 없는 결론이 우연히 맞은 것은 통과가 아니다
         ai["passed"] = False
         ai["fail_reason"] = "결론이 인용한 근거가 없다 (conclusion_supported=False)"
-    return ai, result.report.model_dump(mode="json"), steps
+    return ai, report_dict, steps
 
 
 def save_ai_artifacts(out_dir: Path, report: dict | None, steps: list[dict]) -> None:

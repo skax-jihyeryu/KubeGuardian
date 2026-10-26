@@ -119,3 +119,50 @@ def test_issue_without_evidence_is_demoted():
     got = [(i.title, i.confidence) for i in out.report.issues]
     assert got == [("(추정) t1", "low"), ("(추정) t2", "low"), ("t3", "high")]
     assert out.demoted == ["t1", "t2"]
+
+
+def test_checked_area_without_evidence_becomes_not_checked():
+    report = _report(
+        coverage={"config": {"status": "checked", "summary": "env 확인", "evidence_ids": ["ev-9"]}}
+    )
+
+    out = validate_report(report, known)
+
+    assert out.report.coverage.config.status == "not_checked"
+    assert out.report.coverage.config.summary == "(근거 없음) env 확인"
+    assert "coverage.config" in out.demoted
+
+
+def test_checked_area_with_evidence_is_kept():
+    report = _report(
+        coverage={"run": {"status": "checked", "summary": "Pod 상태", "evidence_ids": ["ev-1"]}}
+    )
+
+    out = validate_report(report, known)
+
+    assert out.report.coverage.run.status == "checked"
+    assert "coverage.run" not in out.demoted
+
+
+def test_unchecked_area_without_reason_gets_placeholder():
+    report = _report(coverage={"logs": {"status": "not_checked", "summary": ""}})
+
+    out = validate_report(report, known)
+
+    assert out.report.coverage.logs.summary == "(사유 미기재)"
+
+
+def test_unknown_area_evidence_dropped():
+    report = _report(
+        coverage={
+            "wiring": {
+                "status": "checked",
+                "summary": "연결",
+                "evidence_ids": ["ev-1", "ev-9"],
+            }
+        }
+    )
+
+    out = validate_report(report, known)
+
+    assert out.report.coverage.wiring.evidence_ids == ["ev-1"]

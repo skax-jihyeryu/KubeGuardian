@@ -302,7 +302,11 @@ def _replica_set(obj: Obj) -> Obj:
         meta["annotations"] = {_REVISION: revision}  # W02: 새·이전 ReplicaSet 구분
     return {
         "metadata": meta,
-        "spec": _pick(obj.get("spec"), "replicas", "selector"),
+        "spec": {
+            **_pick(obj.get("spec"), "replicas", "selector"),
+            # 이전 revision과 이미지·env를 비교하려고 템플릿을 남긴다 (값 마스킹은 Pod와 같은 경로)
+            "template": {"spec": _pod_spec(_get(obj, "spec", "template", "spec"))},
+        },
         "status": _pick(obj.get("status"), "replicas", "readyReplicas", "availableReplicas"),
     }
 

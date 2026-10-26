@@ -98,3 +98,30 @@ def test_fact_requires_evidence():
 
     with pytest.raises(ValidationError):
         Fact(statement="Pod 3개 모두 Ready", evidence_ids=[])
+
+
+def test_coverage_missing_area_defaults_not_checked():
+    from service.model.report import Coverage
+
+    cov = Coverage.model_validate({"run": {"status": "checked", "summary": "x"}})
+
+    assert cov.run.status == "checked"
+    assert cov.logs.status == "not_checked"
+    assert cov.logs.summary == "보고서에 없음"
+
+
+def test_coverage_ignores_unknown_keys():
+    from service.model.report import Coverage
+
+    cov = Coverage.model_validate({"network": {"status": "checked"}})
+
+    assert not hasattr(cov, "network")
+
+
+def test_issue_cause_resource_optional():
+    from service.model.report import Issue, ResourceRef
+
+    base = {"rank": 1, "title": "t", "impact": "latent_risk", "confidence": "low"}
+    assert Issue(**base).cause_resource is None
+    issue = Issue(**base, cause_resource={"kind": "Deployment", "name": "agent"})
+    assert issue.cause_resource == ResourceRef(kind="Deployment", name="agent")

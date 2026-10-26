@@ -43,3 +43,14 @@ class BudgetTracker:
 
     def time_over(self) -> bool:
         return self.elapsed() >= self.budget.seconds
+
+    def remaining_seconds(self) -> float:
+        return self.budget.seconds - self.elapsed()
+
+    def issue_exhausted(self) -> bool:
+        """문제당 상한에 닿았다 (전체 상한·시간과 무관)."""
+        return self._issue_calls >= self.budget.per_issue_tool_calls
+
+    def total_left(self) -> bool:
+        """전체 호출 수와 시간이 남아 있다 (문제당 상한은 보지 않는다)."""
+        return self.tool_calls < self.budget.total_tool_calls and not self.time_over()

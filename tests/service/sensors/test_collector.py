@@ -525,3 +525,37 @@ def test_init_container_keeps_restart_policy_for_sidecar_detection():
     )
 
     assert spec["initContainers"] == [{"name": "side", "restartPolicy": "Always"}]
+
+
+def test_replica_set_keeps_template_image_and_env_names():
+    rs = {
+        "metadata": {"name": "agent-7c9f", "namespace": "dev"},
+        "spec": {
+            "replicas": 1,
+            "template": {
+                "metadata": {"labels": {"app": "agent"}},
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "agent",
+                            "image": "agent:v1",
+                            "env": [
+                                {"name": "DB_PASSWORD", "value": "hunter2"},
+                                {
+                                    "name": "X",
+                                    "valueFrom": {"secretKeyRef": {"name": "s", "key": "k"}},
+                                },
+                            ],
+                        }
+                    ]
+                },
+            },
+        },
+    }
+
+    rs_n = collect(FakeReader({"ReplicaSet": [rs]}), now=NOW).items("ReplicaSet")[0]
+
+    c = rs_n["spec"]["template"]["spec"]["containers"][0]
+    assert c["image"] == "agent:v1"
+    assert [e["name"] for e in c["env"]] == ["DB_PASSWORD", "X"]
+    assert c["env"][0]["value"] == "***"
