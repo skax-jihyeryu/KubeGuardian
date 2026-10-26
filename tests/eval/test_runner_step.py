@@ -14,6 +14,9 @@ core_paths: {chat: [gateway, agent]}
 """
 
 
+PLAN = '{"hypotheses": [], "order": ["run", "config", "wiring", "logs"]}'
+
+
 def _config(tmp_path):
     path = tmp_path / "kubeguardian.yaml"
     path.write_text(CONFIG_YAML, encoding="utf-8")
@@ -94,7 +97,7 @@ def test_investigate_rebuilds_outcome_from_the_check_and_prints_result(tmp_path,
             "evidence_ids": [s04["evidence_id"]],
         }
     )
-    llm = ScriptedLLM(script=[triage, AIMessage(content="조사 완료"), report], calls=[])
+    llm = ScriptedLLM(script=[triage, PLAN, AIMessage(content="조사 완료"), report], calls=[])
 
     code = runner_step.main(
         [

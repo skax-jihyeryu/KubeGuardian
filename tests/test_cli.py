@@ -15,6 +15,9 @@ core_paths: {chat: [gateway, agent]}
 """
 
 
+PLAN = '{"hypotheses": [], "order": ["run", "config", "wiring", "logs"]}'
+
+
 def _config(tmp_path):
     path = tmp_path / "kubeguardian.yaml"
     path.write_text(CONFIG_YAML, encoding="utf-8")
@@ -194,7 +197,7 @@ def _scripted():
             "evidence_ids": ["ev-0001"],  # 새 DB의 첫 근거 (규칙 점검이 저장한 S04 적발)
         }
     )
-    return ScriptedLLM(script=[triage, AIMessage(content="조사 완료"), report], calls=[])
+    return ScriptedLLM(script=[triage, PLAN, AIMessage(content="조사 완료"), report], calls=[])
 
 
 def test_investigate_runs_agent_when_gate_opens_and_prints_report(tmp_path, capsys):

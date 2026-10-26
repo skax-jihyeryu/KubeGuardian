@@ -11,6 +11,8 @@ from tests.service.agent.investigator.test_v1_graph import ScriptedLLM
 from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
 from tests.service.tools.fakes import FakeHttp
 
+PLAN = '{"hypotheses": [], "order": ["run", "config", "wiring", "logs"]}'
+
 
 @pytest.fixture
 def engine(tmp_path):
@@ -64,7 +66,7 @@ def test_run_investigation_uses_registered_agent_and_stores_evidence(engine):
             "evidence_ids": [s04.evidence_id],
         }
     )
-    llm = ScriptedLLM(script=[triage, AIMessage(content="조사 완료"), report], calls=[])
+    llm = ScriptedLLM(script=[triage, PLAN, AIMessage(content="조사 완료"), report], calls=[])
 
     result = run_investigation(
         out, CONFIG, engine, llm_factory=lambda m: llm, k8s=reader, run_id="inv-1"
