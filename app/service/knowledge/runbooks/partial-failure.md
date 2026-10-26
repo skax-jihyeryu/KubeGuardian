@@ -12,23 +12,23 @@
 
 ## 먼저 확인할 사실 (가설 없이)
 
-| 확인할 사실 | 진단 API | 이 결과가 의미하는 것 |
-|---|---|---|
-| 실패 비율 (여러 번 호출) | `run_api_scenario` 반복 | 약 1/N이면 N개 Pod 중 하나일 가능성 |
-| Pod별 오류 로그 | `get_pod_logs` (Pod 지정) | 특정 Pod 로그에만 요청 오류가 있으면 그 Pod 문제 |
-| Pod별 상태 확인 호출 | `probe` (Pod 지정) | 상태 확인 경로가 특정 Pod만 실패하면 그 Pod 문제 |
-| Pod별 노드·재시작·리소스 | `get_resource` (Pod·Node) | 실패 Pod가 같은 노드에 몰렸는지 |
-| 실패 Pod의 로그 | `get_pod_logs` | 그 Pod에만 있는 오류 |
+| 확인할 사실 | 영역 | 진단 API | 이 결과가 의미하는 것 |
+|---|---|---|---|
+| 실패 비율 (여러 번 호출) | 연결 | `run_api_scenario` 반복 | 약 1/N이면 N개 Pod 중 하나일 가능성 |
+| Pod별 오류 로그 | 로그 | `get_pod_logs` (Pod 지정) | 특정 Pod 로그에만 요청 오류가 있으면 그 Pod 문제 |
+| Pod별 상태 확인 호출 | 연결 | `probe` (Pod 지정) | 상태 확인 경로가 특정 Pod만 실패하면 그 Pod 문제 |
+| Pod별 노드·재시작·리소스 | 구동 | `get_resource` (Pod·Node) | 실패 Pod가 같은 노드에 몰렸는지 |
+| 실패 Pod의 로그 | 로그 | `get_pod_logs` | 그 Pod에만 있는 오류 |
 
 ## 원인 후보와 판별법
 
-| 원인 후보 | 지지 근거 | 배제 근거 | 확인에 쓸 진단 API |
-|---|---|---|---|
-| 특정 Pod만 이상 (앱 오류) | 그 Pod 로그에만 요청 오류, 그 Pod 상태 확인만 실패 | 모든 Pod 로그에 같은 비율로 오류 | `get_pod_logs`, `probe` |
-| 특정 노드 문제 | 실패 Pod가 한 노드에 몰림, 노드 조건 이상 | 노드가 섞여 있음 | `get_resource` (Node) |
-| 리소스 부족 | 실패 Pod의 OOMKilled·재시작, 응답 지연 증가 | 종료 기록 없고 지연 정상 | `get_resource`, `run_api_scenario` |
-| 타임아웃 경계 | 실패가 느린 요청에만, 로그의 timeout | 실패가 빠르게 남 | `run_api_scenario`, `get_pod_logs` |
-| 버전 혼재 (롤아웃 중) | Pod 이미지·ReplicaSet이 둘, 한 버전만 실패 | 모든 Pod가 같은 버전 | `get_resource` |
+| 원인 후보 | 지지 근거 | 배제 근거 | 확인에 쓸 진단 API | 확정에 필요한 영역 |
+|---|---|---|---|---|
+| 특정 Pod만 이상 (앱 오류) | 그 Pod 로그에만 요청 오류, 그 Pod 상태 확인만 실패 | 모든 Pod 로그에 같은 비율로 오류 | `get_pod_logs`, `probe` | 로그 + 구동 |
+| 특정 노드 문제 | 실패 Pod가 한 노드에 몰림, 노드 조건 이상 | 노드가 섞여 있음 | `get_resource` (Node) | 구동 |
+| 리소스 부족 | 실패 Pod의 OOMKilled·재시작, 응답 지연 증가 | 종료 기록 없고 지연 정상 | `get_resource`, `run_api_scenario` | 구동 + 설정 |
+| 타임아웃 경계 | 실패가 느린 요청에만, 로그의 timeout | 실패가 빠르게 남 | `run_api_scenario`, `get_pod_logs` | 연결 + 로그 |
+| 버전 혼재 (롤아웃 중) | Pod 이미지·ReplicaSet이 둘, 한 버전만 실패 | 모든 Pod가 같은 버전 | `get_resource` | 설정 + 구동 |
 
 - 판정 기준: 서로 다른 출처의 근거 2개 이상으로 지지되고 나머지 후보가 배제되면 확정한다.
 

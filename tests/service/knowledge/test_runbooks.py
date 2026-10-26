@@ -71,3 +71,14 @@ def test_runbook_follows_template_sections(path):
 
 def test_environment_name_pattern_catches_korean_particles():
     assert ENV_NAMES.findall("gateway가 redis를 부른다")
+
+
+@pytest.mark.parametrize(
+    "path", [p for p in FILES if p.stem != "noise-filtering"], ids=lambda p: p.stem
+)
+def test_runbook_fact_table_has_area_column(path):
+    text = path.read_text()
+    header = next(line for line in text.split("\n") if line.startswith("| 확인할 사실"))
+
+    assert "영역" in header
+    assert "확정에 필요한 영역" in text
