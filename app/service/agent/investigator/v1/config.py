@@ -13,7 +13,12 @@ from service.agent.base import AgentSpec
 SPEC = AgentSpec(
     name="investigator",
     version="v1",
-    models={"triage": "gpt-6.1-sol", "investigate": "gpt-6.1-sol", "report": "gpt-6.1-sol"},
+    models={
+        "triage": "gpt-6.1-sol",
+        "plan": "gpt-6.1-sol",
+        "investigate": "gpt-6.1-sol",
+        "report": "gpt-6.1-sol",
+    },
     budget=Budget(),
     prompts_dir=Path(__file__).parent / "prompts",
 )

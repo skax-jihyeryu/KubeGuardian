@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from core.config import KubeGuardianConfig
@@ -56,6 +58,19 @@ def test_topology_returns_edges_and_service_hierarchy(make_ctx):
         {"deployment": "gateway", "replicaset": "gateway-rs", "pod": "gateway-1"}
     ]
     assert result.summary == "서비스 2개, 호출 관계 2개 (unresolved 1개: gateway→localhost)"
+
+
+def test_topology_shows_sidecar_edge_via(make_ctx):
+    gateway = deployment("gateway", env=[{"name": "CACHE_URL", "value": "http://localhost:6379"}])
+    gateway["spec"]["template"]["spec"]["containers"].append(
+        {"name": "cache", "ports": [{"containerPort": 6379}]}
+    )
+    result = GetTopology(CONFIG).run({}, make_ctx(_cluster(Deployment=[gateway])))
+
+    sidecar = [e for e in result.data["edges"] if e.get("via")]
+    assert [(e["source"], e["via"], e["status"]) for e in sidecar] == [
+        ("gateway", "sidecar", "declared")
+    ]
 
 
 def test_topology_reads_only_needed_kinds_via_ctx_k8s(make_ctx):
@@ -212,3 +227,29 @@ def test_get_resource_failure_is_saved_and_not_raised(make_ctx):
 def test_get_resource_rejects_bad_input(make_ctx, args):
     with pytest.raises(ServiceException):
         GetResource().run(args, make_ctx(_cluster()))
+
+
+def test_get_resource_replica_set_shows_containers_without_env_values(make_ctx):
+    rs = replicaset("agent-rs", "agent")
+    rs["spec"]["template"] = {
+        "spec": {
+            "containers": [
+                {
+                    "name": "agent",
+                    "image": "agent:v1",
+                    "env": [
+                        {"name": "ADMIN_SERVICE_URL", "value": "http://x"},
+                        {"name": "TOKEN", "valueFrom": {"secretKeyRef": {"name": "s", "key": "k"}}},
+                    ],
+                }
+            ]
+        }
+    }
+    cluster = _cluster(ReplicaSet=[rs])
+
+    result = GetResource().run({"kind": "ReplicaSet", "name": "agent-rs"}, make_ctx(cluster))
+
+    text = json.dumps(result.data, ensure_ascii=False)
+    assert "http://x" not in text
+    assert "ADMIN_SERVICE_URL" in text
+    assert result.data["items"][0]["containers"][0]["image"] == "agent:v1"

@@ -25,7 +25,7 @@ AI 기반 Kubernetes 서비스 진단 Agent (1인 PoC, 2026-10-12 ~ 11-20). 기�
 | 주간·기간 리뷰 | `work-review` (개인 스킬) |
 
 - 코드 작성은 superpowers 스킬을 따른다. 어떤 조건에서 어떤 스킬을 쓰는지는 `issue-work` 스킬에 정리했다.
-- superpowers 계획 문서는 `.claude/plans/`에 둔다 (커밋하지 않음). 별도 worktree는 쓰지 않는다.
+- superpowers 계획 문서는 `.claude/plans/`에, 설계 문서(spec)는 `docs/superpowers/`에 둔다 (둘 다 커밋하지 않음). 결정은 정본 문서(기획서·UI 정의서·05-rules)에 반영한다. 별도 worktree는 쓰지 않는다.
 - 작업 중 범위 밖 문제는 고치지 말고 이슈로 등록한다.
 - 작업을 시작하기 전에 `git fetch`로 `develop`이 최신인지 확인한다.
 

@@ -3,14 +3,15 @@
 from datetime import timedelta
 from types import SimpleNamespace
 
+from core.config import KubeGuardianConfig, get_setting
 from core.db import create_db_engine
-from run import check_repeatedly
-from service.model import Signal
+from run import check_repeatedly, target_http, unknown_symptoms
+from service.model import Signal, Symptom
 from service.pipeline.check import run_check
 from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
 
 
-def _outcome(detected=(), observing=(), gate="C", failed=()):
+def _outcome(detected=(), observing=(), gate="C", failed=(), symptoms=()):
     signals = [
         Signal(rule_id=r, verdict="detected", subject=f"dev/{r}", severity="critical")
         for r in detected
@@ -20,6 +21,7 @@ def _outcome(detected=(), observing=(), gate="C", failed=()):
         signals=signals,
         gate=SimpleNamespace(path=gate, reason="test"),
         snapshot=SimpleNamespace(failed=list(failed)),
+        symptoms=list(symptoms),
     )
 
 
@@ -60,10 +62,10 @@ def _run(clock, expected, interval_s=300, max_s=2100):
     return result, printed
 
 
-def test_no_expected_signals_checks_once():
+def test_no_must_signals_checks_once():
     """H0·B·C 시나리오: 기대 신호가 없으면 한 번만 점검한다."""
     clock = FakeClock([_outcome(gate="C")])
-    (outcome, checks, first), printed = _run(clock, {"expected_signals": [], "gate_path": "C"})
+    (outcome, checks, first), printed = _run(clock, {"must_signals": [], "gate_path": "C"})
 
     assert clock.calls == 1
     assert clock.sleeps == []
@@ -74,7 +76,7 @@ def test_no_expected_signals_checks_once():
 
 def test_immediate_signal_finishes_after_first_check():
     clock = FakeClock([_outcome(detected=["S01"], gate="A")])
-    (outcome, checks, first), _ = _run(clock, {"expected_signals": ["S01"], "gate_path": "A"})
+    (outcome, checks, first), _ = _run(clock, {"must_signals": ["S01"], "gate_path": "A"})
 
     assert clock.calls == 1
     assert first == {"S01": 40}
@@ -90,7 +92,7 @@ def test_repeats_until_all_expected_detected_and_records_first_detection():
         _outcome(detected=["S02", "W02"], gate="A"),
     ]
     clock = FakeClock(outcomes)
-    (outcome, checks, first), _ = _run(clock, {"expected_signals": ["W02"], "gate_path": "A"})
+    (outcome, checks, first), _ = _run(clock, {"must_signals": ["W02"], "gate_path": "A"})
 
     assert clock.calls == 6
     assert outcome is outcomes[-1]
@@ -112,9 +114,7 @@ def test_first_detection_is_kept_and_stop_needs_all_in_one_check():
         _outcome(detected=["S02", "W02"], gate="A"),
     ]
     clock = FakeClock(outcomes)
-    (outcome, checks, first), _ = _run(
-        clock, {"expected_signals": ["S02", "W02"], "gate_path": "A"}
-    )
+    (outcome, checks, first), _ = _run(clock, {"must_signals": ["S02", "W02"], "gate_path": "A"})
 
     assert clock.calls == 4
     assert first == {"S02": 40, "W02": 640}
@@ -123,7 +123,7 @@ def test_first_detection_is_kept_and_stop_needs_all_in_one_check():
 def test_stops_at_cap_and_returns_last_outcome():
     clock = FakeClock([_outcome(observing=["W02"])])
     (outcome, checks, first), _ = _run(
-        clock, {"expected_signals": ["W02"], "gate_path": "A"}, interval_s=300, max_s=900
+        clock, {"must_signals": ["W02"], "gate_path": "A"}, interval_s=300, max_s=900
     )
 
     # 30초에 첫 점검, 330·630초까지. 다음(930초)은 상한 900초를 넘어 하지 않는다
@@ -148,7 +148,7 @@ def _real_checks(engine_for_each_check):
 
     return check_repeatedly(
         check,
-        {"expected_signals": ["S02"], "gate_path": "A"},
+        {"must_signals": ["S02"], "gate_path": "A"},
         interval_s=300,
         max_s=2700,
         elapsed=clock.elapsed,
@@ -182,7 +182,33 @@ def test_fresh_db_each_check_never_matures(tmp_path):
 def test_collect_failure_stops_loop():
     """수집 실패는 호출한 쪽이 무효로 처리한다. 더 기다리지 않는다."""
     clock = FakeClock([_outcome(observing=["W02"], failed=["pods"])])
-    (outcome, checks, first), _ = _run(clock, {"expected_signals": ["W02"], "gate_path": "A"})
+    (outcome, checks, first), _ = _run(clock, {"must_signals": ["W02"], "gate_path": "A"})
 
     assert clock.calls == 1
     assert checks[0]["collect_failed"] == ["pods"]
+
+
+def _unknown_symptom():
+    return Symptom(scenario="chat", status="unknown", summary="조회 실패: Service gateway 없음")
+
+
+def test_unknown_symptom_stops_loop_and_is_listed():
+    """시나리오를 실행하지 못하면 더 기다려도 소용없다. 호출한 쪽이 무효로 처리한다."""
+    clock = FakeClock([_outcome(observing=["W02"], symptoms=[_unknown_symptom()])])
+    (outcome, checks, first), _ = _run(clock, {"must_signals": ["W02"], "gate_path": "A"})
+
+    assert clock.calls == 1
+    assert unknown_symptoms(outcome) == ["chat: 조회 실패: Service gateway 없음"]
+
+
+def test_target_http_injects_accounts_from_accounts_dir(tmp_path, monkeypatch):
+    secret = tmp_path / "kg-test-user"
+    secret.mkdir()
+    (secret / "id").write_text("tester\n")
+    monkeypatch.setenv("KG_ACCOUNTS_DIR", str(tmp_path))
+    get_setting.cache_clear()
+    try:
+        http = target_http(KubeGuardianConfig.model_validate({"target": {"namespace": "dev"}}))
+        assert http.account("kg-test-user") == {"id": "tester"}
+    finally:
+        get_setting.cache_clear()

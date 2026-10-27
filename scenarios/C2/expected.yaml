@@ -3,7 +3,11 @@ id: C2
 level: L3                 # 증상(로그인 불가)은 front-chat·gateway에, 원인은 admin ↔ redis 네트워크에 있다. K8s는 정상
 k8s_visible: false        # Pod는 모두 Ready, Service·설정도 정상. 앱 로그·연결 확인으로만 원인이 보인다
 gate_path: B              # 규칙 신호 없음. 증상 감지(API 시나리오 로그인 실패)로 경로 B
-expected_signals: []      # 장애 신호 규칙으로 잡히는 것이 없다 (05-rules §5)
+must_signals: []   # 장애 신호 규칙으로 잡히는 것이 없다 (05-rules §5)
+allowed_signals: []
+forbidden_signals: []
+must_check:
+  wiring: "로그인 요청이 응답 대기 끝에 시간 초과(504)로 실패"
 root_cause: "admin에서 redis로 가는 네트워크가 차단되어 admin이 로그인 세션을 Redis에 저장하지 못하고 멈춘다"
 affected_services: [admin, gateway, front-chat, front-admin]
 expected_top1: "admin → Redis 연결 차단으로 로그인이 시간 초과(5xx)로 실패, Pod는 전부 Ready"

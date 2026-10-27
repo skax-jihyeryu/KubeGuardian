@@ -5,17 +5,22 @@ InvestigationRequest, Issue, Hypothesis, Report.
 """
 
 from service.model.evidence import Evidence, EvidenceKind
-from service.model.gate import GatePath, GateResult
+from service.model.gate import GatePath, GateResult, Symptom
 from service.model.investigation import InvestigationRequest, Trigger
 from service.model.report import (
-    CheckedScope,
+    AREAS,
+    Area,
+    AreaCoverage,
     Confidence,
+    Coverage,
+    CoverageStatus,
     Fact,
     Hypothesis,
     HypothesisStatus,
     Impact,
     Issue,
     Report,
+    ResourceRef,
     severity_for,
 )
 from service.model.signal import Severity, Signal, SignalBoard, Verdict
@@ -23,9 +28,13 @@ from service.model.snapshot import ClusterSnapshot
 from service.model.topology import EdgeStatus, Topology, TopologyEdge
 
 __all__ = [
-    "CheckedScope",
+    "AREAS",
+    "Area",
+    "AreaCoverage",
     "ClusterSnapshot",
     "Confidence",
+    "Coverage",
+    "CoverageStatus",
     "EdgeStatus",
     "Evidence",
     "EvidenceKind",
@@ -38,9 +47,11 @@ __all__ = [
     "InvestigationRequest",
     "Issue",
     "Report",
+    "ResourceRef",
     "Severity",
     "Signal",
     "SignalBoard",
+    "Symptom",
     "Topology",
     "TopologyEdge",
     "Trigger",

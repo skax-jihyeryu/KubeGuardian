@@ -71,3 +71,27 @@ def test_runbook_follows_template_sections(path):
 
 def test_environment_name_pattern_catches_korean_particles():
     assert ENV_NAMES.findall("gateway가 redis를 부른다")
+
+
+@pytest.mark.parametrize(
+    "path", [p for p in FILES if p.stem != "noise-filtering"], ids=lambda p: p.stem
+)
+def test_runbook_fact_table_has_area_column(path):
+    text = path.read_text()
+    header = next(line for line in text.split("\n") if line.startswith("| 확인할 사실"))
+
+    assert "영역" in header
+    assert "확정에 필요한 영역" in text
+
+
+def test_failure_after_deploy_keeps_entry_condition_and_registry_clues():
+    text = (RUNBOOKS / "failure-after-deploy.md").read_text()
+
+    assert "적발됐거나 관찰 중이다" in text
+    assert "태그·인증 오류" in text and "주소 해석 실패" in text
+
+
+def test_service_unreachable_warns_missing_edge_is_not_normal():
+    text = (RUNBOOKS / "service-unreachable.md").read_text()
+
+    assert "엣지 없음은 정상이 아니다" in text

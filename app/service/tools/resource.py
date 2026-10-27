@@ -224,6 +224,7 @@ def _replica_set(o: Obj) -> Obj:
         "owner": _owner(o),
         "revision": (o["metadata"].get("annotations") or {}).get(_REVISION),
         "replicas": o["spec"].get("replicas"),
+        "containers": _containers((o["spec"].get("template") or {}).get("spec") or {}),
         "status": o.get("status") or {},
     }
 

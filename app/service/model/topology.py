@@ -13,6 +13,9 @@ class TopologyEdge(BaseModel):
     port: int | None = None
     env_name: str | None = None  # 주소를 읽은 env (예: AGENT_SERVICE_URL)
     status: EdgeStatus
+    via: Literal["sidecar"] | None = (
+        None  # 같은 Pod 사이드카로 풀린 주소 (target = 호출 서비스 자신)
+    )
 
 
 class Topology(BaseModel):

@@ -25,9 +25,12 @@ class Settings(BaseSettings):
 
     # 실행 추적 (Phoenix, OpenTelemetry)
     OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
+    PHOENIX_PROJECT_NAME: str = "test"  # Phoenix 프로젝트 이름. 실서비스 전까지 test
 
     # 진단 대상·점검 설정 파일 (kubeguardian.example.yaml 참고)
     KG_CONFIG_PATH: str = "kubeguardian.yaml"
+    # 시나리오용 테스트 계정 Secret을 마운트한 디렉터리 (<디렉터리>/<Secret 이름>/<키>)
+    KG_ACCOUNTS_DIR: str = "/etc/kubeguardian/accounts"
 
 
 @lru_cache
@@ -101,8 +104,12 @@ class ApiScenarioStep(_Strict):
         return self
 
 
+SCENARIO_NAME_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"  # run_api_scenario 도구 입력과 같다
+
+
 class ApiScenario(_Strict):
-    name: str
+    name: str = Field(pattern=SCENARIO_NAME_PATTERN)
+    feature: str  # 이 시나리오가 지키는 사용자 기능. core_paths의 키 (심각도 판정, 05-rules §3)
     steps: list[ApiScenarioStep]
 
 
@@ -134,11 +141,22 @@ class KubeGuardianConfig(_Strict):
     schedule: str = Field(default="*/5 * * * *", pattern=r"^\S+( \S+){4}$")  # cron 5필드
     core_paths: dict[str, list[str]] = {}  # 사용자 기능 → 서비스 목록 (1차 심각도, 05-rules §3)
     external_hosts: list[str] = []  # S04 제외: 외부 호스트 허용 목록
+    required_config: dict[str, list[str]] = {}  # C05: 서비스 → 반드시 있어야 할 env 이름
     topology: TopologyConfig = TopologyConfig()
     api_scenarios: list[ApiScenario] = []
     app_apis: dict[str, list[str]] = {}  # query_app_api 허용 목록 (GET만)
     slack: SlackConfig | None = None
     knowledge: KnowledgeConfig = KnowledgeConfig()
+
+    @model_validator(mode="after")
+    def _scenarios_are_consistent(self) -> "KubeGuardianConfig":
+        names = [s.name for s in self.api_scenarios]
+        if len(names) != len(set(names)):
+            raise ValueError("api_scenarios 이름 중복")
+        unknown = sorted({s.feature for s in self.api_scenarios} - set(self.core_paths))
+        if unknown:
+            raise ValueError(f"api_scenarios feature가 core_paths에 없음: {unknown}")
+        return self
 
 
 def load_kubeguardian_config(path: str | Path | None = None) -> KubeGuardianConfig:

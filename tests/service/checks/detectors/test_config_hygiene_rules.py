@@ -4,9 +4,11 @@ from datetime import timedelta
 
 import pytest
 
+from core.config import KubeGuardianConfig
 from service.checks.detectors.catalog import CATALOG
 from service.sensors.collector import collect
 from tests.service.checks.detectors.cases import (
+    CONFIG,
     NOW,
     FixtureReader,
     context,
@@ -122,6 +124,7 @@ INPUTS = {
     "S03": "Pod",
     "S04": "Service",
     "C01": "Secret",
+    "C05": "ConfigMap",
     "H01": "Service",
     "H02": "Pod",
 }
@@ -133,7 +136,8 @@ def test_every_rule_has_a_collection_failure_case():
 
 @pytest.mark.parametrize(("rule_id", "kind"), sorted(INPUTS.items()))
 def test_collection_failure_is_unknown_not_passed(rule_id, kind, obs):
-    signals = run(rule_id, context(failed_snapshot(kind), observations=obs))
+    config = REQUIRED_CONFIG_CTX if rule_id == "C05" else CONFIG
+    signals = run(rule_id, context(failed_snapshot(kind), observations=obs, config=config))
     assert [(s.verdict, s.subject) for s in signals] == [("unknown", "dev")]
     assert kind in signals[0].values["failed_kinds"]
     assert obs.rows == {}
@@ -210,3 +214,155 @@ def test_kind_needed_for_the_condition_itself_stays_unknown(rule_id, kind):
     signals = run(rule_id, context(failed_snapshot(kind)))
 
     assert [s.verdict for s in signals] == ["unknown"]
+
+
+# ── C05 필수 설정 누락 (required_config) ──
+
+
+def _config(required, core_paths=None):
+    return KubeGuardianConfig.model_validate(
+        {
+            "target": {"namespace": "dev"},
+            "core_paths": core_paths if core_paths is not None else {"chat": ["gateway", "agent"]},
+            "required_config": required,
+        }
+    )
+
+
+REQUIRED_CONFIG_CTX = _config({"gateway": ["ADMIN_SERVICE_URL"]})
+
+
+def _c05(required, mutate=None, core_paths=None):
+    objects, failed = raw_cluster()
+    if mutate:
+        mutate(objects)
+    snap = collect(FixtureReader(objects, failed), now=NOW)
+    return run("C05", context(snap, config=_config(required, core_paths)))
+
+
+def _containers(objects, deployment):
+    dep = next(d for d in objects["Deployment"] if d["metadata"]["name"] == deployment)
+    return dep["spec"]["template"]["spec"]["containers"]
+
+
+def _verdict(signals, service="gateway"):
+    (s,) = [s for s in signals if s.service == service]
+    return s
+
+
+def test_required_config_empty_judges_nothing():
+    assert _c05({}) == []
+
+
+def test_missing_required_env_is_detected():
+    s = _verdict(_c05({"gateway": ["ADMIN_SERVICE_URL"]}))
+    assert (s.verdict, s.rule_id, s.subject) == ("detected", "C05", "dev/Service/gateway")
+    assert s.values["missing"] == ["ADMIN_SERVICE_URL"]
+    assert s.values["required"] == ["ADMIN_SERVICE_URL"]
+
+
+def test_present_in_env_passes():
+    s = _verdict(_c05({"gateway": ["AGENT_SERVICE_URL"]}))
+    assert s.verdict == "passed"
+    assert s.values["found"] == {"AGENT_SERVICE_URL": "env"}
+    assert s.values["missing"] == []
+
+
+def test_present_via_configmap_envfrom_passes():
+    s = _verdict(_c05({"agent": ["LOG_LEVEL"]}), "agent")
+    assert s.verdict == "passed"
+    assert s.values["found"] == {"LOG_LEVEL": "configmap:agent-config"}
+
+
+def test_present_via_secret_envfrom_key_name_passes():
+    def mutate(o):
+        _containers(o, "gateway")[0]["envFrom"] = [{"secretRef": {"name": "agent-secret"}}]
+
+    s = _verdict(_c05({"gateway": ["db-password"]}, mutate))
+    assert s.verdict == "passed"
+    assert s.values["found"] == {"db-password": "secret:agent-secret"}
+
+
+def test_envfrom_prefix_applies():
+    def mutate(o):
+        _containers(o, "gateway")[0]["envFrom"] = [
+            {"prefix": "APP_", "configMapRef": {"name": "agent-config"}}
+        ]
+
+    assert _verdict(_c05({"gateway": ["APP_LOG_LEVEL"]}, mutate)).verdict == "passed"
+    assert _verdict(_c05({"gateway": ["LOG_LEVEL"]}, mutate)).verdict == "detected"
+
+
+def test_valuefrom_and_empty_value_count_as_present():
+    s = _verdict(_c05({"agent": ["DB_PASSWORD"]}), "agent")
+    assert s.values["found"] == {"DB_PASSWORD": "valueFrom"}
+
+    def mutate(o):
+        _containers(o, "gateway")[0]["env"].append({"name": "EMPTY", "value": ""})
+
+    assert _verdict(_c05({"gateway": ["EMPTY"]}, mutate)).verdict == "passed"
+
+
+def test_multi_container_any_container_satisfies():
+    def mutate(o):
+        _containers(o, "gateway").append({"name": "side", "env": [{"name": "X", "value": "1"}]})
+
+    assert _verdict(_c05({"gateway": ["X"]}, mutate)).verdict == "passed"
+
+
+def test_declared_service_missing_is_detected():
+    (s,) = _c05({"gatway": ["X"]})
+    assert (s.verdict, s.service) == ("detected", "gatway")
+    assert s.values["error"] == "선언한 서비스 없음"
+
+
+def test_missing_referenced_configmap_is_unknown_not_detected():
+    def mutate(o):
+        o["ConfigMap"] = []
+
+    s = _verdict(_c05({"agent": ["LOG_LEVEL"]}, mutate), "agent")
+    assert s.verdict == "unknown"
+    assert s.values["unchecked"] == ["LOG_LEVEL"]
+
+
+def test_optional_missing_configmap_does_not_hide_missing_name():
+    def mutate(o):
+        o["ConfigMap"] = []
+        _containers(o, "agent")[0]["envFrom"][0]["configMapRef"]["optional"] = True
+
+    assert _verdict(_c05({"agent": ["LOG_LEVEL"]}, mutate), "agent").verdict == "detected"
+
+
+def test_severity_follows_core_paths():
+    critical = _verdict(_c05({"gateway": ["X"]}))
+    other = _verdict(_c05({"gateway": ["X"]}, core_paths={"chat": ["agent"]}))
+    assert (critical.severity, other.severity) == ("critical", "warning")
+
+
+def test_service_collection_failure_is_unknown_not_detected():
+    signals = run("C05", context(failed_snapshot("Service"), config=_config({"gatway": ["X"]})))
+
+    assert [(s.verdict, s.subject) for s in signals] == [("unknown", "dev")]
+    assert "Service" in signals[0].values["failed_kinds"]
+
+
+def test_missing_ref_with_other_prefix_does_not_hide_missing_name():
+    def mutate(o):
+        o["ConfigMap"] = []
+        _containers(o, "agent")[0]["envFrom"][0]["prefix"] = "APP_"
+
+    s = _verdict(_c05({"agent": ["LOG_LEVEL"]}, mutate), "agent")
+    assert (s.verdict, s.values["missing"]) == ("detected", ["LOG_LEVEL"])
+
+
+def test_detected_wins_over_unchecked_in_same_service():
+    def mutate(o):
+        o["ConfigMap"] = []
+        _containers(o, "agent")[0]["envFrom"][0]["prefix"] = "APP_"
+
+    s = _verdict(_c05({"agent": ["APP_LOG_LEVEL", "NOPE"]}, mutate), "agent")
+    assert (s.verdict, s.values["missing"], s.values["unchecked"]) == (
+        "detected",
+        ["NOPE"],
+        ["APP_LOG_LEVEL"],
+    )

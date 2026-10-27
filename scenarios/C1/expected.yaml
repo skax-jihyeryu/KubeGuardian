@@ -4,7 +4,11 @@ id: C1
 level: L3                 # 증상(채팅 실패)은 gateway·agent에, 원인은 llm-gateway 응답에 있다. K8s는 정상
 k8s_visible: false        # Pod·Service·설정 모두 정상. agent 로그나 llm-gateway 직접 호출로만 원인이 보인다
 gate_path: B              # 규칙 신호 없음. 증상 감지(API 시나리오 chat 실패)로 경로 B
-expected_signals: []      # 장애 신호 규칙으로 잡히는 것이 없다 (05-rules §5)
+must_signals: []   # 장애 신호 규칙으로 잡히는 것이 없다 (05-rules §5)
+allowed_signals: []
+forbidden_signals: []
+must_check:
+  wiring: "채팅 응답 answer의 429 오류 문구"
 root_cause: "llm-gateway가 LLM 호출(채팅 완성 요청)에 429(할당량 초과)를 돌려줘 채팅이 실패한다"
 affected_services: [llm-gateway, agent, gateway, front-chat]
 expected_top1: "llm-gateway가 채팅 요청에 429(할당량 초과)를 돌려줘 채팅이 실패"

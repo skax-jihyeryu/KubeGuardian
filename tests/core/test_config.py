@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from core.config import load_kubeguardian_config
+from core.config import KubeGuardianConfig, load_kubeguardian_config
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "kubeguardian.example.yaml"
 
@@ -59,3 +59,52 @@ def test_namespace_must_be_dns_label(tmp_path, namespace):
 
     with pytest.raises(ValidationError):
         load_kubeguardian_config(path)
+
+
+def test_required_config_must_map_service_to_name_list():
+    base = {"target": {"namespace": "dev"}}
+    ok = KubeGuardianConfig.model_validate({**base, "required_config": {"gateway": ["A"]}})
+    assert ok.required_config == {"gateway": ["A"]}
+    assert KubeGuardianConfig.model_validate(base).required_config == {}
+    with pytest.raises(ValidationError):
+        KubeGuardianConfig.model_validate({**base, "required_config": {"gateway": "A"}})
+
+
+_STEP = {"call": {"via": "gateway", "path": "/x"}}
+
+
+def _with_scenarios(*scenarios):
+    return KubeGuardianConfig.model_validate(
+        {
+            "target": {"namespace": "dev"},
+            "core_paths": {"chat": ["gateway"]},
+            "api_scenarios": list(scenarios),
+        }
+    )
+
+
+def test_scenario_with_registered_feature_loads():
+    config = _with_scenarios({"name": "chat-flow", "feature": "chat", "steps": [_STEP]})
+
+    assert config.api_scenarios[0].feature == "chat"
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        {"name": "chat", "steps": [_STEP]},  # feature 누락
+        {"name": "chat", "feature": "export", "steps": [_STEP]},  # core_paths에 없는 키
+        {"name": "a b", "feature": "chat", "steps": [_STEP]},  # 도구 입력 패턴 밖 이름
+        {"name": "x" * 65, "feature": "chat", "steps": [_STEP]},
+    ],
+)
+def test_invalid_scenario_is_rejected_at_load(scenario):
+    with pytest.raises(ValidationError):
+        _with_scenarios(scenario)
+
+
+def test_duplicate_scenario_name_is_rejected():
+    scenario = {"name": "chat", "feature": "chat", "steps": [_STEP]}
+
+    with pytest.raises(ValidationError, match="중복"):
+        _with_scenarios(scenario, scenario)

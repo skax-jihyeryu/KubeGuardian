@@ -5,7 +5,11 @@ level: L2                 # "요청 일부만 실패"와 "Pod별 응답 차이"�
 # 다만 agent Pod는 3개 모두 Ready이고 재시작·이벤트가 없어, 원인 Pod를 찾으려면 Pod별 직접 호출(probe)이나 Pod별 로그가 필요하다
 k8s_visible: true
 gate_path: B              # 규칙 신호 없음. 사용자 입력(증상 신고)으로 경로 B
-expected_signals: []      # 장애 신호 규칙으로 잡히는 것이 없다
+must_signals: []   # 장애 신호 규칙으로 잡히는 것이 없다
+allowed_signals: []
+forbidden_signals: []
+must_check:
+  run: "agent Pod 하나만 HTTP 500을 돌려주고 나머지는 정상"
 root_cause: "agent Pod 3개 중 1개만 모든 요청에 HTTP 500을 돌려준다 (나머지 Pod는 정상)"
 affected_services: [agent, gateway, front-chat]
 expected_top1: "agent Pod 1개만 HTTP 500을 돌려줘 agent 요청 일부가 실패"

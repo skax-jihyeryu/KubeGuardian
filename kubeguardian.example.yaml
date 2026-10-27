@@ -9,10 +9,13 @@ core_paths:                 # 사용자 기능 → 서비스 (1차 심각도 판
   chat: [front-chat, gateway, agent, llm-gateway]
 external_hosts:             # S04 제외: 클러스터 밖 호스트
   - "*.openai.azure.com"
+# required_config:          # C05: 서비스가 반드시 가져야 할 env 이름 (선언한 것의 부재만 적발, docs/05-rules.md §4)
+#   gateway: [ADMIN_SERVICE_URL, AGENT_SERVICE_URL]
 topology:
   url_env_patterns: ["*_SERVICE_URL", "*_URL"]
 api_scenarios:               # run_api_scenario. 단계 형식은 app/core/config.py ApiScenarioStep
   - name: chat               # 템플릿 로그인 → 채팅 (scripts/target/smoke.sh와 같은 흐름)
+    feature: chat            # core_paths의 키(필수). 이 시나리오가 실패하면 그 기능의 심각도를 쓴다
     steps:
       # 본문은 Secret kg-test-user의 키·값 그대로({"id", "password"}). 계정을 여기에 적지 않는다.
       # 응답 {"access_token", "user"}에서 토큰과 사용자의 첫 조직을 꺼낸다
@@ -31,8 +34,10 @@ api_scenarios:               # run_api_scenario. 단계 형식은 app/core/confi
           expect: 200
           timeout_s: 60
           check: {path: data.answer, not_starts_with: "오류가 발생했습니다:"}
-app_apis:                   # query_app_api 허용 목록 (GET만)
-  llm-gateway: [/api/v1/health, /api/v1/quota]
+# query_app_api 허용 목록 (GET만). 키는 대상 앱의 Service 이름, 값은 실제 GET 경로만 적는다.
+# 비어 있으면 도구를 등록하지 않는다. 이 환경의 llm-gateway 할당량 API는 gateway 경유 인증과
+# 조직 관리자 권한이 필요하고 사용량을 돌려주지 않아 비워 둔다 (#77).
+app_apis: {}
 slack:
   alert_target: "#pr-service-ops"
   bot_token_secret: kg-slack-bot

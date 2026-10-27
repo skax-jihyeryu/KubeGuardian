@@ -3,11 +3,15 @@ import json
 import pytest
 from langchain_core.messages import AIMessage
 
+from core.config import ApiScenario
 from core.db import EvidenceStore, create_db_engine
 from service.pipeline.check import run_check
 from service.pipeline.investigate import build_request, run_investigation
 from tests.service.agent.investigator.test_v1_graph import ScriptedLLM
 from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
+from tests.service.tools.fakes import FakeHttp
+
+PLAN = '{"hypotheses": [], "order": ["run", "config", "wiring", "logs"]}'
 
 
 @pytest.fixture
@@ -59,10 +63,14 @@ def test_run_investigation_uses_registered_agent_and_stores_evidence(engine):
             "conclusion": "gateway 주소 env가 localhost",
             "confidence": "high",
             "impact_scope": "전체",
+            "coverage": {
+                a: {"status": "not_applicable", "summary": "테스트"}
+                for a in ("run", "config", "wiring", "logs")
+            },
             "evidence_ids": [s04.evidence_id],
         }
     )
-    llm = ScriptedLLM(script=[triage, AIMessage(content="조사 완료"), report], calls=[])
+    llm = ScriptedLLM(script=[triage, PLAN, AIMessage(content="조사 완료"), report], calls=[])
 
     result = run_investigation(
         out, CONFIG, engine, llm_factory=lambda m: llm, k8s=reader, run_id="inv-1"
@@ -71,3 +79,77 @@ def test_run_investigation_uses_registered_agent_and_stores_evidence(engine):
     assert result.status == "done", result.error
     assert result.report.evidence_ids == [s04.evidence_id]
     assert EvidenceStore(engine).get(result.report.preliminary_facts[0].evidence_ids[0]) is not None
+
+
+def test_build_request_carries_user_symptom(engine):
+    out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
+
+    req = build_request(out, CONFIG, trigger="investigate", symptom="채팅이 안 돼요")
+
+    assert (req.trigger, req.user_symptom) == ("investigate", "채팅이 안 돼요")
+
+
+def test_run_investigation_passes_symptom_to_the_agent(engine):
+    out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
+    triage = json.dumps({"issues": [], "runbook": "service-unreachable"})
+    report = json.dumps({"conclusion": "c", "confidence": "low", "impact_scope": "전체"})
+    llm = ScriptedLLM(script=[triage, AIMessage(content="조사 완료"), report], calls=[])
+
+    run_investigation(
+        out,
+        CONFIG,
+        engine,
+        llm_factory=lambda m: llm,
+        k8s=_reader("s04/localhost"),
+        run_id="inv-2",
+        symptom="채팅이 안 돼요",
+    )
+
+    assert any("채팅이 안 돼요" in str(m.content) for m in llm.calls[0])
+
+
+def test_build_request_carries_failed_symptoms_from_the_gate(engine):
+    config = CONFIG.model_copy(
+        update={
+            "core_paths": {"chat": ["gateway"]},
+            "api_scenarios": [
+                ApiScenario.model_validate(
+                    {
+                        "name": "chat",
+                        "feature": "chat",
+                        "steps": [{"call": {"via": "gateway", "path": "/chat", "method": "GET"}}],
+                    }
+                )
+            ],
+        }
+    )
+    out = run_check(
+        _reader(),
+        config,
+        engine,
+        trigger="check",
+        now=NOW,
+        http=FakeHttp({("gateway", "/chat"): 500}),
+    )
+
+    req = build_request(out, config, trigger="check")
+
+    assert req.gate_path == "B"
+    assert [(x.scenario, x.failed_step) for x in req.symptoms] == [("chat", 1)]
+
+
+def test_build_request_masks_secrets_in_user_symptom(engine):
+    out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
+
+    req = build_request(
+        out, CONFIG, trigger="investigate", symptom="로그인이 안 돼요 password=hunter22abc"
+    )
+
+    assert "hunter22abc" not in req.user_symptom
+    assert "로그인이 안 돼요" in req.user_symptom
+
+
+def test_build_request_drops_blank_user_symptom(engine):
+    out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
+
+    assert build_request(out, CONFIG, trigger="investigate", symptom="  ").user_symptom is None

@@ -47,3 +47,25 @@ def test_judge_failure_reason_is_redacted(monkeypatch):
 
     assert result.match is None
     assert "abcdefgh12345678" not in result.reason
+
+
+def test_judge_prompt_requires_resource_and_setting_to_match():
+    from judge import PROMPT
+
+    assert "리소스와 그 안의 설정 항목" in PROMPT
+    assert "리소스 이름만" in PROMPT and "같은 리소스의 다른 설정" in PROMPT
+    assert "증상" in PROMPT and "롤아웃 정체" in PROMPT
+
+
+def test_judge_prompt_accepts_different_messages_of_same_injection_generically():
+    from judge import PROMPT
+
+    assert "같은 주입이 만든 서로 다른 오류 문구" in PROMPT
+    assert "레지스트리" not in PROMPT  # 시나리오 고유 예시를 넣지 않는다
+
+
+def test_prompt_treats_connectivity_causes_without_setting_item_as_same():
+    from judge import PROMPT
+
+    assert "설정 항목이 없는 원인" in PROMPT
+    assert "연결 차단" in PROMPT and "출발→도착" in PROMPT
