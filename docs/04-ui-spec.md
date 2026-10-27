@@ -363,7 +363,7 @@ diagnostic-agent의 FastAPI가 **서버 렌더링 HTML**(Jinja2 템플릿 + HTMX
 | 보고서 | `/p/{p}/reports/{id}` | 단독 주소(공유용). 점검 상세의 상태 머리·조치·조사와 같은 구성 |
 | 근거 | 어디서든 `[근거 N]` → 오른쪽 서랍, 주소 `?ev=N` | 종류, 대상, 수집 시각, 출처, 마스킹된 원문 |
 | **점검 구성** | `/p/{p}/setup` (설정 상태 절은 `#health`) | 설정 상태 → 규칙 → 증상 시나리오 → 대상 설정 (§6.4) |
-| 질의 채팅 패널 | `GET /p/{p}/chat` (HTML 조각) | GNB 오른쪽 패널. `?issue=ID` 등 맥락은 쿼리로 넘긴다 |
+| 질의 채팅 패널 | `GET /p/{p}/chat` (HTML 조각) | GNB 오른쪽 패널. 보던 맥락(선택한 점검·이슈, 필터)을 요청에 실어 보낸다 |
 | 질문 | `POST /p/{p}/chat/messages` (HTML 조각) | 질문(`question`, 선택 맥락) → 답변 조각. 스트리밍 없음 |
 | 점검 실행 | `POST /p/{p}/checks` | 새 점검을 시작하고 `/p/{p}/checks/{run}`으로 이동. 진행 중이면 409와 진행 중인 점검 링크 (§6.5) |
 | 헬스 체크 | `GET /healthz` | Deployment readinessProbe (프로젝트와 무관) |
@@ -551,7 +551,7 @@ diagnostic-agent의 FastAPI가 **서버 렌더링 HTML**(Jinja2 템플릿 + HTMX
 | 도구 | 설명 |
 |---|---|
 | `search_reports(query?, since?, severity?, service?)` | 보고서 검색 (제목·결론·원인 서비스) |
-| `get_report(report_id)` | 보고서 하나 (중요 문제·근거 번호·알림 이력 포함) |
+| `get_report(report_id)` | 보고서 하나 (문제·근거 번호 포함) |
 | `get_evidence(evidence_id)` | 근거 원문 (마스킹된 값) |
 | `list_runs(since?, filter?)` | 점검 목록 (결과·실행 방식) |
 | `list_issues(since?, status?)` | 이슈 목록 (심각도·상태·지속 시간) |
