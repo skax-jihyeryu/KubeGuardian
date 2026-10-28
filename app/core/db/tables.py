@@ -1,4 +1,4 @@
-"""SQLite 테이블. W1: 점검 이력·Evidence·관측 기록. 조사 단계·보고서·알림 이력은 W2~W3에 더한다."""
+"""SQLite 테이블. W1: 점검 이력·Evidence·관측 기록. W3: 점검 잠금·건너뜀, 이후 보고서·알림 이력."""
 
 from datetime import UTC, datetime
 from typing import Any
@@ -62,3 +62,29 @@ class ObservationRow(Base):
     first_seen: Mapped[datetime] = mapped_column(UTCDateTime)
     last_seen: Mapped[datetime] = mapped_column(UTCDateTime)
     values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class CheckLockRow(Base):
+    """점검 동시 실행 1건 잠금 (UI 정의서 §6.5). 행은 id=1 하나만 쓴다."""
+
+    __tablename__ = "check_lock"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(String(32))  # 잡은 쪽만 놓을 수 있게 하는 값
+    trigger: Mapped[str] = mapped_column(String(16))
+    run_id: Mapped[int | None] = mapped_column()  # 점검 이력을 만든 뒤 붙인다
+    acquired_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+
+class CheckSkipRow(Base):
+    """잠금 때문에 건너뛴 점검. check_run에 열을 더하지 않는다 (기존 DB에 열이 추가되지 않음)."""
+
+    __tablename__ = "check_skip"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    skipped_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    trigger: Mapped[str] = mapped_column(String(16))
+    holder_trigger: Mapped[str] = mapped_column(String(16))
+    holder_run_id: Mapped[int | None] = mapped_column()

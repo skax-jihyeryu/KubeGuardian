@@ -337,3 +337,49 @@ def test_investigate_records_schedule_trigger(tmp_path):
         make_llm=_llm_factory(_scripted()),
     )
     assert _stored_triggers(tmp_path) == ["schedule"]
+
+
+def _hold_lock(tmp_path, trigger="ui"):
+    from datetime import UTC, datetime
+
+    from core.db import CheckLockStore, create_db_engine
+    from service.pipeline.check import CHECK_LOCK_TTL
+
+    engine = create_db_engine(str(tmp_path / "kg.db"))
+    CheckLockStore(engine).acquire(trigger, datetime.now(UTC), CHECK_LOCK_TTL)
+
+
+def test_schedule_check_skips_quietly_when_another_check_runs(tmp_path, capsys):
+    _hold_lock(tmp_path)
+
+    code = cli.main(
+        [*_args(tmp_path), "--trigger", "schedule"],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster(None)),
+    )
+
+    assert code == 0  # CronJob 실패로 보이지 않게
+    assert "건너뜀" in capsys.readouterr().out
+    assert _stored_triggers(tmp_path) == []
+
+
+def test_direct_check_reports_conflict_when_another_check_runs(tmp_path, capsys):
+    _hold_lock(tmp_path, trigger="schedule")
+
+    code = cli.main(_args(tmp_path), make_reader=lambda cfg: FixtureReader(*raw_cluster(None)))
+
+    assert code == 2
+    assert "12001" in capsys.readouterr().err
+
+
+def test_sigterm_runs_finally_so_the_lock_is_released():
+    # activeDeadlineSeconds는 SIGTERM으로 끝낸다. 기본 처리로는 finally가 돌지 않아 잠금이 남는다
+    import signal
+
+    cli._exit_on_sigterm()
+    handler = signal.getsignal(signal.SIGTERM)
+    try:
+        with pytest.raises(SystemExit) as e:
+            handler(signal.SIGTERM, None)
+        assert e.value.code == 128 + signal.SIGTERM
+    finally:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
