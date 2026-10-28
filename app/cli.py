@@ -7,6 +7,8 @@ kg check: 규칙 점검과 증상 감지(API 시나리오)를 한 번 돌리고
 규칙별 판정 결과·판정에 쓴 값·증상 결과·게이트 경로를 출력한다.
 종료 코드: 0 점검 완료(게이트 경로와 무관, 조사는 완료 또는 상한 도달), 2 입력 오류,
 1 서버 오류(ServiceException.exit_code) 또는 조사 실패(investigate의 조사 상태 failed).
+다른 점검이 진행 중이면(점검 잠금) 주기 실행(--trigger schedule)은 건너뜀을 출력하고 0,
+직접 실행은 CHECK_ALREADY_RUNNING(2)이다.
 """
 
 import argparse
@@ -199,6 +201,9 @@ def main(
         elif args.command == "investigate":
             return investigate(args, make_reader, make_http, make_llm)
     except ServiceException as e:
+        if e.error_code is ErrorCode.CHECK_ALREADY_RUNNING and args.trigger == "schedule":
+            print(f"건너뜀: 다른 점검이 진행 중이다 ({e.detail})")  # CronJob 실패로 보이지 않게
+            return 0
         print(
             f"오류 {e.error_code.code} {e.error_code.name}: {e.error_code.message}", file=sys.stderr
         )

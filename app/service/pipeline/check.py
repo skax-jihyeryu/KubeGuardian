@@ -2,18 +2,21 @@
 
 http가 있고 설정에 API 시나리오가 있으면 규칙 점검 뒤에 증상 감지(경로 B)를 돌린다.
 조사, 알림은 W2~W3에 이 흐름 뒤에 붙인다.
-동시 실행 제한(점검 1건)도 그때 더한다.
+점검은 실행 경로와 상관없이 동시에 1건이다 (UI 정의서 §6.5). 시작할 때 공유 잠금(점검 DB)을 잡고
+끝나면(실패 포함) 놓는다. 잡혀 있으면 CHECK_ALREADY_RUNNING이고, 주기 점검이면 건너뜀을 기록한다.
 """
 
+from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from core.config import KubeGuardianConfig
-from core.db import CheckRunStore, EvidenceStore, SqliteObservationStore
+from core.db import CheckLockStore, CheckRunStore, EvidenceStore, SqliteObservationStore
+from core.db.check_lock import CheckLock
 from core.error.service_exception import ErrorCode, ServiceException
 from service.checks.detectors.base import DetectorContext
 from service.checks.gate import decide_gate
@@ -31,6 +34,10 @@ from service.model import (
 )
 from service.sensors.collector import KubeReader, collect
 from service.tools.base import ToolContext
+
+# 점검 잠금 만료. CronJob activeDeadlineSeconds(270)와 같게 둬서
+# 잘린 점검의 잠금이 다음 회차(300초) 전에 풀린다
+CHECK_LOCK_TTL = timedelta(seconds=270)
 
 
 def clean_symptom(text: str | None) -> str | None:
@@ -59,9 +66,49 @@ def run_check(
     user_symptom: str | None = None,
 ) -> CheckOutcome:
     now = now or datetime.now(UTC)
+    token = _acquire_lock(engine, trigger, now)
+    try:
+        return _run_locked(reader, config, engine, token, trigger, now, http, user_symptom)
+    finally:
+        with suppress(SQLAlchemyError):  # 못 놓으면 만료(CHECK_LOCK_TTL) 뒤 다음 점검이 가져간다
+            CheckLockStore(engine).release(token)
+
+
+def _acquire_lock(engine: Engine, trigger: Trigger, now: datetime) -> str:
+    locks = CheckLockStore(engine)
+    try:
+        got = locks.acquire(trigger, now, CHECK_LOCK_TTL)
+        if not got.acquired and trigger == "schedule":
+            locks.record_skip(trigger, now, got.holder)
+    except SQLAlchemyError as e:
+        raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
+    if not got.acquired:
+        raise ServiceException(ErrorCode.CHECK_ALREADY_RUNNING, _holder_text(got.holder))
+    return got.holder.token
+
+
+def _holder_text(holder: CheckLock) -> str:
+    run = f" run {holder.run_id}" if holder.run_id is not None else ""
+    return (
+        f"진행 중인 점검: {holder.trigger}{run}, "
+        f"{holder.acquired_at.isoformat()} 시작 (만료 {holder.expires_at.isoformat()})"
+    )
+
+
+def _run_locked(
+    reader: KubeReader,
+    config: KubeGuardianConfig,
+    engine: Engine,
+    token: str,
+    trigger: Trigger,
+    now: datetime,
+    http: Any,
+    user_symptom: str | None,
+) -> CheckOutcome:
     try:
         runs = CheckRunStore(engine)
         run_id = runs.create(trigger, now)
+        CheckLockStore(engine).attach_run(token, run_id)
         snapshot = collect(reader, now=now)
         runs.save_snapshot(run_id, snapshot)
         ctx = DetectorContext(

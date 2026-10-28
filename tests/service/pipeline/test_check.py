@@ -152,3 +152,104 @@ def test_missing_target_service_opens_path_b_critical(engine):
 def test_blank_user_symptom_is_not_a_symptom(engine):
     out = run_check(_reader(), CONFIG, engine, trigger="investigate", now=NOW, user_symptom="  \n")
     assert out.gate.path == "C"
+
+
+# ── 점검 잠금 (#88, UI 정의서 §6.5) ──
+
+
+def _hold(engine, trigger="ui", at=NOW, run_id=None):
+    from core.db import CheckLockStore
+    from service.pipeline.check import CHECK_LOCK_TTL
+
+    locks = CheckLockStore(engine)
+    held = locks.acquire(trigger, at, CHECK_LOCK_TTL)
+    if run_id is not None:
+        locks.attach_run(held.holder.token, run_id)
+    return locks
+
+
+def _run_ids(engine):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from core.db.tables import CheckRunRow
+
+    with Session(engine) as s:
+        return list(s.scalars(select(CheckRunRow.id)))
+
+
+@pytest.mark.parametrize("trigger", ["schedule", "check", "ui", "investigate"])
+def test_check_does_not_start_while_another_check_holds_the_lock(engine, trigger):
+    from core.error.service_exception import ErrorCode, ServiceException
+
+    _hold(engine, run_id=5)
+
+    with pytest.raises(ServiceException) as e:
+        run_check(_reader(), CONFIG, engine, trigger=trigger, now=NOW + timedelta(seconds=10))
+
+    assert e.value.error_code is ErrorCode.CHECK_ALREADY_RUNNING
+    assert "ui" in e.value.detail and "5" in e.value.detail
+    assert _run_ids(engine) == []  # 점검 이력을 만들지 않는다
+
+
+def test_skipped_schedule_check_is_recorded(engine):
+    from core.error.service_exception import ServiceException
+
+    locks = _hold(engine, run_id=5)
+
+    with pytest.raises(ServiceException):
+        run_check(_reader(), CONFIG, engine, trigger="schedule", now=NOW + timedelta(seconds=10))
+
+    [skip] = locks.skips()
+    assert (skip.trigger, skip.holder_trigger, skip.holder_run_id) == ("schedule", "ui", 5)
+
+
+def test_direct_check_refused_by_lock_is_not_recorded_as_skip(engine):
+    from core.error.service_exception import ServiceException
+
+    locks = _hold(engine)
+
+    with pytest.raises(ServiceException):
+        run_check(_reader(), CONFIG, engine, trigger="check", now=NOW + timedelta(seconds=10))
+
+    assert locks.skips() == []  # 화면·CLI는 409로 알리고 끝난다
+
+
+def test_lock_holds_run_id_during_check_and_is_released_after(engine):
+    from core.db import CheckLockStore
+
+    locks, seen = CheckLockStore(engine), []
+
+    class Peek(FixtureReader):
+        def list(self, kind):
+            if kind == "Pod":
+                seen.append(locks.current(NOW))
+            return super().list(kind)
+
+    out = run_check(Peek(*raw_cluster(None)), CONFIG, engine, trigger="schedule", now=NOW)
+
+    assert seen[0].trigger == "schedule" and seen[0].run_id == out.run_id
+    assert locks.current(NOW) is None
+
+
+def test_lock_is_released_when_the_check_fails(engine):
+    from core.db import CheckLockStore
+
+    class Broken(FixtureReader):
+        def list(self, kind):
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        run_check(Broken(*raw_cluster(None)), CONFIG, engine, trigger="check", now=NOW)
+
+    assert CheckLockStore(engine).current(NOW) is None
+
+
+def test_expired_lock_of_dead_check_is_taken_over(engine):
+    from service.pipeline.check import CHECK_LOCK_TTL
+
+    _hold(engine, trigger="schedule")  # 놓지 못하고 죽은 점검
+
+    out = run_check(_reader(), CONFIG, engine, trigger="schedule", now=NOW + CHECK_LOCK_TTL)
+
+    assert out.run_id in _run_ids(engine)
