@@ -21,14 +21,16 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from pydantic import ValidationError
 from sqlalchemy import Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 from core.accounts import load_accounts
 from core.config import KubeGuardianConfig, get_setting, load_kubeguardian_config
-from core.db import create_db_engine
+from core.db import IncidentStore, create_db_engine
 from core.error.service_exception import ErrorCode, ServiceException
 from core.http import NamespacedHttp
 from core.llm import build_chat_model
 from service.agent.base import AgentResult
+from service.alerts.incidents import record_investigation
 from service.checks.detectors.catalog import CATALOG
 from service.pipeline.check import CheckOutcome, clean_symptom, run_check
 from service.pipeline.investigate import run_investigation
@@ -40,6 +42,14 @@ VERDICT_LABEL = {
     "observing": "관찰 중",
     "passed": "통과",
     "unknown": "확인하지 못함",
+}
+
+INCIDENT_LABEL = {
+    "opened": "새로 열림 (조사 대기)",
+    "continued": "진행 중 (같은 지문)",
+    "changed": "지문 바뀜 (같은 이슈에서 재조사)",
+    "seen": "열려 있음 (직접 점검은 이슈를 바꾸지 않음)",
+    "resolved": "해결",
 }
 
 ReaderFactory = Callable[[KubeGuardianConfig], KubeReader]
@@ -103,6 +113,10 @@ def investigate(
         reader, config, engine, trigger=args.trigger, http=http, user_symptom=symptom
     )
     print_outcome(outcome)
+    pending = _pending_incidents(engine, outcome)
+    if args.trigger == "schedule" and outcome.gate.path != "C" and not pending:
+        print("\n조사 생략: 진행 중인 이슈와 같은 지문이다 (같은 장애를 다시 조사하지 않는다)")
+        return 0
     result = run_investigation(
         outcome,
         config,
@@ -115,7 +129,23 @@ def investigate(
         symptom=symptom,
     )
     print_investigation(result)
+    if args.trigger == "schedule":
+        try:
+            for incident_id in pending:
+                record_investigation(engine, incident_id, result)
+        except SQLAlchemyError as e:
+            raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
     return 1 if result is not None and result.status == "failed" else 0
+
+
+def _pending_incidents(engine: Engine, outcome: CheckOutcome) -> list[int]:
+    """이번 점검이 걸친 이슈 중 조사 대기인 것. 지난 조사가 끊겨 대기로 남은 이슈도 포함한다."""
+    store = IncidentStore(engine)
+    ids = dict.fromkeys(c.incident_id for c in outcome.incidents if c.action != "resolved")
+    try:
+        return [i for i in ids if (inc := store.get(i)) and inc.investigation == "pending"]
+    except SQLAlchemyError as e:
+        raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
 
 
 def print_investigation(result: AgentResult | None) -> None:
@@ -129,8 +159,7 @@ def print_investigation(result: AgentResult | None) -> None:
     if report is None:
         return
     print(f"결론: {report.conclusion} (신뢰도 {report.confidence})")
-    if report.issues:
-        top = min(report.issues, key=lambda i: i.rank)
+    if top := report.top_issue:
         print(f"1순위: {top.title} ({top.severity})")
     print(f"근거 {len(report.evidence_ids)}건")
 
@@ -165,6 +194,8 @@ def print_outcome(out: CheckOutcome) -> None:
     gate = out.gate
     severity = f" ({gate.severity})" if gate.severity else ""
     print(f"\n게이트: 경로 {gate.path}{severity} — {gate.reason}")
+    for c in out.incidents:
+        print(f"이슈 #{c.incident_id} {INCIDENT_LABEL[c.action]}")
 
 
 def main(

@@ -1,6 +1,7 @@
 """점검 실행 흐름 v0: 수집 → 점검 이력·스냅샷 저장 → 규칙 점검 → 게이트 → 근거 저장.
 
 http가 있고 설정에 API 시나리오가 있으면 규칙 점검 뒤에 증상 감지(경로 B)를 돌린다.
+게이트 뒤에 이슈(incident)를 열고·잇고·해결한다 (service/alerts). 조사는 여기서 하지 않는다.
 조사, 알림은 W2~W3에 이 흐름 뒤에 붙인다.
 점검은 실행 경로와 상관없이 동시에 1건이다 (UI 정의서 §6.5). 시작할 때 공유 잠금(점검 DB)을 잡고
 끝나면(실패 포함) 놓는다. 잡혀 있으면 CHECK_ALREADY_RUNNING이고, 주기 점검이면 건너뜀을 기록한다.
@@ -8,7 +9,7 @@ http가 있고 설정에 API 시나리오가 있으면 규칙 점검 뒤에 증�
 """
 
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -19,6 +20,7 @@ from core.config import KubeGuardianConfig
 from core.db import CheckLockStore, CheckRunStore, EvidenceStore, SqliteObservationStore
 from core.db.check_lock import CheckLock
 from core.error.service_exception import ErrorCode, ServiceException
+from service.alerts.incidents import IncidentChange, track
 from service.checks.detectors.base import DetectorContext
 from service.checks.gate import decide_gate
 from service.checks.runner import run_detectors
@@ -69,6 +71,7 @@ class CheckOutcome:
     gate: GateResult
     board: SignalBoard
     symptoms: list[Symptom]  # 실행한 시나리오 전부 (실패한 것이 증상). http가 없으면 빈 목록
+    incidents: list[IncidentChange] = field(default_factory=list)  # 이번 점검이 바꾼 이슈 상태
 
 
 def run_check(
@@ -159,15 +162,28 @@ def _run_locked(
                 http=http,
             )
             symptoms = detect_symptoms(config, tool_ctx)
+        gate = decide_gate(signals, symptoms, clean_symptom(user_symptom))
+        # 이슈 상태도 잠금 안에서 정한다 (두 점검이 같은 이슈를 동시에 열지 않게)
+        incidents = track(
+            engine,
+            config,
+            run_id=run_id,
+            trigger=trigger,
+            now=now,
+            gate=gate,
+            signals=signals,
+            symptoms=symptoms,
+        )
     except SQLAlchemyError as e:
         raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
     return CheckOutcome(
         run_id=run_id,
         snapshot=snapshot,
         signals=signals,
-        gate=decide_gate(signals, symptoms, clean_symptom(user_symptom)),
+        gate=gate,
         board=build_signal_board(signals),
         symptoms=symptoms,
+        incidents=incidents,
     )
 
 

@@ -92,3 +92,8 @@ class Report(BaseModel):
     coverage: Coverage = Field(default_factory=Coverage)
     actions: list[str] = []  # 권장 조치 (명령 수준, 자동 실행 안 함)
     verification: str = ""  # 재검증 방법
+
+    @property
+    def top_issue(self) -> Issue | None:
+        """1순위 문제 (rank가 가장 작은 것). 출력·이슈 최종 심각도가 같은 기준을 쓴다."""
+        return min(self.issues, key=lambda i: i.rank) if self.issues else None

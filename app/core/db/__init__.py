@@ -4,12 +4,14 @@ from core.db.check_lock import CheckLockStore
 from core.db.check_runs import CheckRunStore
 from core.db.engine import create_db_engine
 from core.db.evidence import EvidenceStore
+from core.db.incidents import IncidentStore
 from core.db.observations import SqliteObservationStore
 
 __all__ = [
     "CheckLockStore",
     "CheckRunStore",
     "EvidenceStore",
+    "IncidentStore",
     "SqliteObservationStore",
     "create_db_engine",
 ]

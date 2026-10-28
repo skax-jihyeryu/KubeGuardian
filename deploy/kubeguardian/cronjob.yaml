@@ -1,7 +1,7 @@
 # 주기 점검 CronJob (이슈 #25, 기획서 §6.6). 5분마다 규칙 점검과 증상 감지를 돌려 PVC의 SQLite에 이력을 쌓는다.
 # runner.yaml과 같은 SA·보안 설정·설정을 쓴다. 이미지는 make kg-build(kubeguardian:local).
-# AI 조사는 돌리지 않고 `check`만 실행한다. 사건 지문(#26)이 없어 같은 장애를 5분마다 다시 조사하게 되기 때문이다.
-# #26 뒤에 `investigate`로 바꾼다.
+# AI 조사는 돌리지 않고 `check`만 실행한다. 점검은 이슈를 열고·잇고·해결하고(#26), 새 이슈·지문 변경이면
+# "조사 대기"로 표시만 한다. 조사는 diagnostic-agent Deployment의 작업자가 대기 이슈를 집어 실행한다 (#28).
 # 점검이 5분을 넘기면 Forbid로 다음 회차를 건너뛰고, activeDeadlineSeconds(270)로 다음 회차 전에 끝낸다.
 # 화면·CLI 점검과의 겹침은 점검 잠금(#88)이 막는다. 잠겨 있으면 그 회차는 건너뜀을 기록하고 0으로 끝난다.
 # PVC는 RWO라 단일 노드(minikube)를 전제한다. runner Pod는 emptyDir DB를 그대로 둬 평가와 운영 이력을 섞지 않는다.
