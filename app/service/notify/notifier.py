@@ -4,6 +4,7 @@
 - 조사가 끝나면 같은 M1을 원인으로 갱신하고(M1u) 스레드에 M9 답글을 단다. 미완·실패도 알린다.
 - 지문이 바뀌면 M1을 "다시 조사 중"으로 갱신한다. 해결되면 스레드 + 채널에 M3를 보낸다.
   직접 점검(화면·CLI)에서 해결돼도 같다.
+- 같은 지문이 이어지면(continued) 재알림 정책대로 M1 스레드에 M2만 단다. 기준은 M1 발송 시각.
 - 점검이 STALL_AFTER 넘게 돌지 않으면 M7을 한 번 보낸다 (호출은 diagnostic-agent 작업자, #28).
 - 보내지 못해도 점검·조사는 계속한다. 모든 메시지는 알림 이력(alert)에 남는다 (dry-run 포함).
 """
@@ -21,6 +22,13 @@ from service.alerts.incidents import IncidentChange
 from service.model import GateResult
 from service.notify import messages
 from service.notify.sender import Sender
+
+
+def parse_duration(text: str) -> timedelta:
+    """재알림 정책의 시간 (`30m`, `2h`)."""
+    value, unit = int(text[:-1]), text[-1]
+    return timedelta(minutes=value) if unit == "m" else timedelta(hours=value)
+
 
 ALERTED = ("critical", "warning")  # 알림은 긴급·주의만 (잠재 위험·개선 권고는 화면에만)
 STALL_AFTER = timedelta(minutes=15)  # 5분 주기 3회를 놓치면 점검 중단
@@ -50,6 +58,8 @@ class Notifier:
                 self._first_alert(incident, gate.reason, run_id, now)
             elif change.action == "changed":
                 self._changed(incident, gate.reason, run_id, now)
+            elif change.action == "continued":
+                self._maybe_remind(incident, now)
             elif change.action == "resolved" and incident.slack_ts:
                 text = messages.recovery(self._ns, incident, now, self._url)
                 self._post("M3", incident.id, text, now, thread=incident.slack_ts, broadcast=True)
@@ -95,6 +105,22 @@ class Notifier:
             return
         text = messages.changed_alert(self._ns, incident, reason, run_id, now, self._url)
         self._update("M1u", incident, text, now)
+
+    def _maybe_remind(self, incident: Incident, now: datetime) -> None:
+        slack = self._config.slack
+        policy = slack.reminders.get(incident.first_severity) if slack else None  # type: ignore[arg-type]
+        first = self._alerts.first_sent(incident.id, "M1")
+        if policy is None or first is None or not incident.slack_ts:
+            return
+        sent = self._alerts.count(incident.id, "M2")
+        if sent >= policy.max or (sent and policy.then_every is None):
+            return
+        due = first.sent_at + parse_duration(policy.first_after)
+        if sent:
+            due += sent * parse_duration(policy.then_every or "0m")
+        if now >= due:
+            text = messages.reminder(self._ns, incident, first.sent_at, now, self._url)
+            self._post("M2", incident.id, text, now, thread=incident.slack_ts)
 
     def _post(
         self,
