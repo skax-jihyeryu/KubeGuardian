@@ -369,3 +369,17 @@ def test_direct_check_reports_conflict_when_another_check_runs(tmp_path, capsys)
 
     assert code == 2
     assert "12001" in capsys.readouterr().err
+
+
+def test_sigterm_runs_finally_so_the_lock_is_released():
+    # activeDeadlineSeconds는 SIGTERM으로 끝낸다. 기본 처리로는 finally가 돌지 않아 잠금이 남는다
+    import signal
+
+    cli._exit_on_sigterm()
+    handler = signal.getsignal(signal.SIGTERM)
+    try:
+        with pytest.raises(SystemExit) as e:
+            handler(signal.SIGTERM, None)
+        assert e.value.code == 128 + signal.SIGTERM
+    finally:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)

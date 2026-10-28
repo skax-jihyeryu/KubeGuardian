@@ -4,6 +4,7 @@
   upsert라서 여러 프로세스(CronJob·화면 서버)가 같은 파일을 열어도 하나만 잡는다.
 - 잡은 쪽은 token으로만 놓는다. 만료 뒤 다른 점검이 가져간 잠금을 늦게 끝난 점검이 지우지 않는다.
 - 보유한 프로세스가 죽어도 만료 시각이 지나면 다음 점검이 가져간다.
+- 오래 걸리는 점검은 renew로 만료를 늘린다. 이미 만료돼 남이 가져간 잠금은 늘리지 않는다.
 """
 
 import secrets
@@ -77,6 +78,20 @@ class CheckLockStore:
         stmt = update(CheckLockRow).where(CheckLockRow.token == token).values(run_id=run_id)
         with Session(self._engine) as s, s.begin():
             s.execute(stmt)
+
+    def renew(self, token: str, now: datetime, ttl: timedelta) -> bool:
+        """아직 내 것이고 만료 전이면 만료를 now + ttl로 늘린다. 늘렸으면 True."""
+        now = require_aware(now)
+        stmt = (
+            update(CheckLockRow)
+            .where(
+                CheckLockRow.token == token,
+                func.julianday(CheckLockRow.expires_at) > func.julianday(now.isoformat()),
+            )
+            .values(expires_at=now + ttl)
+        )
+        with Session(self._engine) as s, s.begin():
+            return s.execute(stmt).rowcount > 0
 
     def release(self, token: str) -> None:
         with Session(self._engine) as s, s.begin():

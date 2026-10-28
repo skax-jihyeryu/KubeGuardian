@@ -13,6 +13,7 @@ kg check: 규칙 점검과 증상 감지(API 시나리오)를 한 번 돌리고
 
 import argparse
 import json
+import signal
 import sys
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -213,5 +214,14 @@ def main(
     return 0
 
 
+def _exit_on_sigterm() -> None:
+    """SIGTERM(CronJob activeDeadlineSeconds·Pod 종료)을 SystemExit로 바꿔 finally가 돌게 한다.
+
+    기본 처리는 바로 끝나서 run_check의 점검 잠금을 놓지 못한다.
+    """
+    signal.signal(signal.SIGTERM, lambda signum, _frame: sys.exit(128 + signum))
+
+
 if __name__ == "__main__":
+    _exit_on_sigterm()
     sys.exit(main())

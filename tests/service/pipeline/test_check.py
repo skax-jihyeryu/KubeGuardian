@@ -253,3 +253,49 @@ def test_expired_lock_of_dead_check_is_taken_over(engine):
     out = run_check(_reader(), CONFIG, engine, trigger="schedule", now=NOW + CHECK_LOCK_TTL)
 
     assert out.run_id in _run_ids(engine)
+
+
+def test_lock_is_renewed_between_stages_so_long_checks_keep_it(engine, monkeypatch):
+    # 화면·CLI 점검은 CronJob처럼 잘리지 않으므로, 단계마다 만료를 늘려 270초를 넘겨도 잠금을 지킨다
+    from core.db import CheckLockStore
+    from service.pipeline import check as pipeline
+
+    later = NOW + timedelta(seconds=200)
+    monkeypatch.setattr(pipeline, "_wall_now", lambda: later)
+    locks, seen = CheckLockStore(engine), []
+
+    class Peek(FakeHttp):
+        def get(self, **kw):
+            seen.append(locks.current(later))
+            return super().get(**kw)
+
+    run_check(
+        _reader(),
+        _symptom_config(),
+        engine,
+        trigger="ui",
+        now=NOW,
+        http=Peek({("gateway", "/chat"): 200}),
+    )
+
+    assert seen[0].expires_at == later + pipeline.CHECK_LOCK_TTL
+
+
+def test_failed_skip_record_still_reports_already_running(engine, monkeypatch):
+    # 건너뜀 기록이 실패해도 주기 점검은 조용한 건너뜀(CHECK_ALREADY_RUNNING)으로 끝나야 한다
+    from sqlalchemy.exc import OperationalError
+
+    from core.db import CheckLockStore
+    from core.error.service_exception import ErrorCode, ServiceException
+
+    _hold(engine)
+
+    def broken(*a, **k):
+        raise OperationalError("insert", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(CheckLockStore, "record_skip", broken)
+
+    with pytest.raises(ServiceException) as e:
+        run_check(_reader(), CONFIG, engine, trigger="schedule", now=NOW + timedelta(seconds=5))
+
+    assert e.value.error_code is ErrorCode.CHECK_ALREADY_RUNNING

@@ -119,3 +119,24 @@ def test_skip_is_recorded_with_holder(engine):
 def test_naive_time_is_rejected(engine):
     with pytest.raises(ValueError, match="timezone-aware"):
         CheckLockStore(engine).acquire("check", datetime(2026, 10, 28, 9, 0), TTL)
+
+
+def test_renew_extends_own_lock_only(engine):
+    locks = CheckLockStore(engine)
+    mine = locks.acquire("ui", NOW, TTL)
+
+    assert locks.renew(mine.holder.token, NOW + timedelta(seconds=200), TTL)
+    assert (
+        locks.current(NOW + TTL + timedelta(seconds=10)).expires_at
+        == NOW + timedelta(seconds=200) + TTL
+    )
+    assert not locks.renew("someone-else", NOW + timedelta(seconds=210), TTL)
+
+
+def test_renew_after_takeover_does_not_steal_back(engine):
+    locks = CheckLockStore(engine)
+    old = locks.acquire("ui", NOW, TTL)
+    new = locks.acquire("schedule", NOW + TTL, TTL)
+
+    assert not locks.renew(old.holder.token, NOW + TTL + timedelta(seconds=1), TTL)
+    assert locks.current(NOW + TTL + timedelta(seconds=2)).token == new.holder.token
