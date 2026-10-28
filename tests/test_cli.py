@@ -502,3 +502,25 @@ def test_schedule_investigate_alerts_first_then_updates_with_cause(tmp_path):
 
     kinds = [a.kind for a in AlertStore(create_db_engine(str(tmp_path / "kg.db"))).for_incident(1)]
     assert kinds == ["M1", "M1u", "M9"]  # 1차 감지는 조사 전에, 원인 갱신과 답글은 조사 뒤에
+
+
+def test_unexpected_notify_error_does_not_stop_investigation(tmp_path):
+    class Broken:
+        dry_run = False
+
+        def post(self, *a, **k):
+            raise KeyError("ts")
+
+        def update(self, *a, **k):
+            raise KeyError("ts")
+
+    llm = _scripted()
+    code = cli.main(
+        [*_investigate_args(tmp_path), "--trigger", "schedule"],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=_llm_factory(llm),
+        make_sender=lambda cfg: Broken(),
+    )
+
+    assert code == 0 and llm.calls

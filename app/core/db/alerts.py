@@ -84,8 +84,14 @@ class AlertStore:
             row = s.scalar(stmt)
             return _to_alert(row) if row else None
 
-    def last(self, kind: str) -> Alert | None:
-        stmt = select(AlertRow).where(AlertRow.kind == kind).order_by(AlertRow.id.desc()).limit(1)
+    def last_sent(self, kind: str) -> Alert | None:
+        """가장 최근에 보낸(실패하지 않은) kind 메시지."""
+        stmt = (
+            select(AlertRow)
+            .where(AlertRow.kind == kind, AlertRow.error.is_(None))
+            .order_by(AlertRow.id.desc())
+            .limit(1)
+        )
         with Session(self._engine) as s:
             row = s.scalar(stmt)
             return _to_alert(row) if row else None

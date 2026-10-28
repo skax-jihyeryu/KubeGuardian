@@ -248,3 +248,91 @@ def test_stalled_checks_alert_once(env):
 
     CheckRunStore(engine).create("schedule", NOW + timedelta(minutes=21))  # 다시 돈다
     assert notifier.check_stalled(NOW + timedelta(minutes=37))  # 새 중단은 다시 알린다
+
+
+# ── 리뷰 반영 ──
+
+
+def test_failed_first_alert_is_retried_on_next_check(tmp_path):
+    engine = create_db_engine(tmp_path / "kg.db")
+    sig = _sig()
+    for n, (sender, minutes) in enumerate([(FakeSender(fail=True), 0), (FakeSender(), 5)], start=1):
+        gate = decide_gate([sig])
+        at = NOW + timedelta(minutes=minutes)
+        changes = track(
+            engine,
+            CONFIG,
+            run_id=n,
+            trigger="schedule",
+            now=at,
+            gate=gate,
+            signals=[sig],
+            symptoms=[],
+        )
+        Notifier(engine, CONFIG, sender).after_check(n, gate, changes, at)
+
+    assert IncidentStore(engine).get(1).slack_ts == "ts-1"
+    assert [a.kind for a in AlertStore(engine).for_incident(1)] == ["M1", "M1"]
+
+
+def test_dry_run_thread_is_not_reused_by_real_sender(tmp_path):
+    from service.notify.sender import DryRunSender
+
+    engine = create_db_engine(tmp_path / "kg.db")
+    sig = _sig()
+    for n, sender in enumerate([DryRunSender(), FakeSender()], start=1):
+        gate = decide_gate([sig])
+        at = NOW + timedelta(minutes=5 * n)
+        changes = track(
+            engine,
+            CONFIG,
+            run_id=n,
+            trigger="schedule",
+            now=at,
+            gate=gate,
+            signals=[sig],
+            symptoms=[],
+        )
+        Notifier(engine, CONFIG, sender).after_check(n, gate, changes, at)
+
+    # 토큰을 넣은 뒤 첫 점검에서 실제 M1을 새로 보낸다 (dry-run ID로 스레드를 달지 않는다)
+    assert sender.posts[0]["thread"] is None and "원인을 조사하고" in sender.posts[0]["text"]
+    assert IncidentStore(engine).get(1).slack_ts == "ts-1"
+
+
+def test_dry_run_ids_are_unique_across_processes():
+    from service.notify.sender import DryRunSender
+
+    assert DryRunSender().post("#ops", "a") != DryRunSender().post("#ops", "a")
+
+
+def test_failed_stall_alert_is_retried(tmp_path):
+    from core.db import CheckRunStore
+
+    engine = create_db_engine(tmp_path / "kg.db")
+    CheckRunStore(engine).create("schedule", NOW)
+
+    assert Notifier(engine, CONFIG, FakeSender(fail=True)).check_stalled(
+        NOW + timedelta(minutes=16)
+    )
+    assert Notifier(engine, CONFIG, FakeSender()).check_stalled(NOW + timedelta(minutes=21))
+
+
+def test_done_without_issues_is_not_reported_as_failure(env):
+    engine, sender, check = env
+    [c] = check([_sig()], NOW)
+
+    Notifier(engine, CONFIG, sender).after_investigation(
+        c.incident_id, 1, AgentResult(status="done", report=_report(issues=[])), NOW
+    )
+
+    assert "실패" not in sender.posts[-1]["text"] and "확정하지 못" in sender.posts[-1]["text"]
+
+
+def test_reminder_and_recovery_measure_outage_from_incident_open(env):
+    _, sender, check = env
+    check([_sig()], NOW)
+    check([_sig()], NOW + timedelta(minutes=31))
+    check([_sig(verdict="passed")], NOW + timedelta(minutes=40))
+
+    assert "31분째" in sender.posts[1]["text"] and "약 40분" in sender.posts[2]["text"]

@@ -60,15 +60,8 @@ def test_update_edits_the_same_message():
     assert client.calls == [("update", {"channel": "#ops", "ts": "1.1", "text": "원인 갱신"})]
 
 
-def test_transient_error_is_retried_once():
-    client = FakeWebClient(fail=["timeout"])
-
-    assert SlackSender(client).post("#ops", "본문")
-    assert len(client.calls) == 2
-
-
 def test_persistent_error_becomes_notify_failed_with_slack_reason():
-    client = FakeWebClient(fail=["channel_not_found", "channel_not_found"])
+    client = FakeWebClient(fail=["channel_not_found"])
 
     with pytest.raises(ServiceException) as e:
         SlackSender(client).post("#nope", "본문")
@@ -94,3 +87,36 @@ def test_without_token_or_slack_config_sends_nothing():
 def test_dry_run_gives_distinct_ids_for_threading():
     sender = DryRunSender()
     assert sender.post("#ops", "a") != sender.post("#ops", "b")
+
+
+def test_post_is_not_resent_after_timeout_to_avoid_duplicates():
+    client = FakeWebClient(fail=["timeout"])
+
+    with pytest.raises(ServiceException):
+        SlackSender(client).post("#ops", "본문")
+
+    assert len(client.calls) == 1  # 요청이 Slack에 닿았을 수 있어 다시 보내지 않는다
+
+
+def test_update_is_retried_after_timeout():
+    client = FakeWebClient(fail=["timeout"])
+
+    SlackSender(client).update("#ops", "1.1", "갱신")  # 같은 메시지를 다시 고치는 것은 안전하다
+
+    assert len(client.calls) == 2
+
+
+def test_permanent_error_is_not_retried():
+    client = FakeWebClient(fail=["channel_not_found", "channel_not_found"])
+
+    with pytest.raises(ServiceException):
+        SlackSender(client).post("#nope", "본문")
+
+    assert len(client.calls) == 1
+
+
+def test_rate_limit_is_retried_once():
+    client = FakeWebClient(fail=["ratelimited"])
+
+    assert SlackSender(client, sleep=lambda s: None).post("#ops", "본문")
+    assert len(client.calls) == 2

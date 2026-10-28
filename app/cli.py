@@ -148,17 +148,18 @@ def investigate(
     )
     print_investigation(result)
     if args.trigger == "schedule":
-        try:
-            for incident_id in pending:
-                record_investigation(engine, incident_id, result)
-        except SQLAlchemyError as e:
-            raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
+        # 1차 알림의 "조사 중"을 먼저 결과로 바꾼다 (기록이 실패해도 운영자는 결과를 받는다)
         for incident_id in pending:
             _notify(
                 lambda i=incident_id: notifier.after_investigation(
                     i, outcome.run_id, result, _now()
                 )
             )
+        try:
+            for incident_id in pending:
+                record_investigation(engine, incident_id, result)
+        except SQLAlchemyError as e:
+            raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
     print_alerts(notifier)
     return 1 if result is not None and result.status == "failed" else 0
 
@@ -168,11 +169,11 @@ def _now() -> datetime:
 
 
 def _notify(send: Callable[[], None]) -> None:
-    """알림 저장소 오류가 점검 결과를 덮지 않게 한다 (발송 실패는 Notifier가 이력에 남긴다)."""
+    """알림이 어떤 이유로 실패해도 점검·조사를 멈추지 않는다 (발송 실패는 이력에 남는다)."""
     try:
         send()
-    except SQLAlchemyError as e:
-        print(f"알림 이력 저장 실패: {type(e).__name__}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001 — 알림은 부가 기능이다
+        print(f"알림 실패: {type(e).__name__}", file=sys.stderr)
 
 
 def print_alerts(notifier: Notifier) -> None:

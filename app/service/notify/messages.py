@@ -107,15 +107,17 @@ def cause_reply(status: str, report: Report | None) -> str:
         )
     if status == "incomplete":
         return "조사가 상한에 닿아 끝났습니다(조사 미완). 확인한 데까지 위 메시지에 갱신했습니다."
+    if status == "done":
+        return "조사를 마쳤지만 원인을 확정하지 못했습니다. 확인한 범위는 보고서에 있습니다."
     return "조사에 실패했습니다. 위 메시지에 규칙·증상 결과와 점검 링크를 남겼습니다."
 
 
-def reminder(namespace: str, incident: Incident, since: datetime, at: datetime, url: str) -> str:
-    """M2: 미해결이 이어짐. AI를 다시 부르지 않는다."""
+def reminder(namespace: str, incident: Incident, at: datetime, url: str) -> str:
+    """M2: 미해결이 이어짐. AI를 다시 부르지 않는다. 지속 시간은 M3와 같이 이슈를 연 시각부터."""
     severity = incident.first_severity
     return (
         f"⏰ {_head(namespace, severity)} — {subject(incident)} 장애가 "
-        f"{minutes(since, at)}분째 이어지고 있습니다 ({hhmm(at)} 기준)\n"
+        f"{minutes(incident.opened_at, at)}분째 이어지고 있습니다 ({hhmm(at)} 기준)\n"
         f"이슈: {url}/issues/{incident.id}"
     )
 

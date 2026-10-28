@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     AZURE_OPENAI_API_KEY: str = ""
     AZURE_OPENAI_API_VERSION: str = ""
 
-    # Slack 봇 토큰 (Secret kg-slack-bot을 환경 변수로). 비어 있으면 알림은 dry-run(이력에만 기록)
+    # Slack 봇 토큰. 클러스터에서는 make kg-up이 .env의 선택 키를 kubeguardian-env Secret에 넣는다.
+    # 비어 있으면 알림은 dry-run(알림 이력에만 기록)
     SLACK_BOT_TOKEN: str = ""
 
     # 실행 추적 (Phoenix, OpenTelemetry)
@@ -125,6 +126,9 @@ class ReminderPolicy(_Strict):
     max: int = Field(ge=1)  # 리마인더 총 횟수
 
 
+DEFAULT_REPORT_URL = "http://localhost:8000/p/default"
+
+
 class SlackConfig(_Strict):
     alert_target: str
     bot_token_secret: str
@@ -133,7 +137,7 @@ class SlackConfig(_Strict):
     allowed_users: list[str] = []
     reminders: dict[Literal["critical", "warning"], ReminderPolicy] = {}  # 심각도별 재알림
     # 알림 링크의 보고서 화면 주소 (UI 정의서 §1.2: <report_url>/checks/{run}, /issues/{id})
-    report_url: str = "http://localhost:8000/p/default"
+    report_url: str = DEFAULT_REPORT_URL
 
 
 class KnowledgeConfig(_Strict):
