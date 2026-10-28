@@ -37,8 +37,12 @@ Action = Literal["opened", "continued", "changed", "seen", "resolved"]
 class IncidentChange:
     incident_id: int
     action: Action
-    needs_investigation: bool  # opened·changed만 True (조사 대기)
     severity: str | None  # 1차 심각도
+
+    @property
+    def needs_investigation(self) -> bool:
+        """이번 점검이 조사를 새로 요구했는가 (새 이슈, 지문 변경)."""
+        return self.action in ("opened", "changed")
 
 
 def track(
@@ -59,14 +63,22 @@ def track(
     if gate.path in ("A", "B"):
         fp = compute_fingerprint(gate, config)
         overlapping = [i for i in open_incidents if set(i.features) & set(fp.features)]
-        matched = overlapping[-1] if overlapping else None  # 겹치는 것이 여럿이면 가장 최근
+        matched = (
+            overlapping[-1] if overlapping else None
+        )  # 겹치는 것이 여럿이면 가장 최근을 따른다
         change = _follow(store, matched, fp, gate, trigger, run_id, now)
         if change:
             changes.append(change)
+        # 나머지 겹치는 이슈는 이 점검에 연결만 한다 (조사·알림 없음). 대상이 사라지면 따로 해결된다
+        for other in overlapping[:-1]:
+            if not _gone(other, signals, symptoms):
+                action = "continued" if trigger == "schedule" else "seen"
+                store.touch(other.id, run_id, now, action)
+                changes.append(IncidentChange(other.id, action, other.first_severity))
     for incident in open_incidents:
         if incident is not matched and _gone(incident, signals, symptoms):
             store.resolve(incident.id, run_id, now)
-            changes.append(IncidentChange(incident.id, "resolved", False, incident.first_severity))
+            changes.append(IncidentChange(incident.id, "resolved", incident.first_severity))
     return changes
 
 
@@ -83,26 +95,33 @@ def _follow(
         if matched is None:
             return None  # 직접 점검은 이슈를 새로 열지 않는다
         store.touch(matched.id, run_id, now, "seen")
-        return IncidentChange(matched.id, "seen", False, matched.first_severity)
+        return IncidentChange(matched.id, "seen", matched.first_severity)
     detail = _detail(fp)
     if matched is None:
         incident_id = store.open(fp.key, detail, gate.severity, run_id, now)
-        return IncidentChange(incident_id, "opened", True, gate.severity)
+        return IncidentChange(incident_id, "opened", gate.severity)
     if matched.fingerprint == fp.key:
         store.touch(matched.id, run_id, now, "continued")
-        return IncidentChange(matched.id, "continued", False, matched.first_severity)
+        return IncidentChange(matched.id, "continued", matched.first_severity)
     store.change(matched.id, fp.key, detail, gate.severity, run_id, now)
-    return IncidentChange(matched.id, "changed", True, gate.severity)
+    return IncidentChange(matched.id, "changed", gate.severity)
 
 
 def _gone(incident: Incident, signals: list[Signal], symptoms: list[Symptom]) -> bool:
-    """이번 점검이 그 이슈의 규칙·증상을 모두 확인했고 하나도 남지 않았으면 True."""
+    """이번 점검이 그 이슈의 규칙·증상을 모두 확인했고 하나도 남지 않았으면 True.
+
+    확인할 대상이 없는 이슈(사용자 증상만)는 해결을 판단할 수 없어 True가 되지 않는다.
+    """
+    if not incident.targets and not incident.scenarios:
+        return False
     rules = {rule for rule, _ in incident.targets}
     for s in signals:
         if s.rule_id not in rules or s.verdict == "passed":
             continue
         if (s.rule_id, s.subject) in incident.targets:
             return False  # 그 대상이 아직 적발·관찰 중·확인하지 못함
+        if s.service and s.service in incident.services:
+            return False  # 같은 규칙·서비스의 다른 대상 (재시작으로 Pod 이름이 바뀜)
         if s.verdict == "unknown" and "/" not in s.subject:
             return False  # 규칙 전체를 확인하지 못함 (대상이 네임스페이스)
     ran = {x.scenario: x.status for x in symptoms}
@@ -110,9 +129,7 @@ def _gone(incident: Incident, signals: list[Signal], symptoms: list[Symptom]) ->
 
 
 def _detail(fp: Fingerprint) -> dict:
-    d = asdict(fp)
-    d["targets"] = [list(t) for t in fp.targets]
-    return d
+    return asdict(fp)
 
 
 def record_investigation(engine: Engine, incident_id: int, result: "AgentResult | None") -> None:
@@ -120,6 +137,6 @@ def record_investigation(engine: Engine, incident_id: int, result: "AgentResult 
     store = IncidentStore(engine)
     store.set_investigation(incident_id, result.status if result else "failed")
     report = result.report if result else None
-    if report and report.issues:
-        top = min(report.issues, key=lambda i: i.rank)
+    top = report.top_issue if report else None
+    if top:
         store.set_final_severity(incident_id, top.impact)

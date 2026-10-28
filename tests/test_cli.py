@@ -409,7 +409,7 @@ def test_schedule_investigate_runs_once_then_skips_while_incident_continues(tmp_
 
     assert _schedule_investigate(tmp_path, no_llm) == 0
     second = capsys.readouterr().out
-    assert "이슈 #1 진행 중" in second and "조사 생략" in second
+    assert "이슈 #1 진행 중" in second and "조사 생략:" in second
 
     incident = IncidentStore(create_db_engine(str(tmp_path / "kg.db"))).get(1)
     assert (incident.investigation, incident.final_severity) == ("done", "core_path_broken")
@@ -442,3 +442,37 @@ def test_check_prints_incident_resolution(tmp_path, capsys):
     )
 
     assert "이슈 #1 해결" in capsys.readouterr().out
+
+
+def test_schedule_investigate_retries_incident_left_pending(tmp_path, capsys):
+    # 조사 중 Pod가 끝나(SIGTERM) 기록하지 못한 이슈는 다음 주기에 다시 조사한다
+    from core.db import IncidentStore, create_db_engine
+
+    def interrupted(model):
+        raise SystemExit(143)
+
+    with pytest.raises(SystemExit):
+        _schedule_investigate(tmp_path, interrupted)
+    store = IncidentStore(create_db_engine(str(tmp_path / "kg.db")))
+    assert store.get(1).investigation == "pending"
+    capsys.readouterr()
+
+    llm = _scripted()
+    _schedule_investigate(tmp_path, _llm_factory(llm))
+
+    assert llm.calls and "조사 생략:" not in capsys.readouterr().out
+
+
+def test_record_investigation_storage_error_is_mapped(tmp_path, capsys, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    from core.db import IncidentStore
+
+    def locked(*a, **k):
+        raise OperationalError("update", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(IncidentStore, "set_investigation", locked)
+
+    code = _schedule_investigate(tmp_path, _llm_factory(_scripted()))
+
+    assert code == 1 and "96001" in capsys.readouterr().err

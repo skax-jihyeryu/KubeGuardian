@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 
 from core.db import IncidentStore, create_db_engine
-from service.alerts.incidents import track
+from service.alerts.incidents import _gone, track
 from service.checks.gate import decide_gate
 from service.model import Signal, Symptom
 from tests.service.alerts.test_fingerprint import CONFIG
@@ -199,3 +199,53 @@ def test_pending_investigations_lists_opened_and_changed(engine):
     store.set_investigation(c.incident_id, "done")
     checks.run([_sig()])  # 같은 지문: 다시 대기하지 않는다
     assert store.pending_investigations() == []
+
+
+# ── 리뷰 반영 ──
+
+
+def test_other_overlapping_open_incidents_are_linked_not_left_stale(engine):
+    checks = Checks(engine)
+    [chat] = checks.run([_sig("S01", "agent")])
+    # chat을 확인하지 못한 점검에서 login 이슈가 따로 열린다
+    [login] = checks.run([_sig("S01", "agent", verdict="unknown"), _sig("S04", "admin")])
+
+    # gateway는 chat·login 둘 다 걸친다
+    changes = checks.run([_sig("S01", "agent"), _sig("S04", "admin"), _sig("S04", "gateway")])
+
+    by_id = {c.incident_id: c.action for c in changes}
+    assert by_id[login.incident_id] == "changed"  # 가장 최근 이슈를 따른다
+    assert by_id[chat.incident_id] == "continued"  # 나머지는 연결만 (조사·알림 없음)
+    assert sum(c.needs_investigation for c in changes) == 1
+    assert IncidentStore(engine).check_ids(chat.incident_id) == [1, 3]  # 2회차는 확인하지 못함
+
+
+def test_incident_with_nothing_to_confirm_is_not_resolved(engine):
+    checks = Checks(engine)
+    [opened] = checks.run([], [], user="느려요")  # 사용자 증상만: 확인할 대상이 없다
+
+    assert checks.run([_sig("S01", "agent", verdict="passed")]) == []
+    assert IncidentStore(engine).get(opened.incident_id).status == "open"
+
+
+def test_replaced_pod_still_failing_on_same_service_is_not_resolved(engine):
+    checks = Checks(engine)
+    checks.run([_sig("P03", "agent", subject="dev/Pod/agent-abc/agent")])
+
+    [incident] = IncidentStore(engine).open_incidents()
+
+    # 같은 규칙·서비스가 새 Pod에서 아직 적발이면 해결이 아니다 (Pod 이름은 재시작마다 바뀐다)
+    still = [_sig("P03", "agent", subject="dev/Pod/agent-xyz/agent")]
+    assert not _gone(incident, still, [])
+    assert _gone(incident, [_sig("P03", "agent", verdict="passed")], [])
+
+
+def test_change_clears_old_final_severity(engine):
+    checks = Checks(engine)
+    [c] = checks.run([_sig("S01", "agent")])
+    store = IncidentStore(engine)
+    store.set_final_severity(c.incident_id, "core_path_broken")
+
+    checks.run([_sig("S01", "agent"), _sig("P03", "agent", subject="dev/Pod/a/agent")])
+
+    assert store.get(c.incident_id).final_severity is None  # 새 지문의 조사가 다시 정한다

@@ -74,7 +74,7 @@ class IncidentStore:
         with Session(self._engine) as s, s.begin():
             row = s.get_one(IncidentRow, incident_id)
             row.fingerprint, row.detail, row.first_severity = fingerprint, detail, severity
-            row.investigation = "pending"
+            row.investigation, row.final_severity = "pending", None  # 새 지문의 조사가 다시 정한다
             row.last_seen_at = require_aware(now)
             s.add(IncidentCheckRow(incident_id=incident_id, check_run_id=run_id, action="changed"))
 
