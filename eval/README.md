@@ -48,6 +48,7 @@
 - `result.json`의 `ai` 블록: `status`, `conclusion`, `expected_top1`, `judge`(match·reason, 채점 실패는 match null), `usage`(토큰·도구 호출·초), `trace_id`(Phoenix에서 찾는 키, 추적이 꺼져 있으면 null), `passed`, `conclusion_supported`, `demoted`(근거 검증에서 강등된 항목), `fail_reason`(실패 사유), `invalid`(무효 사유)
 - history에는 `report.json`(보고서 전체)과 `steps.json`(조사 단계 기록)을 저장한다. Phoenix 추적은 `.env`의 `OTEL_EXPORTER_OTLP_ENDPOINT`로 켜지고 port-forward가 필요하다
 - 러너가 로컬에서 돌면 클러스터 DNS를 찾지 못해 HTTP 도구(probe·run_api_scenario·query_app_api)가 실패한다. k8s 조회 도구는 동작한다
+- **주입 흔적 제외**: Chaos Mesh는 Chaos 객체를 `chaos-mesh` 네임스페이스에 두어도 대상 네임스페이스에 PodNetworkChaos·PodHttpChaos를 만들고 그 이벤트를 남긴다. 조사가 이 이벤트로 주입 사실을 읽지 않도록 설정에 `exclude_event_api_groups: [chaos-mesh.org]`를 둔다 (예시 설정에 있음, #82). 직접 만든 `kubeguardian.yaml`을 쓰면 이 줄을 넣고 `make kg-up`으로 runner 설정을 다시 올린다
 
 ### 클러스터 안 실행 (`--in-cluster`)
 
