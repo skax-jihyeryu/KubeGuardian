@@ -299,3 +299,29 @@ def test_failed_skip_record_still_reports_already_running(engine, monkeypatch):
         run_check(_reader(), CONFIG, engine, trigger="schedule", now=NOW + timedelta(seconds=5))
 
     assert e.value.error_code is ErrorCode.CHECK_ALREADY_RUNNING
+
+
+# ── 이슈 (#26) ──
+
+
+def test_schedule_checks_open_continue_and_resolve_an_incident(engine):
+    first = run_check(_reader("s01/detected"), CONFIG, engine, trigger="schedule", now=NOW)
+    again = run_check(
+        _reader("s01/detected"), CONFIG, engine, trigger="schedule", now=NOW + timedelta(minutes=5)
+    )
+    healed = run_check(
+        _reader(), CONFIG, engine, trigger="schedule", now=NOW + timedelta(minutes=10)
+    )
+
+    assert [(c.action, c.needs_investigation) for c in first.incidents] == [("opened", True)]
+    assert [c.action for c in again.incidents] == ["continued"]
+    assert [c.action for c in healed.incidents] == ["resolved"]
+    assert {c.incident_id for c in [*first.incidents, *again.incidents, *healed.incidents]} == {
+        first.incidents[0].incident_id
+    }
+
+
+def test_direct_check_does_not_open_an_incident(engine):
+    out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="check", now=NOW)
+
+    assert out.gate.path == "A" and out.incidents == []

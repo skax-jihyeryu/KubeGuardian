@@ -88,3 +88,33 @@ class CheckSkipRow(Base):
     trigger: Mapped[str] = mapped_column(String(16))
     holder_trigger: Mapped[str] = mapped_column(String(16))
     holder_run_id: Mapped[int | None] = mapped_column()
+
+
+class IncidentRow(Base):
+    """이슈 (기획서 §6.6). 장애 신호·증상이 이어지는 동안 하나로 묶이는 단위. 화면 용어는 이슈."""
+
+    __tablename__ = "incident"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), index=True)  # open / resolved
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    detail: Mapped[dict[str, Any]] = mapped_column(JSON)  # 지문 구성 요소·영향 기능·해결 판정 대상
+    first_severity: Mapped[str | None] = mapped_column(String(16))  # 1차 (3값)
+    final_severity: Mapped[str | None] = mapped_column(String(32))  # 보고서 impact (4값)
+    investigation: Mapped[str | None] = mapped_column(String(16))  # pending → (작업자가) done 등
+    opened_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_reminder_at: Mapped[datetime | None] = mapped_column(UTCDateTime)  # #27
+    slack_ts: Mapped[str | None] = mapped_column(String(32))  # #27: 1차 알림 메시지 ID
+
+
+class IncidentCheckRow(Base):
+    """점검 ↔ 이슈 (다대다). action: opened / continued / changed / seen / resolved."""
+
+    __tablename__ = "incident_check"
+
+    incident_id: Mapped[int] = mapped_column(ForeignKey("incident.id"), primary_key=True)
+    check_run_id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    action: Mapped[str] = mapped_column(String(16))
