@@ -115,6 +115,8 @@ kg-build:  ## KubeGuardian runner 이미지를 minikube 노드의 docker에 빌�
 KG_NS := kubeguardian
 KG_ENV_KEYS := LLM_PROVIDER|AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_API_KEY|AZURE_OPENAI_API_VERSION
 KG_ENV_COUNT := 4
+# 선택 키: 없으면 알림은 dry-run (#27)
+KG_ENV_OPTIONAL := SLACK_BOT_TOKEN
 
 kg-up: kg-build ca  ## runner Pod와 주기 점검 CronJob 기동 (kubeguardian 네임스페이스, 이미지·Secret·ConfigMap·CA 포함)
 	@kubectl get ns $(KG_NS) >/dev/null 2>&1 || kubectl create ns $(KG_NS)
@@ -124,6 +126,7 @@ kg-up: kg-build ca  ## runner Pod와 주기 점검 CronJob 기동 (kubeguardian 
 	@set -o pipefail; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
 	grep -E '^($(KG_ENV_KEYS))=' .env > "$$tmp"; n=$$(wc -l < "$$tmp" | tr -d ' '); \
 	if [ "$$n" != "$(KG_ENV_COUNT)" ]; then echo "키 $$n/$(KG_ENV_COUNT): .env에 필요한 키가 모자라거나 겹친다 (값은 출력하지 않음)"; exit 1; fi; \
+	grep -E '^($(KG_ENV_OPTIONAL))=.+' .env >> "$$tmp" || true; \
 	kubectl -n $(KG_NS) create secret generic kubeguardian-env --from-env-file="$$tmp" --dry-run=client -o yaml \
 	  | kubectl apply --server-side --force-conflicts -f - >/dev/null && echo "secret/kubeguardian-env applied"
 	@# 예전 client-side apply가 남긴 annotation(값 포함)을 지운다. 없으면 무시한다.

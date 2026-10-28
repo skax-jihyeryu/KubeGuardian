@@ -45,7 +45,7 @@ spec:
               image: kubeguardian:local
               imagePullPolicy: Never
               command: ["python", "/kg/app/cli.py", "check", "--trigger", "schedule", "--db", "/data/kubeguardian.db"]
-              envFrom:
+              envFrom:  # SLACK_BOT_TOKEN도 여기로 온다. 없으면 알림은 dry-run (#27)
                 - secretRef: { name: kubeguardian-env }
               env:
                 - { name: KG_CONFIG_PATH, value: /etc/kubeguardian/config/kubeguardian.yaml }

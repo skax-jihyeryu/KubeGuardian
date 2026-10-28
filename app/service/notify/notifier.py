@@ -46,6 +46,8 @@ class Notifier:
         self._channel = slack.alert_target if slack else _DRY_CHANNEL
         self._url = (slack.report_url if slack else "http://localhost:8000/p/default").rstrip("/")
         self._ns = config.target.namespace
+        self.dry_run = sender.dry_run
+        self.sent: list[str] = []  # 이번에 보낸(또는 기록한) 메시지 종류, 출력용
 
     def after_check(
         self, run_id: int, gate: GateResult, changes: list[IncidentChange], now: datetime
@@ -137,6 +139,7 @@ class Notifier:
             ts = self._sender.post(self._channel, text, thread_ts=thread, broadcast=broadcast)
         except ServiceException as e:
             error = e.detail or e.error_code.name
+        self.sent.append(kind if error is None else f"{kind} 실패({error})")
         self._alerts.add(
             kind=kind,
             channel=self._channel,
@@ -156,6 +159,7 @@ class Notifier:
             self._sender.update(self._channel, incident.slack_ts or "", text)
         except ServiceException as e:
             error = e.detail or e.error_code.name
+        self.sent.append(kind if error is None else f"{kind} 실패({error})")
         self._alerts.add(
             kind=kind,
             channel=self._channel,

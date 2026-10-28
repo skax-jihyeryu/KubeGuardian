@@ -16,6 +16,7 @@ import json
 import signal
 import sys
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -32,6 +33,8 @@ from core.llm import build_chat_model
 from service.agent.base import AgentResult
 from service.alerts.incidents import record_investigation
 from service.checks.detectors.catalog import CATALOG
+from service.notify.notifier import Notifier
+from service.notify.sender import Sender, build_sender
 from service.pipeline.check import CheckOutcome, clean_symptom, run_check
 from service.pipeline.investigate import run_investigation
 from service.sensors.collector import KubeReader
@@ -52,6 +55,7 @@ INCIDENT_LABEL = {
     "resolved": "해결",
 }
 
+SenderFactory = Callable[[KubeGuardianConfig], Sender]
 ReaderFactory = Callable[[KubeGuardianConfig], KubeReader]
 HttpFactory = Callable[[KubeGuardianConfig], Any]
 LlmFactory = Callable[[str], BaseChatModel]
@@ -88,11 +92,20 @@ def _open_db(path: str) -> Engine:
         raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
 
 
-def check(args: argparse.Namespace, make_reader: ReaderFactory, make_http: HttpFactory) -> None:
+def check(
+    args: argparse.Namespace,
+    make_reader: ReaderFactory,
+    make_http: HttpFactory,
+    make_sender: SenderFactory,
+) -> None:
     config = _load_config(args.config)
     reader = make_reader(config)
     engine = _open_db(args.db)
-    print_outcome(run_check(reader, config, engine, trigger=args.trigger, http=make_http(config)))
+    outcome = run_check(reader, config, engine, trigger=args.trigger, http=make_http(config))
+    print_outcome(outcome)
+    notifier = Notifier(engine, config, make_sender(config))
+    _notify(lambda: notifier.after_check(outcome.run_id, outcome.gate, outcome.incidents, _now()))
+    print_alerts(notifier)
 
 
 def investigate(
@@ -100,6 +113,7 @@ def investigate(
     make_reader: ReaderFactory,
     make_http: HttpFactory,
     make_llm: LlmFactory,
+    make_sender: SenderFactory,
 ) -> int:
     symptom = args.symptom  # 공백 처리는 run_check·build_request가 한다
     if len(clean_symptom(symptom) or "") > MAX_SYMPTOM_LENGTH:
@@ -113,9 +127,13 @@ def investigate(
         reader, config, engine, trigger=args.trigger, http=http, user_symptom=symptom
     )
     print_outcome(outcome)
+    notifier = Notifier(engine, config, make_sender(config))
+    # 1차 감지 알림은 AI 조사를 기다리지 않는다
+    _notify(lambda: notifier.after_check(outcome.run_id, outcome.gate, outcome.incidents, _now()))
     pending = _pending_incidents(engine, outcome)
     if args.trigger == "schedule" and outcome.gate.path != "C" and not pending:
         print("\n조사 생략: 진행 중인 이슈와 같은 지문이다 (같은 장애를 다시 조사하지 않는다)")
+        print_alerts(notifier)
         return 0
     result = run_investigation(
         outcome,
@@ -135,7 +153,32 @@ def investigate(
                 record_investigation(engine, incident_id, result)
         except SQLAlchemyError as e:
             raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
+        for incident_id in pending:
+            _notify(
+                lambda i=incident_id: notifier.after_investigation(
+                    i, outcome.run_id, result, _now()
+                )
+            )
+    print_alerts(notifier)
     return 1 if result is not None and result.status == "failed" else 0
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _notify(send: Callable[[], None]) -> None:
+    """알림 저장소 오류가 점검 결과를 덮지 않게 한다 (발송 실패는 Notifier가 이력에 남긴다)."""
+    try:
+        send()
+    except SQLAlchemyError as e:
+        print(f"알림 이력 저장 실패: {type(e).__name__}", file=sys.stderr)
+
+
+def print_alerts(notifier: Notifier) -> None:
+    if notifier.sent:
+        mode = " (dry-run)" if notifier.dry_run else ""
+        print("\n" + "\n".join(f"알림: {kind}{mode}" for kind in notifier.sent))
 
 
 def _pending_incidents(engine: Engine, outcome: CheckOutcome) -> list[int]:
@@ -204,7 +247,9 @@ def main(
     make_reader: ReaderFactory = _k8s_reader,
     make_http: HttpFactory = _http,
     make_llm: LlmFactory = build_chat_model,
+    make_sender: SenderFactory | None = None,
 ) -> int:
+    make_sender = make_sender or (lambda cfg: build_sender(get_setting(), cfg))
     parser = argparse.ArgumentParser(prog="kg", description="KubeGuardian CLI")
     sub = parser.add_subparsers(dest="command", required=True)
     p_check = sub.add_parser("check", help="규칙 점검을 한 번 실행하고 결과를 출력한다")
@@ -229,9 +274,9 @@ def main(
     args = parser.parse_args(argv)
     try:
         if args.command == "check":
-            check(args, make_reader, make_http)
+            check(args, make_reader, make_http, make_sender)
         elif args.command == "investigate":
-            return investigate(args, make_reader, make_http, make_llm)
+            return investigate(args, make_reader, make_http, make_llm, make_sender)
     except ServiceException as e:
         if e.error_code is ErrorCode.CHECK_ALREADY_RUNNING and args.trigger == "schedule":
             print(f"건너뜀: 다른 점검이 진행 중이다 ({e.detail})")  # CronJob 실패로 보이지 않게
