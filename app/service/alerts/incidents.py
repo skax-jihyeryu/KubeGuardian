@@ -17,7 +17,7 @@ run_check가 점검 잠금 안에서 부른다.
 
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from sqlalchemy import Engine
 
@@ -26,6 +26,9 @@ from core.db import IncidentStore
 from core.db.incidents import Incident
 from service.alerts.fingerprint import Fingerprint, compute_fingerprint
 from service.model import GateResult, Signal, Symptom, Trigger
+
+if TYPE_CHECKING:
+    from service.agent.base import AgentResult
 
 Action = Literal["opened", "continued", "changed", "seen", "resolved"]
 
@@ -110,3 +113,13 @@ def _detail(fp: Fingerprint) -> dict:
     d = asdict(fp)
     d["targets"] = [list(t) for t in fp.targets]
     return d
+
+
+def record_investigation(engine: Engine, incident_id: int, result: "AgentResult | None") -> None:
+    """조사가 끝난 이슈에 조사 상태와 최종 심각도(1순위 문제의 impact)를 남긴다."""
+    store = IncidentStore(engine)
+    store.set_investigation(incident_id, result.status if result else "failed")
+    report = result.report if result else None
+    if report and report.issues:
+        top = min(report.issues, key=lambda i: i.rank)
+        store.set_final_severity(incident_id, top.impact)

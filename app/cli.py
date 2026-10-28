@@ -29,6 +29,7 @@ from core.error.service_exception import ErrorCode, ServiceException
 from core.http import NamespacedHttp
 from core.llm import build_chat_model
 from service.agent.base import AgentResult
+from service.alerts.incidents import record_investigation
 from service.checks.detectors.catalog import CATALOG
 from service.pipeline.check import CheckOutcome, clean_symptom, run_check
 from service.pipeline.investigate import run_investigation
@@ -40,6 +41,14 @@ VERDICT_LABEL = {
     "observing": "관찰 중",
     "passed": "통과",
     "unknown": "확인하지 못함",
+}
+
+INCIDENT_LABEL = {
+    "opened": "새로 열림 (조사 대기)",
+    "continued": "진행 중 (같은 지문, 조사 생략)",
+    "changed": "지문 바뀜 (같은 이슈에서 재조사)",
+    "seen": "열려 있음 (직접 점검은 이슈를 바꾸지 않음)",
+    "resolved": "해결",
 }
 
 ReaderFactory = Callable[[KubeGuardianConfig], KubeReader]
@@ -103,6 +112,10 @@ def investigate(
         reader, config, engine, trigger=args.trigger, http=http, user_symptom=symptom
     )
     print_outcome(outcome)
+    pending = [c.incident_id for c in outcome.incidents if c.needs_investigation]
+    if args.trigger == "schedule" and outcome.gate.path != "C" and not pending:
+        print("\n조사 생략: 진행 중인 이슈와 같은 지문이다 (같은 장애를 다시 조사하지 않는다)")
+        return 0
     result = run_investigation(
         outcome,
         config,
@@ -115,6 +128,9 @@ def investigate(
         symptom=symptom,
     )
     print_investigation(result)
+    if args.trigger == "schedule":
+        for incident_id in pending:
+            record_investigation(engine, incident_id, result)
     return 1 if result is not None and result.status == "failed" else 0
 
 
@@ -165,6 +181,8 @@ def print_outcome(out: CheckOutcome) -> None:
     gate = out.gate
     severity = f" ({gate.severity})" if gate.severity else ""
     print(f"\n게이트: 경로 {gate.path}{severity} — {gate.reason}")
+    for c in out.incidents:
+        print(f"이슈 #{c.incident_id} {INCIDENT_LABEL[c.action]}")
 
 
 def main(

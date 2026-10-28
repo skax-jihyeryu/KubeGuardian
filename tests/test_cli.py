@@ -383,3 +383,62 @@ def test_sigterm_runs_finally_so_the_lock_is_released():
         assert e.value.code == 128 + signal.SIGTERM
     finally:
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+
+# ── 이슈 (#26) ──
+
+
+def _schedule_investigate(tmp_path, llm_factory):
+    return cli.main(
+        [*_investigate_args(tmp_path), "--trigger", "schedule"],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=llm_factory,
+    )
+
+
+def test_schedule_investigate_runs_once_then_skips_while_incident_continues(tmp_path, capsys):
+    from core.db import IncidentStore, create_db_engine
+
+    assert _schedule_investigate(tmp_path, _llm_factory(_scripted())) == 0
+    first = capsys.readouterr().out
+    assert "이슈 #1 새로 열림" in first and "조사 상태: done" in first
+
+    def no_llm(model):
+        raise AssertionError("같은 지문이 이어지면 조사하지 않는다")
+
+    assert _schedule_investigate(tmp_path, no_llm) == 0
+    second = capsys.readouterr().out
+    assert "이슈 #1 진행 중" in second and "조사 생략" in second
+
+    incident = IncidentStore(create_db_engine(str(tmp_path / "kg.db"))).get(1)
+    assert (incident.investigation, incident.final_severity) == ("done", "core_path_broken")
+
+
+def test_direct_investigate_always_runs_even_with_open_incident(tmp_path, capsys):
+    _schedule_investigate(tmp_path, _llm_factory(_scripted()))
+    capsys.readouterr()
+
+    llm = _scripted()  # 보고서가 인용한 ev-0001은 첫 DB 기준이라 결과 상태는 보지 않는다
+    cli.main(
+        _investigate_args(tmp_path),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=_llm_factory(llm),
+    )
+
+    out = capsys.readouterr().out
+    assert llm.calls and "조사 상태:" in out and "조사 생략" not in out
+
+
+def test_check_prints_incident_resolution(tmp_path, capsys):
+    cli.main(
+        [*_args(tmp_path), "--trigger", "schedule"],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s01/detected")),
+    )
+    cli.main(
+        [*_args(tmp_path), "--trigger", "schedule"],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster(None)),
+    )
+
+    assert "이슈 #1 해결" in capsys.readouterr().out
