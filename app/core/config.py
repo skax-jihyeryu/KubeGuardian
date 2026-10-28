@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     AZURE_OPENAI_API_KEY: str = ""
     AZURE_OPENAI_API_VERSION: str = ""
 
+    # Slack 봇 토큰 (Secret kg-slack-bot을 환경 변수로). 비어 있으면 알림은 dry-run(이력에만 기록)
+    SLACK_BOT_TOKEN: str = ""
+
     # 실행 추적 (Phoenix, OpenTelemetry)
     OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
     PHOENIX_PROJECT_NAME: str = "test"  # Phoenix 프로젝트 이름. 실서비스 전까지 test
@@ -129,6 +132,8 @@ class SlackConfig(_Strict):
     allowed_channels: list[str] = []
     allowed_users: list[str] = []
     reminders: dict[Literal["critical", "warning"], ReminderPolicy] = {}  # 심각도별 재알림
+    # 알림 링크의 보고서 화면 주소 (UI 정의서 §1.2: <report_url>/checks/{run}, /issues/{id})
+    report_url: str = "http://localhost:8000/p/default"
 
 
 class KnowledgeConfig(_Strict):

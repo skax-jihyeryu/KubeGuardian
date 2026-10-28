@@ -118,3 +118,21 @@ class IncidentCheckRow(Base):
     incident_id: Mapped[int] = mapped_column(ForeignKey("incident.id"), primary_key=True)
     check_run_id: Mapped[int] = mapped_column(primary_key=True, index=True)
     action: Mapped[str] = mapped_column(String(16))
+
+
+class AlertRow(Base):
+    """알림 이력 (기획서 §6.6). dry-run이면 보내지 않고 본문만 남긴다. 평가 러너가 시각을 읽는다."""
+
+    __tablename__ = "alert"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    incident_id: Mapped[int | None] = mapped_column(ForeignKey("incident.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(8))  # M1 / M1u(갱신) / M9 / M2 / M3 / M7
+    channel: Mapped[str] = mapped_column(String(128))
+    ts: Mapped[str | None] = mapped_column(String(32))  # Slack 메시지 ID (실패면 None)
+    thread_ts: Mapped[str | None] = mapped_column(String(32))
+    text: Mapped[str] = mapped_column(String)
+    sent_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    dry_run: Mapped[bool] = mapped_column(default=False)
+    error: Mapped[str | None] = mapped_column(String(512))
