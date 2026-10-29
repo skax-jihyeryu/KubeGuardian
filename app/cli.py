@@ -13,6 +13,7 @@ kg check: 규칙 점검과 증상 감지(API 시나리오)를 한 번 돌리고
 
 import argparse
 import json
+import re
 import signal
 import sys
 from collections.abc import Callable, Sequence
@@ -32,6 +33,7 @@ from core.http import NamespacedHttp
 from core.llm import build_chat_model
 from service.agent.base import AgentResult
 from service.alerts.incidents import record_investigation
+from service.chat import answer_question, format_answer
 from service.checks.detectors.catalog import CATALOG
 from service.notify.notifier import Notifier
 from service.notify.sender import Sender, build_sender
@@ -60,6 +62,7 @@ ReaderFactory = Callable[[KubeGuardianConfig], KubeReader]
 HttpFactory = Callable[[KubeGuardianConfig], Any]
 LlmFactory = Callable[[str], BaseChatModel]
 MAX_SYMPTOM_LENGTH = 500
+CONVERSATION_ID_PATTERN = r"[A-Za-z0-9_-]{1,32}"
 
 
 def _http(config: KubeGuardianConfig) -> NamespacedHttp:
@@ -162,6 +165,26 @@ def investigate(
             raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
     print_alerts(notifier)
     return 1 if result is not None and result.status == "failed" else 0
+
+
+def ask(args: argparse.Namespace, make_llm: LlmFactory) -> None:
+    config = _load_config(args.config)
+    engine = _open_db(args.db)
+    reply = answer_question(
+        args.question,
+        engine=engine,
+        config=config,
+        llm_factory=make_llm,
+        conversation_id=args.conversation,
+    )
+    print(f"대화 {reply.conversation_id}")
+    print(format_answer(reply.answer))
+
+
+def _conversation_id(value: str) -> str:
+    if not re.fullmatch(CONVERSATION_ID_PATTERN, value):
+        raise argparse.ArgumentTypeError("영문·숫자·_·-로 1~32자")
+    return value
 
 
 def _now() -> datetime:
@@ -272,14 +295,26 @@ def main(
         default="investigate",
         help="실행 방식 (기본: investigate)",
     )
+    p_ask = sub.add_parser("ask", help="저장된 점검·이슈·알림 이력에 대해 질문한다")
+    p_ask.add_argument("question", help="질문 (최대 500자)")
+    p_ask.add_argument(
+        "--conversation", type=_conversation_id, help="이어갈 대화 ID (없으면 새 대화)"
+    )
+    p_ask.add_argument("--config", default=get_setting().KG_CONFIG_PATH, help="kubeguardian.yaml")
+    p_ask.add_argument("--db", default=DEFAULT_DB, help="SQLite 파일 (기본: kubeguardian.db)")
     args = parser.parse_args(argv)
     try:
         if args.command == "check":
             check(args, make_reader, make_http, make_sender)
         elif args.command == "investigate":
             return investigate(args, make_reader, make_http, make_llm, make_sender)
+        elif args.command == "ask":
+            ask(args, make_llm)
     except ServiceException as e:
-        if e.error_code is ErrorCode.CHECK_ALREADY_RUNNING and args.trigger == "schedule":
+        if (
+            e.error_code is ErrorCode.CHECK_ALREADY_RUNNING
+            and getattr(args, "trigger", "") == "schedule"
+        ):
             print(f"건너뜀: 다른 점검이 진행 중이다 ({e.detail})")  # CronJob 실패로 보이지 않게
             return 0
         print(

@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage
 import cli
 from core.config import KubeGuardianConfig, get_setting
 from core.error.service_exception import ErrorCode, ServiceException
+from tests.service.agent.history_qa.fakes import ScriptedLLM as HistoryLLM
 from tests.service.agent.investigator.test_v1_graph import ScriptedLLM
 from tests.service.checks.detectors.cases import FixtureReader, raw_cluster
 from tests.service.tools.fakes import FakeHttp
@@ -524,3 +525,25 @@ def test_unexpected_notify_error_does_not_stop_investigation(tmp_path):
     )
 
     assert code == 0 and llm.calls
+
+
+ASK_ANSWER = json.dumps({"sentences": [{"text": "이력 없음", "kind": "fact", "issue_ids": [1]}]})
+
+
+def test_cli_ask_prints_answer(tmp_path, capsys):
+    llm = HistoryLLM(script=["끝", ASK_ANSWER], calls=[], bound=[])
+    code = cli.main(
+        ["ask", "최근 이슈는?", "--config", _config(tmp_path), "--db", str(tmp_path / "kg.db")],
+        make_llm=lambda _m: llm,
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert out.startswith("대화 ")
+    assert "[이슈 #" in out or "(추정)" in out
+
+
+def test_cli_ask_rejects_bad_conversation_id(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        cli.main(["ask", "질문", "--conversation", "../x y", "--db", str(tmp_path / "kg.db")])
+    assert e.value.code != 0
+    assert "--conversation" in capsys.readouterr().err
