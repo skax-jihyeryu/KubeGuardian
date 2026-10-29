@@ -16,7 +16,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from service.model import AREAS, Report
+from service.model import AREAS, ChatAnswer, Report
 
 _ESTIMATE = "(추정) "
 
@@ -83,3 +83,35 @@ def validate_report(report: Report, known: Callable[[str], bool]) -> ValidationO
     return ValidationOutcome(
         report=cleaned, demoted=demoted, conclusion_supported=bool(evidence_ids)
     )
+
+
+_ESTIMATE_SUFFIX = " (추정)"
+
+
+def validate_answer(
+    answer: ChatAnswer,
+    *,
+    evidence: Callable[[str], bool],
+    issue: Callable[[int], bool],
+    run: Callable[[int], bool],
+) -> ChatAnswer:
+    """없는 인용 번호를 지우고, 인용이 안 남은 사실·해석 끝에 "(추정)"을 붙인다."""
+    sentences = []
+    for s in answer.sentences:
+        ev_ids = [i for i in s.evidence_ids if evidence(i)]
+        issue_ids = [i for i in s.issue_ids if issue(i)]
+        run_ids = [i for i in s.run_ids if run(i)]
+        text = s.text
+        if s.kind != "guide" and not (ev_ids or issue_ids or run_ids):
+            text = text if text.endswith(_ESTIMATE_SUFFIX) else text + _ESTIMATE_SUFFIX
+        sentences.append(
+            s.model_copy(
+                update={
+                    "text": text,
+                    "evidence_ids": ev_ids,
+                    "issue_ids": issue_ids,
+                    "run_ids": run_ids,
+                }
+            )
+        )
+    return answer.model_copy(update={"sentences": sentences})
