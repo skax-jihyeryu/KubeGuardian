@@ -509,9 +509,10 @@ def run(
             score_ai_runs(result, pending, resolved, out_dir)
             if exit_code != EXIT_INVALID:
                 exit_code = decide_exit_runs(rules_passed, result["ai_runs"])
-            invalid = next((r["invalid"] for r in result["ai_runs"] if r.get("invalid")), None)
-            if invalid:
-                result["invalid"] = result.get("invalid") or invalid
+            # 회차 무효는 result["invalid"]로 올리지 않는다. 리포트가 회차별로 센다 (spec §5.1)
+            invalid_runs = [i for i, r in enumerate(result["ai_runs"]) if r.get("invalid")]
+            if invalid_runs:
+                result["invalid_runs"] = invalid_runs
         if not recovered:
             result["invalid"] = result.get("invalid") or "원복 확인 실패"
             exit_code = EXIT_INVALID
@@ -595,6 +596,8 @@ def main(argv: list[str] | None = None) -> int:
         p.error("--check-interval은 0보다 커야 한다")
     if args.ai_repeats < 1:
         p.error("--ai-repeats는 1 이상이어야 한다")
+    if args.ai_repeats > 1 and args.condition != "ai":
+        p.error("--ai-repeats는 --condition ai와 함께 쓴다")
     if not (SCENARIOS / args.scenario / "expected.yaml").is_file():
         print(f"시나리오 없음: scenarios/{args.scenario}/expected.yaml", file=sys.stderr)
         return EXIT_INVALID

@@ -42,11 +42,11 @@
 
 반복 점검이 끝난 뒤 게이트가 A·B면 `run_investigation`으로 조사하고, 조사가 낸 보고서를 네 층으로 채점해 실패를 분류한다. judge는 `judge.py`(gpt-4.1, 조사 모델과 다름)다.
 
-**통과 = 규칙 채점 통과 + 실패 분류가 `pass`.** 사람이 `[ai]` 줄이나 `report-<i>.json`으로 결론·기대를 나란히 확인한다.
+**통과 = 규칙 채점 통과 + 실패 분류가 `pass`.** 사람이 `[ai <i>]` 줄이나 `report-<i>.json`으로 결론·기대를 나란히 확인한다.
 
 | 층 | 질문 | 방법 |
 |---|---|---|
-| 결과 | 1순위 원인이 정답인가 | `cause_resource`를 `expected_cause`와 대조(`cause_match`, 코드) + 결론 judge(`judge_match`). 둘 다 맞아야 `outcome_ok` |
+| 결과 | 1순위 원인이 정답인가 | `cause_resource`를 `expected_cause`와 대조(`cause_match`, 코드) + 결론 judge(`judge_match`). 둘 다 맞아야 `outcome_ok`(result.json의 키가 아니라 `cause_match` 그리고 `judge_match`를 가리키는 개념) |
 | 과정 | 결정적 근거를 손에 넣었는가 | `key_evidence`를 에이전트가 고른 도구 단계의 근거와 대조(`key_found`·`key_missing`·`key_all_found`, 코드). preliminary·점검에서 받은 근거는 제외 |
 | 근거 | 인용한 근거가 그 문장을 뒷받침하는가 | 결론·1순위 문제·supported/refuted 가설을 주장별 LLM 판정 (`support_rate`, `conclusion_support`) |
 | 금지 | 원인이 아닌 것을 원인으로 올렸는가 | `not_a_cause.resource`를 `cause_resource`와 대조(`forbidden_cause`, 코드) |
@@ -68,13 +68,13 @@
 - 옛 통과 기준(judge match + `conclusion_supported`)은 `ai.legacy_passed`로 함께 남긴다. W2~W3 결과와 비교하기 위한 값이며 통과 판정에는 쓰지 않는다
 - judge가 판정하지 못하면(match `null`) 그 회차는 F0 무효(2)다
 - 기대 게이트가 C이면 조사를 건너뛰었을 때 통과, 조사가 돌았으면 채점 없이 실패다
-- 판정 우선순위는 무효 > 실패 > 통과다. 조사 회차 중 하나라도 무효면 실행 전체가 무효, 모두 통과해야 통과다
+- 판정 우선순위는 무효 > 실패 > 통과다. 종료 코드는 조사 회차 중 하나라도 무효면 2, 모두 통과해야 0이다. 회차 무효는 `result["invalid"]`로 올리지 않고 `invalid_runs`(회차 index)에 남기며, 리포트는 회차별로 센다(`result["invalid"]`가 있는 실행만 전체 회차를 무효로 센다)
 - 채점은 둘로 나뉜다. 조사 직후에는 결과·금지 층만 채점하고, 원복 뒤 점검 DB를 가져온 다음(로컬 실행은 바로) 과정·근거 층과 실패 분류, 종료 코드를 정한다. DB를 가져오지 못하면 F0 무효다
 - `--ai-repeats N`(기본 1): 반복 점검이 끝난 뒤 **같은 장애 상태에서 조사를 N회** 연달아 돌린다. 각 조사는 새 `RunContext`(근거·예산·사용량 분리)로 돈다. 주입·적발 대기를 반복하지 않고 에이전트의 편차만 재기 위해서다. 장애가 원복 전까지 유지되는 시나리오가 대상이다
 - `--batch <이름>`: 실행을 묶음으로 표시한다 (`result.json`의 `batch`, 아래 "묶음 실행과 리포트")
 - `result.json`의 `ai_runs`: 조사 회차별 `ai` 블록의 배열. 블록 키는 `status`, `conclusion`, `expected_top1`, `judge`(match·reason), `judge_match`, `usage`(토큰·도구 호출·초), `trace_id`(Phoenix에서 찾는 키, 추적이 꺼져 있으면 null), `passed`, `legacy_passed`, `failure`, `limited`, `conclusion_supported`, `support_rate`, `conclusion_support`, `claims`, `demoted`, `eval`(`cause_match`·`forbidden_cause`·`key_found`·`key_missing`·`key_all_found` 등), `must_check`·`cause_resource`(기록), `fail_reason`, `invalid`
 - 회차별 산출물은 history에 `report-<i>.json`(보고서 전체)과 `steps-<i>.json`(조사 단계 기록)으로 저장한다. `i`는 0부터 시작한다. Phoenix 추적은 `.env`의 `OTEL_EXPORTER_OTLP_ENDPOINT`로 켜지고 port-forward가 필요하다
-- 정답 파일의 `${injected_target}`(B1처럼 실행 때 정해지는 원인)은 `inject.sh`가 `scenarios/<ID>/.state/target`에 적은 Pod 이름으로 바뀌고, 이 항목은 소유 관계 규칙 없이 이름이 정확히 같아야 맞다. 대상을 읽지 못하면 F0 무효다
+- 정답 파일의 `${injected_target}`(B1처럼 실행 때 정해지는 원인)은 `inject.sh`가 `scenarios/<ID>/.state/target`에 적은 Pod 이름으로 바뀌고, 이 항목은 소유 관계 규칙 없이 이름이 정확히 같아야 맞다. 대상을 읽지 못하면 실행 전체가 무효다(종료 코드 2, 조사 회차 없음)
 - W2~W3 결과(`ai` 단일 블록)는 다시 채점하지 않는다. `report.py`는 `ai_runs`가 있는 결과만 읽는다
 - 러너가 로컬에서 돌면 클러스터 DNS를 찾지 못해 HTTP 도구(probe·run_api_scenario·query_app_api)가 실패한다. k8s 조회 도구는 동작한다
 
@@ -130,6 +130,7 @@ make eval-report B=w4-new BASE=w4-base     # baseline 대비 회귀 표 포함
 ```
 
 - `eval-batch`는 시나리오를 차례로 실행하고(한 시나리오가 실패·무효여도 다음으로 간다) 끝에 `eval-report`를 부른다. `eval-report`는 `uv run python eval/report.py <묶음> [--baseline <묶음>]`이며 `eval/report.md`를 만든다
+- 리포트 통과 = 규칙 채점 통과(`score.passed`) + 회차 분류 pass/skip이다. 분류 분포는 에이전트 분류 그대로 두고, 시나리오 표의 "규칙 실패" 열이 규칙 채점이 실패한 회차 수를 따로 보여 준다. KPI·비율·시간·토큰의 분모는 조사가 돈 유효 회차(skip·not_run 제외, gate_fail 포함)다. `--ai-repeats`가 2 이상이면 `--condition ai`가 필요하다
 - 리포트 내용: 시나리오별 표(통과 k/N, 실패 분류 분포, `cause_match`·`judge_match`·`key_all_found` 비율, `support_rate` 평균, 시간·토큰 중앙값), 레벨별(L1~L3)·경로별(A·B) 통과율과 Wilson 95% 신뢰구간, 일관성(N회가 모두 같은 분류인 시나리오 비율), KPI(원인 정확도, 원인 규명 커버리지, 근거 일치율, 조사 시간·토큰 중앙값)
 - `--baseline`: 시나리오별 통과 수 변화와 실패 분류 분포 변화를 회귀 표로 낸다. 통과 수가 2 이상 줄면 회귀로 표시한다
 - 상한에 닿아 끝난(`limited`) 실패 회차 수를 시나리오별 표에 따로 센다

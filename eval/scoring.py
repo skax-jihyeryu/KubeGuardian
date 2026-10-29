@@ -1,4 +1,4 @@
-"""시나리오 채점: 기준 조건(규칙만). AI 조사 결과 채점은 W2에 붙인다.
+"""시나리오 채점: 규칙 채점(`score`)과 AI 조사 결과의 네 층 채점(결정적 대조·실패 분류).
 
 정답 파일의 신호 구분 (05-rules §0.1.1):
 - must_signals: 반드시 적발되어야 하는 장애 신호
@@ -8,8 +8,9 @@
 
 통과 = must를 모두 적발 + 게이트 경로가 기대와 같음 + forbidden을 하나도 적발하지 않음.
 그 밖의 적발(unexpected)은 오탐 후보로 기록만 한다.
-must_check·not_a_cause는 채점하지 않고 기록만 한다. 보고서와의 대조는 `coverage_record`가
-영역별 확인 여부로 기록하고, 통과 조건에는 W4 평가부터 넣는다 (spec D2).
+must_check와 서술형 not_a_cause는 채점하지 않고 기록만 한다. 보고서와의 대조는
+`coverage_record`가 영역별 확인 여부로 기록하고, 통과 조건에는 W4 평가부터 넣는다 (spec D2).
+`not_a_cause`의 resource가 있는 항목은 금지 층으로 `cause_record`가 원인 리소스와 대조한다.
 
 AI 조사 결과는 네 층으로 채점한다: 결정적 대조(원인 리소스 `cause_record`, 핵심 근거
 `key_evidence_record`), 판정 일치(judge), 결론-근거 지지(conclusion_support). `classify`가

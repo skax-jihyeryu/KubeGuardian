@@ -184,3 +184,10 @@ def test_incomplete_run_records_limited(tmp_path):
 
     assert cut["limited"] is True and cut["failure"] == "F2"
     assert "limited" not in done and done["failure"] == "F2"
+
+
+def test_ai_repeats_above_one_requires_ai_condition():
+    with pytest.raises(SystemExit):
+        main(argv=["A1", "--ai-repeats", "3"])
+    with pytest.raises(SystemExit):
+        main(argv=["A1", "--ai-repeats", "3", "--condition", "rules"])

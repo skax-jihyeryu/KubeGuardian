@@ -156,6 +156,7 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
         if result.get("invalid") and not ai_runs:
             s["total"] += 1
             s["invalid"] += 1  # 주입·증상 실패 등으로 회차가 없어도 사라지지 않게 센다
+        rules_ok = (result.get("score") or {}).get("passed") is not False
         for i, run in enumerate(ai_runs):  # 라벨 index는 0부터 (ai_runs 위치 = report-<i>.json)
             s["total"] += 1
             if result.get("invalid") or run.get("invalid") or run.get("failure") == "F0":
@@ -173,35 +174,43 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
                     for c in run["orig_claims"]
                     if c["source"] in labeled
                 ]
+            run["rules_failed"] = not rules_ok  # AI 통과는 규칙 채점 통과를 전제한다 (spec §4)
             s["runs"].append(run)
     for s in scen.values():
         runs = s.pop("runs")
         s["runs"] = runs
         s["valid"] = len(runs)
-        s["passed"] = sum(_outcome(r) in PASSING for r in runs)
+        s["passed"] = sum(_passed(r) for r in runs)
+        s["rules_fail"] = sum(bool(r.get("rules_failed")) for r in runs)
         s["dist"] = dict(sorted(_count(_outcome(r) for r in runs).items()))
-        judged_runs = [r for r in runs if r.get("eval")]
+        ran = [r for r in runs if _outcome(r) not in NOT_INVESTIGATED]  # 조사가 돈 회차
+        judged_runs = [r for r in ran if r.get("eval")]
         for key in ("cause_match", "judge_match", "key_all_found"):
             s[key] = _rate(
                 sum(bool((r.get("eval") or {}).get(key)) for r in judged_runs), len(judged_runs)
             )
         s["support_rate"] = _mean(
-            [r["support_rate"] for r in runs if r.get("support_rate") is not None]
+            [r["support_rate"] for r in ran if r.get("support_rate") is not None]
         )
         s["seconds"] = _median(
             [
                 (r.get("usage") or {}).get("seconds")
-                for r in runs
+                for r in ran
                 if (r.get("usage") or {}).get("seconds") is not None
             ]
         )
-        s["tokens"] = _median([_tokens(r) for r in runs])
-        s["limited_failures"] = sum(
-            bool(r.get("limited")) and _outcome(r) not in PASSING for r in runs
-        )
+        s["tokens"] = _median([_tokens(r) for r in ran])
+        s["limited_failures"] = sum(bool(r.get("limited")) and not _passed(r) for r in runs)
         s["consistent"] = len({_outcome(r) for r in runs}) == 1 if runs else None
-    all_runs = [r for s in scen.values() for r in s["runs"]]
-    invisible = [r for s in scen.values() if s["k8s_visible"] is False for r in s["runs"]]
+    # KPI는 조사가 돈 회차만 센다: skip(정상 생략)·not_run은 뺀다. gate_fail은 남긴다
+    all_runs = [r for s in scen.values() for r in s["runs"] if _outcome(r) not in NOT_INVESTIGATED]
+    invisible = [
+        r
+        for s in scen.values()
+        if s["k8s_visible"] is False
+        for r in s["runs"]
+        if _outcome(r) not in NOT_INVESTIGATED
+    ]
 
     def both(rs: list[dict]) -> float | None:
         ok = sum(
@@ -255,6 +264,7 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
 
 
 PASSING = ("pass", "skip")
+NOT_INVESTIGATED = ("skip", "not_run")  # 조사가 돌지 않은 회차 (KPI 분모에서 뺀다)
 
 
 def _outcome(run: dict) -> str:
@@ -264,6 +274,11 @@ def _outcome(run: dict) -> str:
     if run.get("passed"):
         return "skip"
     return "gate_fail" if run.get("fail_reason") else "not_run"
+
+
+def _passed(run: dict) -> bool:
+    """AI 조건 통과 = 규칙 채점 통과 + 회차 분류가 통과 (spec §4)."""
+    return _outcome(run) in PASSING and not run.get("rules_failed")
 
 
 def _dist_change(c: dict | None, b: dict | None) -> str:
@@ -302,8 +317,8 @@ def render(summary: dict, baseline: dict | None) -> str:
         "## 시나리오별",
         "",
         "| 시나리오 | 통과 | 분류 | cause | judge | 핵심근거 | 근거일치 "
-        "| 시간(s) | 토큰 | 무효 | error | 상한 실패 |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| 시간(s) | 토큰 | 무효 | error | 상한 실패 | 규칙 실패 |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for sid, s in summary["scenarios"].items():
         dist = ", ".join(f"{k}:{v}" for k, v in s["dist"].items()) or "-"
@@ -312,12 +327,15 @@ def render(summary: dict, baseline: dict | None) -> str:
             f"{_pct(s['judge_match'])} | {_pct(s['key_all_found'])} | "
             f"{_num(s['support_rate'], '{:.2f}')} | "
             f"{_num(s['seconds'])} | {_num(s['tokens'])} | {s['invalid']} | {s['errors']} | "
-            f"{s['limited_failures']} |"
+            f"{s['limited_failures']} | {s['rules_fail']} |"
         )
     out += [
         "",
         "무효(F0) 회차는 분모에서 빼고, error는 분모에 넣는다. "
-        "상한 실패는 `limited`로 끝난 실패 회차 수.",
+        "통과 = 규칙 채점 통과 + 회차 분류 pass/skip이고, 분류 분포는 에이전트 분류 그대로다. "
+        "규칙 실패는 규칙 채점이 실패한 회차 수. 상한 실패는 `limited`로 끝난 실패 회차 수.",
+        "cause·judge·핵심근거·근거일치·시간·토큰은 조사가 돈 유효 회차(skip·not_run 제외, "
+        "gate_fail 포함)가 분모다.",
         "",
     ]
     for title, key in (
@@ -331,6 +349,9 @@ def render(summary: dict, baseline: dict | None) -> str:
     k = summary["kpi"]
     out += [
         "## KPI",
+        "",
+        "분모: 조사가 돈 유효 회차 (skip·not_run 제외, gate_fail 포함). "
+        "커버리지는 그중 k8s_visible: false 시나리오.",
         "",
         "| 지표 | 값 |",
         "|---|---|",

@@ -215,3 +215,51 @@ def test_regression_shows_distribution_change(tmp_path):
     cur, _ = build(tmp_path / "y", {"A1": [make_run()] * 3})
     text = render(summarize(cur, {}, scen), summarize(base, {}, scen))
     assert "F3 2→0" in text and "pass 1→3" in text
+
+
+def test_invalid_round_alone_is_counted_per_round_when_result_has_no_invalid(tmp_path):
+    # run.py가 만드는 모양: 회차 하나가 F0(invalid)이고 result["invalid"]는 없다
+    f0 = make_run("F0", invalid="근거 id가 DB에 없음")
+    s = build(tmp_path, {"A1": [f0, make_run(), make_run()]})
+    scenario = summarize(*s[:1], {}, s[1])["scenarios"]["A1"]
+    assert (scenario["total"], scenario["valid"], scenario["invalid"]) == (3, 2, 1)
+    assert scenario["passed"] == 2
+
+
+def _rules_failed_batch(tmp_path):
+    history, scen = tmp_path / "history", tmp_path / "scenarios"
+    write_result(history, "a", "A1", [make_run(), make_run()], score={"passed": False})
+    write_result(history, "b", "A1", [make_run()], score={"passed": True})
+    write_scenario(scen, "A1")
+    return summarize(load_batch(history, "b1"), {}, scen)
+
+
+def test_ai_pass_requires_rules_score_pass(tmp_path):
+    summary = _rules_failed_batch(tmp_path)
+    s = summary["scenarios"]["A1"]
+    assert (s["passed"], s["valid"], s["rules_fail"]) == (1, 3, 2)
+    assert s["dist"] == {"pass": 3}  # 분류 분포는 에이전트 분류 그대로
+    assert summary["by_level"]["L1"] == [1, 3]
+    text = render(summary, None)
+    assert "규칙 실패" in text
+
+
+def test_kpi_excludes_skip_and_not_run_but_keeps_gate_fail(tmp_path):
+    skip = {"status": "skipped", "passed": True, "usage": {"seconds": 0, "input_tokens": 0}}
+    not_run = {"status": "skipped", "passed": False}
+    gate_fail = {
+        "status": "done",
+        "passed": False,
+        "fail_reason": "기대 게이트 C인데 조사가 실행됐다",
+        "usage": {"seconds": 30.0, "input_tokens": 300, "output_tokens": 0},
+        "eval": {"cause_match": False},
+        "judge_match": False,
+    }
+    ran = make_run(seconds=10.0, tokens=(100, 0))
+    results, scen = build(tmp_path, {"A1": [ran, skip, not_run, gate_fail]})
+    summary = summarize(results, {}, scen)
+    k = summary["kpi"]
+    assert k["accuracy"] == 0.5  # ran 통과 1 / (ran + gate_fail) 2
+    assert k["seconds"] == 20.0 and k["tokens"] == 200
+    s = summary["scenarios"]["A1"]
+    assert s["tokens"] == 200 and s["seconds"] == 20.0
