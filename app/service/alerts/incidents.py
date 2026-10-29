@@ -132,11 +132,9 @@ def _detail(fp: Fingerprint) -> dict:
     return asdict(fp)
 
 
-def record_investigation(engine: Engine, incident_id: int, result: "AgentResult | None") -> None:
-    """조사가 끝난 이슈에 조사 상태와 최종 심각도(1순위 문제의 impact)를 남긴다."""
-    store = IncidentStore(engine)
-    store.set_investigation(incident_id, result.status if result else "failed")
+def investigation_result(result: "AgentResult | None") -> tuple[str, str | None]:
+    """조사 결과를 이슈에 남길 (조사 상태, 최종 심각도=1순위 문제의 impact)로 바꾼다."""
+    status = result.status if result else "failed"
     report = result.report if result else None
     top = report.top_issue if report else None
-    if top:
-        store.set_final_severity(incident_id, top.impact)
+    return status, (top.impact if top else None)

@@ -18,7 +18,7 @@ from core.db import InvestigationQueue
 from core.db.investigation_queue import Job
 from core.log.logging import get_logging
 from service.agent.base import AgentResult
-from service.alerts.incidents import record_investigation
+from service.alerts.incidents import investigation_result
 from service.model import InvestigationRequest
 from service.notify.notifier import Notifier
 from service.pipeline.investigate import run_request
@@ -35,17 +35,19 @@ def complete_job(
 ) -> bool:
     """조사를 끝낸다: 아직 내 일이면 알림을 갱신하고 이슈에 결과를 남긴다. 밀려났으면 False.
 
-    알림을 먼저 한다 (기록이 실패해도 운영자는 결과를 받는다).
+    알림을 먼저 한다 (기록이 실패해도 운영자는 결과를 받는다). 기록은 대기열 지우기와 한
+    트랜잭션이라, 그 전에 죽으면 집힘이 만료된 뒤 다시 조사한다.
     """
-    if not InvestigationQueue(engine).finish(job):
+    queue = InvestigationQueue(engine)
+    if not queue.owns(job):
         logger.info(f"이슈 #{job.incident_id} 조사가 새 요청에 밀려 결과를 남기지 않음")
         return False
     try:
         notifier.after_investigation(job.incident_id, job.check_run_id, result, now)
     except Exception as e:  # noqa: BLE001 — 알림 실패가 조사 결과 기록을 막지 않게
         logger.warning(f"이슈 #{job.incident_id} 알림 실패: {type(e).__name__}")
-    record_investigation(engine, job.incident_id, result)
-    return True
+    status, final_severity = investigation_result(result)
+    return queue.complete(job, status, final_severity)
 
 
 class Worker:
@@ -56,16 +58,19 @@ class Worker:
         notifier: Notifier,
         *,
         llm_factory: Callable[[str], BaseChatModel],
-        k8s: Any = None,
-        http: Any = None,
+        make_k8s: Callable[[], Any] = lambda: None,
+        make_http: Callable[[], Any] = lambda: None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ):
+        # K8s·HTTP 클라이언트는 조사마다 새로 만든다. 로그인 쿠키 같은 상태가 다음 조사로
+        # 넘어가지 않고, 바뀐 테스트 계정 Secret도 다음 조사부터 읽는다
+
         self._engine = engine
         self._config = config
         self._notifier = notifier
         self._llm_factory = llm_factory
-        self._k8s = k8s
-        self._http = http
+        self._make_k8s = make_k8s
+        self._make_http = make_http
         self._clock = clock
         self._queue = InvestigationQueue(engine)
 
@@ -92,8 +97,8 @@ class Worker:
                 check_run_id=job.check_run_id,
                 run_id=f"kg-worker-{job.incident_id}-{job.check_run_id}",
                 llm_factory=self._llm_factory,
-                k8s=self._k8s,
-                http=self._http,
+                k8s=self._make_k8s(),
+                http=self._make_http(),
             )
         except Exception as e:  # noqa: BLE001 — 한 이슈의 실패가 작업자를 멈추지 않게
             logger.warning(f"이슈 #{job.incident_id} 조사 실패: {type(e).__name__}")

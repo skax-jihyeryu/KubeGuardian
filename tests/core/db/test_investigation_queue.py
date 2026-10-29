@@ -36,7 +36,7 @@ def test_finished_job_leaves_queue(engine):
     queue.put(iid, 1, {}, NOW)
     job = queue.claim(NOW, STALE)
 
-    assert queue.finish(job)
+    assert queue.complete(job, "done", "core_path_broken")
     assert queue.claim(NOW + STALE * 2, STALE) is None
 
 
@@ -49,7 +49,7 @@ def test_claim_of_dead_worker_expires(engine):
     again = queue.claim(NOW + STALE, STALE)
 
     assert again is not None and again.incident_id == iid and again.token != old.token
-    assert not queue.finish(old)  # 늦게 끝난 옛 작업자는 결과를 남기지 않는다
+    assert not queue.complete(old, "done", None)  # 늦게 끝난 옛 작업자는 결과를 남기지 않는다
 
 
 def test_requeue_while_running_supersedes_old_claim(engine):
@@ -61,7 +61,7 @@ def test_requeue_while_running_supersedes_old_claim(engine):
 
     queue.put(iid, 2, {"v": 2}, NOW + timedelta(minutes=5))
 
-    assert not queue.finish(old)
+    assert not queue.complete(old, "done", None)
     new = queue.claim(NOW + timedelta(minutes=5), STALE)
     assert (new.check_run_id, new.request) == (2, {"v": 2})
 
@@ -112,3 +112,38 @@ def test_only_one_of_concurrent_workers_claims(tmp_path):
         t.join()
 
     assert results.count(True) == 1
+
+
+def test_complete_records_status_and_severity_atomically(engine):
+    queue = InvestigationQueue(engine)
+    iid = _incident(engine)
+    queue.put(iid, 1, {}, NOW)
+    job = queue.claim(NOW, STALE)
+
+    assert queue.owns(job)
+    queue.complete(job, "incomplete", "partial_users")
+
+    incident = IncidentStore(engine).get(iid)
+    assert (incident.investigation, incident.final_severity) == ("incomplete", "partial_users")
+    assert not queue.owns(job)
+
+
+def test_resolution_drops_queued_request_and_clears_status(engine):
+    queue = InvestigationQueue(engine)
+    iid = _incident(engine)
+    queue.put(iid, 1, {}, NOW)
+    job = queue.claim(NOW, STALE)
+
+    IncidentStore(engine).resolve(iid, 2, NOW)
+
+    assert IncidentStore(engine).get(iid).investigation is None
+    assert not queue.complete(job, "done", None)  # 해결된 이슈의 늦은 결과는 남기지 않는다
+
+
+def test_claim_can_be_limited_to_one_check(engine):
+    queue = InvestigationQueue(engine)
+    iid = _incident(engine)
+    queue.put(iid, 7, {}, NOW)
+
+    assert queue.claim(NOW, STALE, incident_id=iid, check_run_id=8) is None
+    assert queue.claim(NOW, STALE, incident_id=iid, check_run_id=7) is not None

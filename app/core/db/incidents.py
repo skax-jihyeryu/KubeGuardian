@@ -1,16 +1,17 @@
 """이슈(incident) 저장소: 열림·해결 상태, 지문, 심각도, 조사 대기, 점검과의 연결 (기획서 §6.6).
 
 열고·잇고·해결하는 판단은 `service/alerts/incidents.py`가 하고, 여기는 읽고 쓰기만 한다.
+조사 상태(investigation)는 조사 대기열(`investigation_queue.py`)이 바꾼다. 여기는 해결 때 비운다.
 """
 
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, delete, select
 from sqlalchemy.orm import Session
 
-from core.db.tables import IncidentCheckRow, IncidentRow, require_aware
+from core.db.tables import IncidentCheckRow, IncidentRow, InvestigationQueueRow, require_aware
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,6 @@ class IncidentStore:
             fingerprint=fingerprint,
             detail=detail,
             first_severity=severity,
-            investigation="pending",
             opened_at=now,
             last_seen_at=now,
         )
@@ -71,11 +71,11 @@ class IncidentStore:
         run_id: int,
         now: datetime,
     ) -> None:
-        """지문이 바뀜: 같은 이슈에서 재조사한다 (조사 대기로 되돌린다)."""
+        """지문이 바뀜: 같은 이슈에서 재조사한다 (조사 요청은 대기열에 다시 들어간다)."""
         with Session(self._engine) as s, s.begin():
             row = s.get_one(IncidentRow, incident_id)
             row.fingerprint, row.detail, row.first_severity = fingerprint, detail, severity
-            row.investigation, row.final_severity = "pending", None  # 새 지문의 조사가 다시 정한다
+            row.investigation, row.final_severity = None, None  # 새 지문의 조사가 다시 정한다
             row.last_seen_at = require_aware(now)
             s.add(IncidentCheckRow(incident_id=incident_id, check_run_id=run_id, action="changed"))
 
@@ -87,18 +87,22 @@ class IncidentStore:
             s.add(IncidentCheckRow(incident_id=incident_id, check_run_id=run_id, action=action))
 
     def resolve(self, incident_id: int, run_id: int, now: datetime) -> None:
+        """해결. 아직 조사하지 않은 요청은 대기열에서 지운다 (해결된 이슈는 조사하지 않는다)."""
         with Session(self._engine) as s, s.begin():
             row = s.get_one(IncidentRow, incident_id)
             row.status, row.resolved_at = "resolved", require_aware(now)
+            s.execute(
+                delete(InvestigationQueueRow).where(
+                    InvestigationQueueRow.incident_id == incident_id
+                )
+            )
+            if row.investigation in ("pending", "running"):
+                row.investigation = None
             s.add(IncidentCheckRow(incident_id=incident_id, check_run_id=run_id, action="resolved"))
 
     def set_final_severity(self, incident_id: int, impact: str) -> None:
         with Session(self._engine) as s, s.begin():
             s.get_one(IncidentRow, incident_id).final_severity = impact
-
-    def set_investigation(self, incident_id: int, status: str | None) -> None:
-        with Session(self._engine) as s, s.begin():
-            s.get_one(IncidentRow, incident_id).investigation = status
 
     def set_slack_ts(self, incident_id: int, ts: str) -> None:
         with Session(self._engine) as s, s.begin():
@@ -111,13 +115,6 @@ class IncidentStore:
 
     def open_incidents(self) -> list[Incident]:
         return self._list(select(IncidentRow).where(IncidentRow.status == "open"))
-
-    def pending_investigations(self) -> list[Incident]:
-        """조사 대기 중인 열린 이슈 (diagnostic-agent 작업자가 집는다, #28)."""
-        stmt = select(IncidentRow).where(
-            IncidentRow.status == "open", IncidentRow.investigation == "pending"
-        )
-        return self._list(stmt)
 
     def check_ids(self, incident_id: int) -> list[int]:
         stmt = (

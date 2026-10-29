@@ -64,7 +64,7 @@ def test_schedule_check_with_signal_opens_incident_needing_investigation(engine)
 
     assert (c.action, c.needs_investigation, c.severity) == ("opened", True, "critical")
     inc = IncidentStore(engine).get(c.incident_id)
-    assert (inc.status, inc.features, inc.investigation) == ("open", ("chat",), "pending")
+    assert (inc.status, inc.features) == ("open", ("chat",))  # 조사 대기는 대기열에 넣을 때
 
 
 def test_path_c_opens_nothing(engine):
@@ -188,17 +188,6 @@ def test_final_severity_is_stored_from_report_impact(engine):
     store.set_final_severity(c.incident_id, "partial_users")
 
     assert store.get(c.incident_id).final_severity == "partial_users"
-
-
-def test_pending_investigations_lists_opened_and_changed(engine):
-    checks = Checks(engine)
-    [c] = checks.run([_sig()])
-    store = IncidentStore(engine)
-
-    assert [i.id for i in store.pending_investigations()] == [c.incident_id]
-    store.set_investigation(c.incident_id, "done")
-    checks.run([_sig()])  # 같은 지문: 다시 대기하지 않는다
-    assert store.pending_investigations() == []
 
 
 # ── 리뷰 반영 ──

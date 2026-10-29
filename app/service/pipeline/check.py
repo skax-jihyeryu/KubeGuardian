@@ -17,13 +17,7 @@ from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from core.config import KubeGuardianConfig
-from core.db import (
-    CheckLockStore,
-    CheckRunStore,
-    EvidenceStore,
-    InvestigationQueue,
-    SqliteObservationStore,
-)
+from core.db import CheckLockStore, CheckRunStore, EvidenceStore, SqliteObservationStore
 from core.db.check_lock import CheckLock
 from core.error.service_exception import ErrorCode, ServiceException
 from service.alerts.incidents import IncidentChange, track
@@ -189,28 +183,9 @@ def _run_locked(
             symptoms=symptoms,
             incidents=incidents,
         )
-        _queue_investigations(engine, config, outcome, trigger, now)
     except SQLAlchemyError as e:
         raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
     return outcome
-
-
-def _queue_investigations(
-    engine: Engine,
-    config: KubeGuardianConfig,
-    outcome: CheckOutcome,
-    trigger: Trigger,
-    now: datetime,
-) -> None:
-    """새 이슈·지문 변경이면 점검 시점의 조사 요청을 대기열에 넣는다 (작업자가 집는다, #28)."""
-    from service.pipeline.investigate import build_request  # investigate가 이 모듈을 import한다
-
-    queue = InvestigationQueue(engine)
-    for change in outcome.incidents:
-        if change.needs_investigation:
-            request = build_request(outcome, config, trigger=trigger)
-            if request is not None:
-                queue.put(change.incident_id, outcome.run_id, request.model_dump(mode="json"), now)
 
 
 def _store_evidence(

@@ -444,13 +444,12 @@ def test_check_prints_incident_resolution(tmp_path, capsys):
     assert "이슈 #1 해결" in capsys.readouterr().out
 
 
-def test_schedule_investigate_retries_incident_left_pending(tmp_path, capsys, monkeypatch):
-    # 조사 중 Pod가 끝나(SIGTERM) 기록하지 못한 이슈는 집힘이 만료된 뒤 다시 조사한다
+def test_worker_retries_incident_left_running_by_interrupted_cli(tmp_path, capsys, monkeypatch):
+    # 조사 중 Pod가 끝나(SIGTERM) 기록하지 못한 이슈는 집힘이 만료된 뒤 작업자가 다시 조사한다
     from datetime import timedelta
 
     from core.db import IncidentStore, create_db_engine
-
-    monkeypatch.setattr(cli, "STALE_CLAIM", timedelta(0))
+    from service.pipeline import worker as worker_module
 
     def interrupted(model):
         raise SystemExit(143)
@@ -461,21 +460,27 @@ def test_schedule_investigate_retries_incident_left_pending(tmp_path, capsys, mo
     assert store.get(1).investigation == "running"  # 집었지만 끝내지 못함
     capsys.readouterr()
 
+    monkeypatch.setattr(worker_module, "STALE_CLAIM", timedelta(0))
     llm = _scripted()
-    _schedule_investigate(tmp_path, _llm_factory(llm))
+    cli.main(
+        ["worker", "--once", "--config", _config(tmp_path), "--db", str(tmp_path / "kg.db")],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=_llm_factory(llm),
+    )
 
-    assert llm.calls and "조사 생략:" not in capsys.readouterr().out
+    assert llm.calls and store.get(1).investigation == "done"
 
 
 def test_record_investigation_storage_error_is_mapped(tmp_path, capsys, monkeypatch):
     from sqlalchemy.exc import OperationalError
 
-    from core.db import IncidentStore
+    from core.db import InvestigationQueue
 
     def locked(*a, **k):
         raise OperationalError("update", {}, Exception("database is locked"))
 
-    monkeypatch.setattr(IncidentStore, "set_investigation", locked)
+    monkeypatch.setattr(InvestigationQueue, "complete", locked)
 
     code = _schedule_investigate(tmp_path, _llm_factory(_scripted()))
 

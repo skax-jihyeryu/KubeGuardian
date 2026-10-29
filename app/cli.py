@@ -37,7 +37,7 @@ from service.checks.detectors.catalog import CATALOG
 from service.notify.notifier import Notifier
 from service.notify.sender import Sender, build_sender
 from service.pipeline.check import CheckOutcome, clean_symptom, run_check
-from service.pipeline.investigate import run_investigation
+from service.pipeline.investigate import queue_investigations, run_investigation
 from service.pipeline.worker import STALE_CLAIM, Worker, complete_job
 from service.sensors.collector import KubeReader
 
@@ -108,6 +108,7 @@ def check(
     print_outcome(outcome)
     notifier = Notifier(engine, config, make_sender(config))
     _notify(lambda: notifier.after_check(outcome.run_id, outcome.gate, outcome.incidents, _now()))
+    _queue(engine, config, outcome, args.trigger)  # 1차 알림 뒤에 (작업자가 집는다)
     print_alerts(notifier)
 
 
@@ -133,9 +134,10 @@ def investigate(
     notifier = Notifier(engine, config, make_sender(config))
     # 1차 감지 알림은 AI 조사를 기다리지 않는다
     _notify(lambda: notifier.after_check(outcome.run_id, outcome.gate, outcome.incidents, _now()))
+    _queue(engine, config, outcome, args.trigger, symptom)
     jobs = _claim_jobs(engine, outcome) if args.trigger == "schedule" else []
     if args.trigger == "schedule" and outcome.gate.path != "C" and not jobs:
-        print("\n조사 생략: 진행 중인 이슈와 같은 지문이다 (같은 장애를 다시 조사하지 않는다)")
+        print("\n조사 생략: 이번 점검이 넣은 조사 대기가 없다 (같은 지문이거나 작업자가 이미 맡음)")
         print_alerts(notifier)
         return 0
     result = run_investigation(
@@ -176,8 +178,8 @@ def worker(
         config,
         notifier,
         llm_factory=make_llm,
-        k8s=make_reader(config),
-        http=make_http(config),
+        make_k8s=lambda: make_reader(config),
+        make_http=lambda: make_http(config),
     )
     print(f"작업자 시작: {args.db} (알림 {'dry-run' if notifier.dry_run else 'Slack'})", flush=True)
     while True:
@@ -212,15 +214,31 @@ def print_alerts(notifier: Notifier) -> None:
         print("\n" + "\n".join(f"알림: {kind}{mode}" for kind in notifier.sent))
 
 
-def _claim_jobs(engine: Engine, outcome: CheckOutcome) -> list[Job]:
-    """이번 점검이 걸친 이슈의 조사 대기를 집는다 (작업자와 겹치지 않게).
+def _queue(
+    engine: Engine,
+    config: KubeGuardianConfig,
+    outcome: CheckOutcome,
+    trigger: str,
+    symptom: str | None = None,
+) -> None:
+    try:
+        queue_investigations(engine, config, outcome, trigger=trigger, now=_now(), symptom=symptom)
+    except SQLAlchemyError as e:
+        raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
 
-    지난 조사가 끊겨 남은 대기도 STALE_CLAIM 뒤에는 다시 집는다.
+
+def _claim_jobs(engine: Engine, outcome: CheckOutcome) -> list[Job]:
+    """이번 점검이 넣은 조사 대기를 집는다 (작업자와 겹치지 않게).
+
+    다른 점검이 넣은 요청은 그 점검의 근거에 묶여 있어 작업자에게 맡긴다.
     """
     queue = InvestigationQueue(engine)
-    ids = dict.fromkeys(c.incident_id for c in outcome.incidents if c.action != "resolved")
+    ids = dict.fromkeys(c.incident_id for c in outcome.incidents if c.needs_investigation)
     try:
-        jobs = [queue.claim(_now(), STALE_CLAIM, incident_id=i) for i in ids]
+        jobs = [
+            queue.claim(_now(), STALE_CLAIM, incident_id=i, check_run_id=outcome.run_id)
+            for i in ids
+        ]
     except SQLAlchemyError as e:
         raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
     return [j for j in jobs if j is not None]

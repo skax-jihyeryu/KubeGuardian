@@ -149,11 +149,13 @@ kg-up: kg-build ca  ## runner Pod, 주기 점검 CronJob, 조사 작업자(diagn
 kg-down:  ## runner Pod·작업자·Secret·ConfigMap 삭제 (RBAC·Phoenix·CronJob·점검 DB PVC는 남김)
 	kubectl -n $(KG_NS) delete deployment/kg-runner deployment/diagnostic-agent secret/kubeguardian-env configmap/kubeguardian-config configmap/kubeguardian-ca --ignore-not-found
 
-kg-cron-suspend:  ## 주기 점검 CronJob 일시 중지 (평가 중 부하·LLM 호출을 피한다)
+kg-cron-suspend:  ## 주기 점검 CronJob 일시 중지 (평가 중 부하·LLM 호출을 피한다). 작업자도 멈춰 M7을 막는다
 	kubectl -n $(KG_NS) patch cronjob/kg-check -p '{"spec":{"suspend":true}}'
+	kubectl -n $(KG_NS) scale deployment/diagnostic-agent --replicas=0
 
-kg-cron-resume:  ## 주기 점검 CronJob 재개
+kg-cron-resume:  ## 주기 점검 CronJob과 작업자 재개
 	kubectl -n $(KG_NS) patch cronjob/kg-check -p '{"spec":{"suspend":false}}'
+	kubectl -n $(KG_NS) scale deployment/diagnostic-agent --replicas=1
 
 kg-cron-run:  ## 주기 점검을 지금 1회 실행 (CronJob에서 Job 생성)
 	kubectl -n $(KG_NS) create job --from=cronjob/kg-check kg-check-$$(date +%Y%m%d%H%M%S)

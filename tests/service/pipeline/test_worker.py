@@ -6,6 +6,7 @@ from core.db import AlertStore, IncidentStore, InvestigationQueue, create_db_eng
 from service.notify.notifier import Notifier
 from service.notify.sender import DryRunSender
 from service.pipeline.check import run_check
+from service.pipeline.investigate import queue_investigations
 from service.pipeline.worker import Worker, complete_job
 from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
 from tests.test_cli import _scripted
@@ -22,13 +23,16 @@ def _opened(engine, at=NOW):
         FixtureReader(*raw_cluster("s04/localhost")), CONFIG, engine, trigger="schedule", now=at
     )
     Notifier(engine, CONFIG, DryRunSender()).after_check(out.run_id, out.gate, out.incidents, at)
+    queue_investigations(engine, CONFIG, out, trigger="schedule", now=at)  # 1차 알림 뒤에
     return out.incidents[0].incident_id
 
 
 def _worker(engine, llm_factory, at=NOW + timedelta(seconds=5)):
     reader = FixtureReader(*raw_cluster("s04/localhost"))
     notifier = Notifier(engine, CONFIG, DryRunSender())
-    return Worker(engine, CONFIG, notifier, llm_factory=llm_factory, k8s=reader, clock=lambda: at)
+    return Worker(
+        engine, CONFIG, notifier, llm_factory=llm_factory, make_k8s=lambda: reader, clock=lambda: at
+    )
 
 
 def test_worker_investigates_queued_incident_and_updates_alert(engine):
@@ -74,3 +78,33 @@ def test_worker_watches_for_stalled_checks(engine):
     _worker(engine, lambda m: None, at=NOW + timedelta(minutes=16)).run_once()
 
     assert AlertStore(engine).last_sent("M7") is not None
+
+
+def test_alert_is_sent_before_worker_can_claim(engine):
+    # 1차 알림(M1) 뒤에 대기열에 넣으므로, 작업자가 아무리 빨라도 M1이 먼저다
+    iid = _opened(engine)
+
+    _worker(engine, lambda m: _scripted()).run_once()
+
+    kinds = [a.kind for a in AlertStore(engine).for_incident(iid)]
+    assert kinds[0] == "M1" and kinds.count("M1") == 1
+
+
+def test_each_investigation_gets_fresh_clients(engine):
+    _opened(engine)
+    _opened(engine, at=NOW + timedelta(minutes=1))  # 같은 이슈가 이어짐(대기 추가 없음)
+    made = []
+    reader = FixtureReader(*raw_cluster("s04/localhost"))
+    work = Worker(
+        engine,
+        CONFIG,
+        Notifier(engine, CONFIG, DryRunSender()),
+        llm_factory=lambda m: _scripted(),
+        make_k8s=lambda: made.append("k8s") or reader,
+        make_http=lambda: made.append("http"),
+        clock=lambda: NOW + timedelta(minutes=2),
+    )
+
+    work.run_once()
+
+    assert made == ["k8s", "http"]

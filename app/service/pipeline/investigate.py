@@ -5,13 +5,14 @@
 """
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine
 
 from core.config import KubeGuardianConfig
-from core.db import EvidenceStore
+from core.db import EvidenceStore, InvestigationQueue
 from core.guard.budget import BudgetTracker
 from core.guard.redact import redact_text
 from core.llm import build_chat_model
@@ -45,6 +46,29 @@ def build_request(
         symptoms=outcome.gate.symptoms,
         user_symptom=redact_text(symptom) if symptom else None,
     )
+
+
+def queue_investigations(
+    engine: Engine,
+    config: KubeGuardianConfig,
+    outcome: CheckOutcome,
+    *,
+    trigger: Trigger,
+    now: datetime,
+    symptom: str | None = None,
+) -> None:
+    """새 이슈·지문 변경이면 점검 시점의 조사 요청을 대기열에 넣는다 (작업자가 집는다, #28).
+
+    1차 감지 알림(M1)을 보낸 **뒤에** 부른다. 먼저 넣으면 작업자가 M1보다 먼저 조사를 끝낼 수 있다.
+    """
+    changed = [c.incident_id for c in outcome.incidents if c.needs_investigation]
+    request = build_request(outcome, config, trigger=trigger, symptom=symptom) if changed else None
+    if request is None:
+        return
+    queue = InvestigationQueue(engine)
+    body = request.model_dump(mode="json")
+    for incident_id in changed:
+        queue.put(incident_id, outcome.run_id, body, now)
 
 
 def run_investigation(
