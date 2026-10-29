@@ -136,3 +136,17 @@ class AlertRow(Base):
     sent_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     dry_run: Mapped[bool] = mapped_column(default=False)
     error: Mapped[str | None] = mapped_column(String(512))
+
+
+class ChatMessageRow(Base):
+    """이력 질의 대화 턴. text는 마스킹된 본문, answer는 assistant의 ChatAnswer."""
+
+    __tablename__ = "chat_message"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String(32), index=True)
+    role: Mapped[str] = mapped_column(String(16))  # user / assistant
+    text: Mapped[str] = mapped_column(String)
+    answer: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime)

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import Engine
 
 from core.config import KubeGuardianConfig
-from core.db import CheckRunStore, EvidenceStore, IncidentStore
+from core.db import ChatStore, CheckRunStore, EvidenceStore, IncidentStore
 from core.error.service_exception import ErrorCode, ServiceException
 from core.guard.budget import BudgetTracker
 from core.guard.redact import redact_text
@@ -24,6 +24,7 @@ from service.notify.messages import hhmm
 
 DEFAULT_PROJECT = "dev"
 MAX_QUESTION = 500
+HISTORY_TURNS = 10
 CURRENT_STATE_GUIDE = (
     "저장된 이력만으로는 지금 상태를 알 수 없습니다. "
     "상단의 지금 점검을 누르면 점검 상세에서 진행 과정과 결과를 볼 수 있습니다."
@@ -57,6 +58,10 @@ def answer_question(
         raise ServiceException(ErrorCode.VALIDATION_ERROR, "질문은 500자 이내")
     conversation_id = conversation_id or uuid4().hex[:12]
 
+    chat = ChatStore(engine)
+    history = chat.recent(conversation_id, HISTORY_TURNS)
+    masked = redact_text(question)
+
     ctx = RunContext(
         run_id=conversation_id,
         namespace=config.target.namespace,
@@ -65,7 +70,7 @@ def answer_question(
         now=now,
     )
     agent = HistoryQaV1(llm_factory, build_history_tools(engine, knowledge_dir), ctx)
-    result = agent.run(ChatRequest(question=redact_text(question)))
+    result = agent.run(ChatRequest(question=masked, history=history))
     if result.status == "failed":
         raise ServiceException(ErrorCode.LLM_CALL_FAILED, result.error)
 
@@ -95,7 +100,10 @@ def answer_question(
         sentences.append(_guide(PARTIAL_GUIDE))
 
     answer = answer.model_copy(update={"sentences": sentences})
-    return ChatReply(conversation_id=conversation_id, answer=answer, text=format_answer(answer))
+    text = format_answer(answer)
+    chat.add(conversation_id, "user", masked, now())
+    chat.add(conversation_id, "assistant", text, now(), answer.model_dump())
+    return ChatReply(conversation_id=conversation_id, answer=answer, text=text)
 
 
 def format_answer(answer: ChatAnswer) -> str:

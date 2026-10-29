@@ -3,9 +3,12 @@ from datetime import UTC, datetime
 
 import pytest
 from langchain_core.messages import AIMessage
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from core.config import KubeGuardianConfig
 from core.db import CheckRunStore, create_db_engine
+from core.db.tables import ChatMessageRow
 from core.error.service_exception import ErrorCode, ServiceException
 from service.chat import (
     CURRENT_STATE_GUIDE,
@@ -120,3 +123,31 @@ def test_format_answer():
         ]
     )
     assert format_answer(answer) == "A [근거 ev-0001] [이슈 #12] B [점검 #340]"
+
+
+def _messages(engine):
+    with Session(engine) as s:
+        return list(s.scalars(select(ChatMessageRow).order_by(ChatMessageRow.id)))
+
+
+def test_second_question_gets_history(engine):
+    first, _ = _ask(engine, ["끝", _answer([{"text": "첫 답", "kind": "guide"}])], "첫 질문")
+    _, llm = _ask(engine, ["끝", _answer()], "둘째", conversation_id=first.conversation_id)
+
+    sent = [str(m.content) for m in llm.calls[0]]
+    assert "첫 질문" in sent
+    assert any("첫 답" in c for c in sent)
+
+
+def test_saved_text_masked(engine):
+    _ask(engine, ["끝", _answer()], question="password=hunter2 인데 왜?")
+    rows = _messages(engine)
+    assert [r.role for r in rows] == ["user", "assistant"]
+    assert all("hunter2" not in r.text for r in rows)
+    assert rows[1].answer is not None
+
+
+def test_failure_not_saved(engine):
+    with pytest.raises(ServiceException):
+        _ask(engine, [RuntimeError("down")])
+    assert _messages(engine) == []
