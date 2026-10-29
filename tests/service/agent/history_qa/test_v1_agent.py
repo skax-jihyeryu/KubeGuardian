@@ -59,10 +59,11 @@ def test_tool_then_answer(engine):
 
 
 def test_budget_stops_loop(engine):
-    llm = ScriptedLLM(script=[_call(1), _call(2), _call(3), ANSWER])
+    llm = ScriptedLLM(script=[_call(1), _call(2), ANSWER])
     agent, ctx = _agent(engine, llm, Budget(per_issue_tool_calls=8, total_tool_calls=2, seconds=60))
     result = agent.run(ChatRequest(question="?"))
     assert ctx.budget.tool_calls == 2
+    assert len(result.steps) == 2
     assert result.answer.partial is True
     assert result.status == "incomplete"
 
@@ -97,4 +98,45 @@ def test_history_passed(engine):
 def test_llm_error_failed(engine):
     llm = ScriptedLLM(script=[RuntimeError("down")])
     agent, _ = _agent(engine, llm)
-    assert agent.run(ChatRequest(question="?")).status == "failed"
+    result = agent.run(ChatRequest(question="?"))
+    assert result.status == "failed"
+    assert "RuntimeError" in result.error
+
+
+def test_llm_partial_flag_ignored_when_no_cap(engine):
+    answer = json.dumps({"sentences": [], "partial": True})
+    agent, _ = _agent(engine, ScriptedLLM(script=["끝", answer]))
+    result = agent.run(ChatRequest(question="?"))
+    assert result.status == "done"
+    assert result.answer.partial is False
+
+
+def test_final_request_describes_schema(engine):
+    llm = ScriptedLLM(script=["끝", ANSWER])
+    _agent(engine, llm)[0].run(ChatRequest(question="?"))
+    final = str(llm.calls[-1][-1].content)
+    for field in ("sentences", "kind", "evidence_ids", "current_state"):
+        assert field in final
+
+
+def test_bind_tools_schemas(engine):
+    llm = ScriptedLLM(script=["끝", ANSWER])
+    _agent(engine, llm)[0].run(ChatRequest(question="?"))
+    tools = {t.name: t for t in llm.bound[0]}
+    assert set(tools) == {
+        "list_runs",
+        "get_snapshot",
+        "get_evidence",
+        "list_issues",
+        "list_alerts",
+        "read_knowledge",
+    }
+    props = tools["list_runs"].args
+    assert "limit" in props and "namespace" not in props
+
+
+def test_unknown_tool(engine):
+    llm = ScriptedLLM(script=[_call(1, "nope"), "끝", ANSWER])
+    result = _agent(engine, llm)[0].run(ChatRequest(question="?"))
+    assert "UNKNOWN_TOOL" in llm.calls[1][-1].content
+    assert result.status == "done"

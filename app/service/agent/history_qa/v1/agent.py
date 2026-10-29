@@ -17,7 +17,9 @@ from service.agent.registry import register
 from service.model import ChatAnswer, ChatRequest, InvestigationRequest
 
 MAX_ROUNDS = 10
-FINAL_ASK = "지금까지 확인한 것으로 ChatAnswer 형식에 맞춰 답하세요."
+FINAL_ASK = "지금까지 확인한 것으로 ChatAnswer 형식의 JSON 하나로 답하세요. 스키마: " + json.dumps(
+    ChatAnswer.model_json_schema(), ensure_ascii=False
+)
 
 
 @register
@@ -62,8 +64,7 @@ class HistoryQaV1(BaseAgent):
         answer = invoke_structured(
             llm, ChatAnswer, [*messages, ("user", FINAL_ASK)], usage=self.ctx.usage
         )
-        if limited:
-            answer.partial = True
+        answer.partial = limited
         return AgentResult(status="incomplete" if limited else "done", answer=answer)
 
     def _call_tool(self, tool: HistoryTool | None, args: dict, name: str) -> dict:

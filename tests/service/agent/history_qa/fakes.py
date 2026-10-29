@@ -12,12 +12,14 @@ class ScriptedLLM(BaseChatModel):
 
     script: list[Any]
     calls: list[list] = []
+    bound: list[list] = []
 
     @property
     def _llm_type(self) -> str:
         return "scripted"
 
     def bind_tools(self, tools, **kwargs):
+        self.bound.append(list(tools))
         return self
 
     def with_structured_output(self, schema, **kwargs):
