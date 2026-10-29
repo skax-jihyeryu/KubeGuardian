@@ -1,0 +1,64 @@
+# diagnostic-agent: 항상 떠 있는 KubeGuardian Pod (이슈 #28, 기획서 §6.6 조사 실행 위치).
+# 지금은 조사 작업자(`kg worker`)만 돈다: 주기 점검 CronJob이 넣은 조사 대기 이슈를 집어 AI 조사를 하고
+# 알림(M1)을 원인으로 갱신하며, 점검이 15분 넘게 없으면 M7을 보낸다. 보고서 화면(#23·#29)과
+# Slack 명령(#96)은 뒤에 이 Pod에 붙인다.
+# CronJob과 같은 점검 DB(PVC kubeguardian-data, cronjob.yaml)를 쓴다. PVC가 RWO라 단일 노드를 전제하고,
+# 두 Pod가 같은 노드에서 함께 연다. 교체 때 두 작업자가 겹치지 않게 Recreate로 둔다
+# (겹쳐도 대기열 집기가 같은 이슈를 두 번 조사하지 않게 막는다).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: diagnostic-agent
+  namespace: kubeguardian
+  labels: { app: diagnostic-agent }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: diagnostic-agent }
+  template:
+    metadata:
+      labels: { app: diagnostic-agent }
+    spec:
+      serviceAccountName: kubeguardian
+      securityContext:
+        fsGroup: 10001  # PVC·emptyDir를 비root가 쓴다
+      containers:
+        - name: worker
+          image: kubeguardian:local
+          imagePullPolicy: Never
+          command: ["python", "/kg/app/cli.py", "worker", "--db", "/data/kubeguardian.db"]
+          envFrom:  # LLM 키와 SLACK_BOT_TOKEN(선택). 토큰이 없으면 알림은 dry-run
+            - secretRef: { name: kubeguardian-env }
+          env:
+            - { name: KG_CONFIG_PATH, value: /etc/kubeguardian/config/kubeguardian.yaml }
+            - { name: KG_ACCOUNTS_DIR, value: /etc/kubeguardian/accounts }
+            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://phoenix.kubeguardian.svc:6006/v1/traces" }
+            - { name: SSL_CERT_FILE, value: /etc/kubeguardian/ca/ca-bundle.pem }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          volumeMounts:
+            - { name: config, mountPath: /etc/kubeguardian/config, readOnly: true }
+            - { name: ca, mountPath: /etc/kubeguardian/ca, readOnly: true }
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+            - { name: test-user, mountPath: /etc/kubeguardian/accounts/kg-test-user, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: kubeguardian-config }
+        - name: ca
+          configMap: { name: kubeguardian-ca }
+        - name: data
+          persistentVolumeClaim: { claimName: kubeguardian-data }
+        - name: tmp
+          emptyDir: {}
+        # AI 도구(run_api_scenario)의 login 단계용 테스트 계정. Secret이 없어도 Pod는 뜬다.
+        - name: test-user
+          secret: { secretName: kg-test-user, optional: true }

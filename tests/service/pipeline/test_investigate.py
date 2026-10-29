@@ -153,3 +153,45 @@ def test_build_request_drops_blank_user_symptom(engine):
     out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
 
     assert build_request(out, CONFIG, trigger="investigate", symptom="  ").user_symptom is None
+
+
+# ── 조사 대기열 (#28) ──
+
+
+def test_queue_investigations_puts_request_for_new_incident(engine):
+    from datetime import timedelta
+
+    from core.db import InvestigationQueue
+    from service.model import InvestigationRequest
+    from service.pipeline.investigate import queue_investigations
+
+    out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="schedule", now=NOW)
+    queue_investigations(engine, CONFIG, out, trigger="schedule", now=NOW, symptom="채팅 실패")
+    job = InvestigationQueue(engine).claim(NOW, timedelta(minutes=10))
+
+    assert (job.incident_id, job.check_run_id) == (out.incidents[0].incident_id, out.run_id)
+    request = InvestigationRequest.model_validate(job.request)
+    assert (request.trigger, request.gate_path, request.user_symptom) == (
+        "schedule",
+        "A",
+        "채팅 실패",
+    )
+    assert "S01" in {s.rule_id for ss in request.signal_board.by_service.values() for s in ss}
+
+
+def test_continuing_incident_is_not_requeued(engine):
+    from datetime import timedelta
+
+    from core.db import InvestigationQueue
+    from service.pipeline.investigate import queue_investigations
+
+    queue = InvestigationQueue(engine)
+    for minutes in (0, 5):
+        at = NOW + timedelta(minutes=minutes)
+        out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="schedule", now=at)
+        queue_investigations(engine, CONFIG, out, trigger="schedule", now=at)
+        if minutes == 0:
+            job = queue.claim(at, timedelta(minutes=10))
+            queue.complete(job, "done", None)
+
+    assert queue.claim(NOW + timedelta(minutes=5), timedelta(minutes=10)) is None

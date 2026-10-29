@@ -7,6 +7,7 @@ from core.db.check_runs import CheckRunStore
 from core.db.engine import create_db_engine
 from core.db.evidence import EvidenceStore
 from core.db.incidents import IncidentStore
+from core.db.investigation_queue import InvestigationQueue
 from core.db.observations import SqliteObservationStore
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "CheckRunStore",
     "EvidenceStore",
     "IncidentStore",
+    "InvestigationQueue",
     "SqliteObservationStore",
     "create_db_engine",
 ]

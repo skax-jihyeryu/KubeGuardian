@@ -5,13 +5,14 @@
 """
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine
 
 from core.config import KubeGuardianConfig
-from core.db import EvidenceStore
+from core.db import EvidenceStore, InvestigationQueue
 from core.guard.budget import BudgetTracker
 from core.guard.redact import redact_text
 from core.llm import build_chat_model
@@ -47,6 +48,29 @@ def build_request(
     )
 
 
+def queue_investigations(
+    engine: Engine,
+    config: KubeGuardianConfig,
+    outcome: CheckOutcome,
+    *,
+    trigger: Trigger,
+    now: datetime,
+    symptom: str | None = None,
+) -> None:
+    """새 이슈·지문 변경이면 점검 시점의 조사 요청을 대기열에 넣는다 (작업자가 집는다, #28).
+
+    1차 감지 알림(M1)을 보낸 **뒤에** 부른다. 먼저 넣으면 작업자가 M1보다 먼저 조사를 끝낼 수 있다.
+    """
+    changed = [c.incident_id for c in outcome.incidents if c.needs_investigation]
+    request = build_request(outcome, config, trigger=trigger, symptom=symptom) if changed else None
+    if request is None:
+        return
+    queue = InvestigationQueue(engine)
+    body = request.model_dump(mode="json")
+    for incident_id in changed:
+        queue.put(incident_id, outcome.run_id, body, now)
+
+
 def run_investigation(
     outcome: CheckOutcome,
     config: KubeGuardianConfig,
@@ -64,12 +88,41 @@ def run_investigation(
     request = build_request(outcome, config, trigger=trigger, symptom=symptom)
     if request is None:
         return None
+    return run_request(
+        request,
+        config,
+        engine,
+        check_run_id=outcome.run_id,
+        run_id=run_id,
+        llm_factory=llm_factory,
+        k8s=k8s,
+        http=http,
+        agent_key=agent_key,
+    )
+
+
+def run_request(
+    request: InvestigationRequest,
+    config: KubeGuardianConfig,
+    engine: Engine,
+    *,
+    check_run_id: int,
+    run_id: str,
+    llm_factory: Callable[[str], BaseChatModel] = build_chat_model,
+    k8s: Any = None,
+    http: Any = None,
+    agent_key: str = AGENT_KEY,
+) -> AgentResult:
+    """저장해 둔 조사 요청으로 조사한다 (작업자가 대기열에서 집은 요청, #28).
+
+    근거는 요청을 만든 점검(check_run_id)에 쌓인다. 신호판의 근거 번호를 인용할 수 있게 한다.
+    """
     setup_tracing()
     agent_cls = registry.get(agent_key)
     ctx = RunContext(
         run_id=run_id,
         namespace=config.target.namespace,
-        evidence=EvidenceStore(engine, check_run_id=outcome.run_id),
+        evidence=EvidenceStore(engine, check_run_id=check_run_id),
         budget=BudgetTracker(agent_cls.spec.budget),
         k8s=k8s,
         http=http,
