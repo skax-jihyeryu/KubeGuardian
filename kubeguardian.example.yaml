@@ -40,6 +40,7 @@ api_scenarios:               # run_api_scenario. 단계 형식은 app/core/confi
 app_apis: {}
 slack:
   alert_target: "#pr-service-ops"
+  report_url: http://localhost:8000/p/default   # 알림 링크의 보고서 화면 주소 (port-forward 기준)
   bot_token_secret: kg-slack-bot
   app_token_secret: kg-slack-app
   allowed_channels: ["#pr-service-ops"]

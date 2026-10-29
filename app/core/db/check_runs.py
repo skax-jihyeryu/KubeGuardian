@@ -30,6 +30,12 @@ class CheckRunStore:
             row = s.get(CheckRunRow, run_id)
             return _to_snapshot(row.snapshot if row else None)
 
+    def latest_started_at(self) -> datetime | None:
+        """가장 최근 점검의 시작 시각 (점검 중단 감시, M7)."""
+        stmt = select(CheckRunRow.started_at).order_by(CheckRunRow.id.desc()).limit(1)
+        with Session(self._engine) as s:
+            return s.scalar(stmt)
+
     def previous_snapshot(self, run_id: int, namespace: str) -> ClusterSnapshot | None:
         """run_id보다 앞선 점검 중 같은 네임스페이스의 스냅샷이 있는 가장 최근 것. 없으면 None.
 

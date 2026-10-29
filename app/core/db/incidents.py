@@ -31,6 +31,7 @@ class Incident:
     opened_at: datetime
     last_seen_at: datetime
     resolved_at: datetime | None
+    slack_ts: str | None = None  # 1차 알림(M1) 메시지 ID, 스레드 부모
 
 
 class IncidentStore:
@@ -99,6 +100,10 @@ class IncidentStore:
         with Session(self._engine) as s, s.begin():
             s.get_one(IncidentRow, incident_id).investigation = status
 
+    def set_slack_ts(self, incident_id: int, ts: str) -> None:
+        with Session(self._engine) as s, s.begin():
+            s.get_one(IncidentRow, incident_id).slack_ts = ts
+
     def get(self, incident_id: int) -> Incident | None:
         with Session(self._engine) as s:
             row = s.get(IncidentRow, incident_id)
@@ -147,4 +152,5 @@ def _to_incident(row: IncidentRow) -> Incident:
         opened_at=row.opened_at,
         last_seen_at=row.last_seen_at,
         resolved_at=row.resolved_at,
+        slack_ts=row.slack_ts,
     )

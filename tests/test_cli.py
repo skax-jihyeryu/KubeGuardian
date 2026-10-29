@@ -476,3 +476,51 @@ def test_record_investigation_storage_error_is_mapped(tmp_path, capsys, monkeypa
     code = _schedule_investigate(tmp_path, _llm_factory(_scripted()))
 
     assert code == 1 and "96001" in capsys.readouterr().err
+
+
+# ── 알림 (#27) ──
+
+
+def test_schedule_check_records_first_alert_in_dry_run(tmp_path, capsys):
+    from core.db import AlertStore, create_db_engine
+
+    cli.main(
+        [*_args(tmp_path), "--trigger", "schedule"],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s01/detected")),
+    )
+
+    out = capsys.readouterr().out
+    [m1] = AlertStore(create_db_engine(str(tmp_path / "kg.db"))).for_incident(1)
+    assert (m1.kind, m1.dry_run) == ("M1", True)
+    assert "알림: M1 (dry-run)" in out
+
+
+def test_schedule_investigate_alerts_first_then_updates_with_cause(tmp_path):
+    from core.db import AlertStore, create_db_engine
+
+    _schedule_investigate(tmp_path, _llm_factory(_scripted()))
+
+    kinds = [a.kind for a in AlertStore(create_db_engine(str(tmp_path / "kg.db"))).for_incident(1)]
+    assert kinds == ["M1", "M1u", "M9"]  # 1차 감지는 조사 전에, 원인 갱신과 답글은 조사 뒤에
+
+
+def test_unexpected_notify_error_does_not_stop_investigation(tmp_path):
+    class Broken:
+        dry_run = False
+
+        def post(self, *a, **k):
+            raise KeyError("ts")
+
+        def update(self, *a, **k):
+            raise KeyError("ts")
+
+    llm = _scripted()
+    code = cli.main(
+        [*_investigate_args(tmp_path), "--trigger", "schedule"],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=_llm_factory(llm),
+        make_sender=lambda cfg: Broken(),
+    )
+
+    assert code == 0 and llm.calls
