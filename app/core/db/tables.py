@@ -152,3 +152,40 @@ class InvestigationQueueRow(Base):
     queued_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     claim_token: Mapped[str | None] = mapped_column(String(32))
     claimed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
+class InvestigationRow(Base):
+    """AI 조사 한 번 (보고서 화면의 조사·보고서, 상세설계 §2.2). 끝나면 보고서가 붙는다."""
+
+    __tablename__ = "investigation"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    check_run_id: Mapped[int] = mapped_column(ForeignKey("check_run.id"), index=True)
+    incident_id: Mapped[int | None] = mapped_column(ForeignKey("incident.id"), index=True)
+    run_key: Mapped[str] = mapped_column(String(128))  # RunContext.run_id (추적·로그와 맞춤)
+    agent: Mapped[str] = mapped_column(String(64))  # investigator:v1
+    trigger: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16))  # running / done / incomplete / failed
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    usage: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error: Mapped[str | None] = mapped_column(String(1024))
+
+
+class AgentStepRow(Base):
+    """조사 단계 하나. 단계가 끝날 때마다 바로 쓴다 (진행 중 화면 갱신, UI 정의서 §6.3)."""
+
+    __tablename__ = "agent_step"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    investigation_id: Mapped[int] = mapped_column(ForeignKey("investigation.id"), index=True)
+    node: Mapped[str] = mapped_column(String(32))
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    tool: Mapped[str | None] = mapped_column(String(64))
+    args: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # 마스킹된 값
+    evidence_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # 마스킹된 값

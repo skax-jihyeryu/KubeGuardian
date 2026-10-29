@@ -150,6 +150,7 @@ def investigate(
         k8s=reader,
         http=http,
         symptom=symptom,
+        incident_id=jobs[0].incident_id if jobs else None,  # 점검 하나 = 이슈 하나
     )
     print_investigation(result)
     try:

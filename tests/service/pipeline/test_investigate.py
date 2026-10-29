@@ -195,3 +195,32 @@ def test_continuing_incident_is_not_requeued(engine):
             queue.complete(job, "done", None)
 
     assert queue.claim(NOW + timedelta(minutes=5), timedelta(minutes=10)) is None
+
+
+# ── 조사 기록 (#23) ──
+
+
+def test_investigation_and_steps_are_stored_for_the_check(engine):
+    from core.db import InvestigationStore
+
+    reader = _reader("s04/localhost")
+    out = run_check(reader, CONFIG, engine, trigger="check", now=NOW)
+    from tests.test_cli import _scripted
+
+    result = run_investigation(
+        out,
+        CONFIG,
+        engine,
+        run_id="t-1",
+        llm_factory=lambda m: _scripted(),
+        k8s=reader,
+        http=FakeHttp(),
+    )
+
+    store = InvestigationStore(engine)
+    [inv] = store.for_check(out.run_id)
+    assert (inv.status, inv.run_key, inv.trigger) == (result.status, "t-1", "check")
+    assert inv.report == result.report and inv.ended_at is not None
+    steps = store.steps(inv.id)
+    assert [s.node for s in steps] == [s.node for s in result.steps]  # 결과에도 그대로 남는다
+    assert steps[0].node == "preliminary"
