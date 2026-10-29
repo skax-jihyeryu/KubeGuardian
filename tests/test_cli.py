@@ -444,9 +444,13 @@ def test_check_prints_incident_resolution(tmp_path, capsys):
     assert "이슈 #1 해결" in capsys.readouterr().out
 
 
-def test_schedule_investigate_retries_incident_left_pending(tmp_path, capsys):
-    # 조사 중 Pod가 끝나(SIGTERM) 기록하지 못한 이슈는 다음 주기에 다시 조사한다
+def test_schedule_investigate_retries_incident_left_pending(tmp_path, capsys, monkeypatch):
+    # 조사 중 Pod가 끝나(SIGTERM) 기록하지 못한 이슈는 집힘이 만료된 뒤 다시 조사한다
+    from datetime import timedelta
+
     from core.db import IncidentStore, create_db_engine
+
+    monkeypatch.setattr(cli, "STALE_CLAIM", timedelta(0))
 
     def interrupted(model):
         raise SystemExit(143)
@@ -454,7 +458,7 @@ def test_schedule_investigate_retries_incident_left_pending(tmp_path, capsys):
     with pytest.raises(SystemExit):
         _schedule_investigate(tmp_path, interrupted)
     store = IncidentStore(create_db_engine(str(tmp_path / "kg.db")))
-    assert store.get(1).investigation == "pending"
+    assert store.get(1).investigation == "running"  # 집었지만 끝내지 못함
     capsys.readouterr()
 
     llm = _scripted()
@@ -524,3 +528,26 @@ def test_unexpected_notify_error_does_not_stop_investigation(tmp_path):
     )
 
     assert code == 0 and llm.calls
+
+
+# ── 작업자 (#28) ──
+
+
+def test_worker_once_investigates_incident_queued_by_schedule_check(tmp_path, capsys):
+    from core.db import IncidentStore, create_db_engine
+
+    cli.main(
+        [*_args(tmp_path), "--trigger", "schedule"],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+    )
+    capsys.readouterr()
+
+    code = cli.main(
+        ["worker", "--once", "--config", _config(tmp_path), "--db", str(tmp_path / "kg.db")],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=_llm_factory(_scripted()),
+    )
+
+    assert code == 0 and "이슈 #1 조사 끝" in capsys.readouterr().out
+    assert IncidentStore(create_db_engine(str(tmp_path / "kg.db"))).get(1).investigation == "done"
