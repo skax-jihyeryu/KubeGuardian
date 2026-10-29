@@ -248,6 +248,8 @@ def score_layers(
     """
     if ai.get("status") == "skipped" or (report is None and ai.get("fail_reason")):
         return ai
+    if ai.get("status") == "incomplete":
+        ai["limited"] = True  # 상한에 닿아 끝난 조사. 실패 분류와는 별도로 남긴다
     if report is None or ai.get("status") == "failed":
         ai["failure"] = "error"
         ai["passed"] = False

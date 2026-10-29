@@ -173,3 +173,14 @@ def test_read_target_strips_and_handles_missing(tmp_path, monkeypatch):
     assert read_target("B1") == "llm-gateway"
     (state / "target").write_text("\n")
     assert read_target("B1") is None
+
+
+def test_incomplete_run_records_limited(tmp_path):
+    db, ev = _db(tmp_path, with_key=False)
+    steps = [{"node": "tools", "evidence_ids": [ev]}]
+
+    cut = _score(_ai(cause="agent", judge_match=False, status="incomplete"), _report(ev), steps, db)
+    done = _score(_ai(cause="agent", judge_match=False), _report(ev), steps, db)
+
+    assert cut["limited"] is True and cut["failure"] == "F2"
+    assert "limited" not in done and done["failure"] == "F2"
