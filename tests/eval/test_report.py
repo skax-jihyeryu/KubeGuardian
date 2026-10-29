@@ -104,8 +104,8 @@ def test_judge_agreement_below_90_flags_table(tmp_path):
     runs = [make_run(judge=True) for _ in range(2)]
     results, scen = build(tmp_path, {"A1": runs})
     labels = {
-        ("t0-A1", 1): {"index": 1, "top1_match": False, "claims": []},
-        ("t0-A1", 2): {"index": 2, "top1_match": True, "claims": []},
+        ("t0-A1", 0): {"index": 0, "top1_match": False, "claims": []},
+        ("t0-A1", 1): {"index": 1, "top1_match": True, "claims": []},
     }
     summary = summarize(results, labels, scen)
     assert summary["judge_agreement"]["conclusion"] == 0.5
@@ -159,3 +159,59 @@ def test_rules_only_table_and_limited(tmp_path):
     assert summary["scenarios"]["A1"]["limited_failures"] == 1
     text = render(summary, None)
     assert "규칙 조건" in text
+
+
+def test_gate_c_skipped_counts_as_pass_and_gate_fail_separate(tmp_path):
+    skipped = {"status": "skipped", "passed": True, "legacy_passed": True}
+    ran = {"status": "done", "passed": False, "fail_reason": "기대 게이트 C인데 조사가 실행됐다"}
+    results, scen = build(tmp_path, {"C1": [skipped, skipped, ran]})
+    s = summarize(results, {}, scen)["scenarios"]["C1"]
+    assert s["passed"] == 2 and s["valid"] == 3
+    assert s["dist"] == {"gate_fail": 1, "skip": 2}
+
+
+def test_claim_agreement_only_counts_labeled_sources(tmp_path):
+    run = make_run(
+        claims=[
+            {"source": "conclusion", "verdict": "supported", "reason": ""},
+            {"source": "issue", "verdict": "supported", "reason": ""},
+        ]
+    )
+    results, scen = build(tmp_path, {"A1": [run]})
+    labels = {
+        ("t0-A1", 0): {
+            "index": 0,
+            "top1_match": True,
+            "claims": [{"source": "conclusion", "verdict": "unsupported"}],
+        }
+    }
+    a = summarize(results, labels, scen)["judge_agreement"]
+    assert a["n_claims"] == 1 and a["claims"] == 0.0
+
+
+def test_label_index_is_zero_based(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run("F4", judge=False), make_run()]})
+    labels = {("t0-A1", 0): {"index": 0, "top1_match": True, "claims": []}}
+    s = summarize(results, labels, scen)["scenarios"]["A1"]
+    assert s["passed"] == 2
+
+
+def test_result_level_invalid(tmp_path):
+    history, scen = tmp_path / "history", tmp_path / "scenarios"
+    write_result(history, "a", "A1", [make_run(), make_run()], invalid="원복 확인 실패")
+    write_result(history, "b", "A1", [], invalid="주입 실패")
+    write_result(
+        history, "r", "A1", [], condition="rules-only", invalid="x", score={"passed": True}
+    )
+    write_scenario(scen, "A1")
+    summary = summarize(load_batch(history, "b1"), {}, scen)
+    s = summary["scenarios"]["A1"]
+    assert (s["valid"], s["invalid"], s["passed"]) == (0, 3, 0)
+    assert summary["rules"]["A1"] == (0, 0, 1)
+
+
+def test_regression_shows_distribution_change(tmp_path):
+    base, scen = build(tmp_path / "x", {"A1": [make_run("F3", cause=False)] * 2 + [make_run()]})
+    cur, _ = build(tmp_path / "y", {"A1": [make_run()] * 3})
+    text = render(summarize(cur, {}, scen), summarize(base, {}, scen))
+    assert "F3 2→0" in text and "pass 1→3" in text

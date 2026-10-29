@@ -132,11 +132,15 @@ def _ci(k: int, n: int) -> str:
 def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path) -> dict:
     scen: dict[str, dict] = {}
     rules: dict[str, list[bool]] = defaultdict(list)
+    rules_invalid: dict[str, int] = defaultdict(int)
     agree_conc, agree_claims = [], []
     for name, result in results:
         sid = result["scenario"]
         if result.get("condition") == "rules-only":
-            rules[sid].append(bool((result.get("score") or {}).get("passed")))
+            if result.get("invalid"):
+                rules_invalid[sid] += 1
+            else:
+                rules[sid].append(bool((result.get("score") or {}).get("passed")))
             continue
         s = scen.setdefault(
             sid,
@@ -148,9 +152,13 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
                 "total": 0,
             },
         )
-        for i, run in enumerate(result.get("ai_runs") or [], 1):
+        ai_runs = result.get("ai_runs") or []
+        if result.get("invalid") and not ai_runs:
             s["total"] += 1
-            if run.get("invalid") or run.get("failure") == "F0":
+            s["invalid"] += 1  # 주입·증상 실패 등으로 회차가 없어도 사라지지 않게 센다
+        for i, run in enumerate(ai_runs):  # 라벨 index는 0부터 (ai_runs 위치 = report-<i>.json)
+            s["total"] += 1
+            if result.get("invalid") or run.get("invalid") or run.get("failure") == "F0":
                 s["invalid"] += 1
                 continue
             if run.get("failure") == "error":
@@ -159,16 +167,24 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
             if run.get("labeled"):
                 agree_conc.append(run["orig_judge_match"] == run["judge_match"])
                 mine = {c["source"]: c["verdict"] for c in run["claims"]}
-                agree_claims += [c["verdict"] == mine.get(c["source"]) for c in run["orig_claims"]]
+                labeled = {c["source"] for c in labels[(name, i)].get("claims") or []}
+                agree_claims += [
+                    c["verdict"] == mine[c["source"]]
+                    for c in run["orig_claims"]
+                    if c["source"] in labeled
+                ]
             s["runs"].append(run)
     for s in scen.values():
         runs = s.pop("runs")
         s["runs"] = runs
         s["valid"] = len(runs)
-        s["passed"] = sum(r.get("failure") == "pass" for r in runs)
-        s["dist"] = dict(sorted(_count(r.get("failure") or "skip" for r in runs).items()))
+        s["passed"] = sum(_outcome(r) in PASSING for r in runs)
+        s["dist"] = dict(sorted(_count(_outcome(r) for r in runs).items()))
+        judged_runs = [r for r in runs if r.get("eval")]
         for key in ("cause_match", "judge_match", "key_all_found"):
-            s[key] = _rate(sum(bool((r.get("eval") or {}).get(key)) for r in runs), len(runs))
+            s[key] = _rate(
+                sum(bool((r.get("eval") or {}).get(key)) for r in judged_runs), len(judged_runs)
+            )
         s["support_rate"] = _mean(
             [r["support_rate"] for r in runs if r.get("support_rate") is not None]
         )
@@ -181,9 +197,9 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
         )
         s["tokens"] = _median([_tokens(r) for r in runs])
         s["limited_failures"] = sum(
-            bool(r.get("limited")) and r.get("failure") != "pass" for r in runs
+            bool(r.get("limited")) and _outcome(r) not in PASSING for r in runs
         )
-        s["consistent"] = len({r.get("failure") for r in runs}) == 1 if runs else None
+        s["consistent"] = len({_outcome(r) for r in runs}) == 1 if runs else None
     all_runs = [r for s in scen.values() for r in s["runs"]]
     invisible = [r for s in scen.values() if s["k8s_visible"] is False for r in s["runs"]]
 
@@ -231,8 +247,33 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
             "n_claims": n_claims,
             "low": any(v is not None and v < AGREEMENT_MIN for v in (conc, claims)),
         },
-        "rules": {sid: (sum(v), len(v)) for sid, v in sorted(rules.items())},
+        "rules": {
+            sid: (sum(rules[sid]), len(rules[sid]), rules_invalid[sid])
+            for sid in sorted(set(rules) | set(rules_invalid))
+        },
     }
+
+
+PASSING = ("pass", "skip")
+
+
+def _outcome(run: dict) -> str:
+    """분류. 게이트 C 정상 생략은 skip(통과), 기대 C인데 조사가 열렸으면 gate_fail."""
+    if run.get("failure"):
+        return run["failure"]
+    if run.get("passed"):
+        return "skip"
+    return "gate_fail" if run.get("fail_reason") else "not_run"
+
+
+def _dist_change(c: dict | None, b: dict | None) -> str:
+    cd, bd = (c or {}).get("dist", {}), (b or {}).get("dist", {})
+    parts = [
+        f"{k} {bd.get(k, 0)}→{cd.get(k, 0)}"
+        for k in sorted(set(cd) | set(bd))
+        if cd.get(k, 0) != bd.get(k, 0)
+    ]
+    return ", ".join(parts) or "-"
 
 
 def _count(items) -> dict:
@@ -251,7 +292,7 @@ def _regression_rows(summary: dict, baseline: dict) -> tuple[list[str], int, int
         if level == "L1":
             cur_l1, base_l1 = cur_l1 + cp, base_l1 + bp
         flag = "회귀" if b and c and bp - cp >= REGRESSION_DROP else ""
-        rows.append(f"| {sid} | {bp} → {cp} | {flag} |")
+        rows.append(f"| {sid} | {bp} → {cp} | {_dist_change(c, b)} | {flag} |")
     return rows, cur_l1, base_l1
 
 
@@ -320,16 +361,16 @@ def render(summary: dict, baseline: dict | None) -> str:
         out += [
             "## 회귀 (baseline 대비 통과 수)",
             "",
-            "| 시나리오 | 통과 변화 | 판정 |",
-            "|---|---|---|",
+            "| 시나리오 | 통과 변화 | 분류 변화 | 판정 |",
+            "|---|---|---|---|",
             *rows,
             "",
             f"L1 통과 합계: {base} → {cur} ({cur - base:+d})",
             "",
         ]
     if summary["rules"]:
-        out += ["## 규칙 조건 (rules-only)", "", "| 시나리오 | 통과율 |", "|---|---|"]
-        out += [f"| {sid} | {_ci(p, n)} |" for sid, (p, n) in summary["rules"].items()]
+        out += ["## 규칙 조건 (rules-only)", "", "| 시나리오 | 통과율 | 무효 |", "|---|---|---|"]
+        out += [f"| {sid} | {_ci(p, n)} | {inv} |" for sid, (p, n, inv) in summary["rules"].items()]
         out.append("")
     return "\n".join(out)
 
