@@ -325,3 +325,30 @@ def test_direct_check_does_not_open_an_incident(engine):
     out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="check", now=NOW)
 
     assert out.gate.path == "A" and out.incidents == []
+
+
+def test_schedule_check_queues_investigation_request_for_new_incident(engine):
+    from core.db import InvestigationQueue
+    from service.model import InvestigationRequest
+
+    out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="schedule", now=NOW)
+    job = InvestigationQueue(engine).claim(NOW, timedelta(minutes=10))
+
+    assert (job.incident_id, job.check_run_id) == (out.incidents[0].incident_id, out.run_id)
+    request = InvestigationRequest.model_validate(job.request)
+    assert request.trigger == "schedule" and request.gate_path == "A"
+    assert "S01" in {s.rule_id for ss in request.signal_board.by_service.values() for s in ss}
+
+
+def test_continuing_incident_is_not_requeued(engine):
+    from core.db import InvestigationQueue
+
+    run_check(_reader("s01/detected"), CONFIG, engine, trigger="schedule", now=NOW)
+    queue = InvestigationQueue(engine)
+    queue.finish(queue.claim(NOW, timedelta(minutes=10)))
+
+    run_check(
+        _reader("s01/detected"), CONFIG, engine, trigger="schedule", now=NOW + timedelta(minutes=5)
+    )
+
+    assert queue.claim(NOW + timedelta(minutes=5), timedelta(minutes=10)) is None

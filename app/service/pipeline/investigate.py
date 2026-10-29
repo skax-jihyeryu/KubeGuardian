@@ -64,12 +64,41 @@ def run_investigation(
     request = build_request(outcome, config, trigger=trigger, symptom=symptom)
     if request is None:
         return None
+    return run_request(
+        request,
+        config,
+        engine,
+        check_run_id=outcome.run_id,
+        run_id=run_id,
+        llm_factory=llm_factory,
+        k8s=k8s,
+        http=http,
+        agent_key=agent_key,
+    )
+
+
+def run_request(
+    request: InvestigationRequest,
+    config: KubeGuardianConfig,
+    engine: Engine,
+    *,
+    check_run_id: int,
+    run_id: str,
+    llm_factory: Callable[[str], BaseChatModel] = build_chat_model,
+    k8s: Any = None,
+    http: Any = None,
+    agent_key: str = AGENT_KEY,
+) -> AgentResult:
+    """저장해 둔 조사 요청으로 조사한다 (작업자가 대기열에서 집은 요청, #28).
+
+    근거는 요청을 만든 점검(check_run_id)에 쌓인다. 신호판의 근거 번호를 인용할 수 있게 한다.
+    """
     setup_tracing()
     agent_cls = registry.get(agent_key)
     ctx = RunContext(
         run_id=run_id,
         namespace=config.target.namespace,
-        evidence=EvidenceStore(engine, check_run_id=outcome.run_id),
+        evidence=EvidenceStore(engine, check_run_id=check_run_id),
         budget=BudgetTracker(agent_cls.spec.budget),
         k8s=k8s,
         http=http,

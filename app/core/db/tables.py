@@ -136,3 +136,19 @@ class AlertRow(Base):
     sent_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     dry_run: Mapped[bool] = mapped_column(default=False)
     error: Mapped[str | None] = mapped_column(String(512))
+
+
+class InvestigationQueueRow(Base):
+    """조사 대기열: 이슈마다 최신 조사 요청 하나 (점검 시점의 신호판·토폴로지, #28).
+
+    diagnostic-agent 작업자가 claim으로 집고, 끝나면 지운다. 지문이 바뀌면 새 요청으로 덮는다.
+    """
+
+    __tablename__ = "investigation_queue"
+
+    incident_id: Mapped[int] = mapped_column(ForeignKey("incident.id"), primary_key=True)
+    check_run_id: Mapped[int] = mapped_column()  # 요청을 만든 점검 (근거가 이 점검에 쌓인다)
+    request: Mapped[dict[str, Any]] = mapped_column(JSON)  # InvestigationRequest
+    queued_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    claim_token: Mapped[str | None] = mapped_column(String(32))
+    claimed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
