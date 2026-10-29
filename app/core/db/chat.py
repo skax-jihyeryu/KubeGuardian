@@ -43,3 +43,22 @@ class ChatStore:
                 .limit(limit)
             ).all()
         return [ChatTurn(role=cast(Any, r.role), text=r.text) for r in reversed(rows)]
+
+    def cited(self, conversation_id: str) -> tuple[set[str], set[int], set[int]]:
+        """이 대화의 assistant 답변이 이미 인용한 (근거, 이슈, 점검) 번호."""
+        with Session(self._engine) as s:
+            answers = s.scalars(
+                select(ChatMessageRow.answer).where(
+                    ChatMessageRow.conversation_id == conversation_id,
+                    ChatMessageRow.role == "assistant",
+                )
+            ).all()
+        evidence: set[str] = set()
+        issues: set[int] = set()
+        runs: set[int] = set()
+        for answer in answers:
+            for sentence in (answer or {}).get("sentences", []):
+                evidence.update(sentence.get("evidence_ids", []))
+                issues.update(sentence.get("issue_ids", []))
+                runs.update(sentence.get("run_ids", []))
+        return evidence, issues, runs

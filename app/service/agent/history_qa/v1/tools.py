@@ -157,11 +157,15 @@ class GetSnapshot(HistoryTool):
         if inp.kind is None:
             kinds = {k: len(v) for k, v in snap.resources.items()}
             return {**head, "kinds": kinds, "failed": snap.failed}
-        items = snap.resources.get(inp.kind, [])
+        by_lower = {k.lower(): k for k in snap.resources}
+        kind = by_lower.get(inp.kind.lower())
+        if kind is None:
+            return {"ok": False, "error": "NOT_FOUND", "kinds": list(snap.resources)}
+        items = snap.resources[kind]
         if inp.name:
             needle = inp.name.lower()
             items = [i for i in items if needle in _item_name(i).lower()]
-        return {**head, "kind": inp.kind, "items": items}
+        return {**head, "kind": kind, "items": items}
 
 
 def _item_name(item: dict) -> str:

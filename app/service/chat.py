@@ -20,7 +20,7 @@ from service.agent.history_qa.v1.agent import HistoryQaV1
 from service.agent.history_qa.v1.config import SPEC
 from service.agent.history_qa.v1.tools import KNOWLEDGE_DIR, build_history_tools
 from service.model.chat import AnswerSentence, ChatAnswer, ChatRequest
-from service.notify.messages import hhmm
+from service.notify.messages import DISPLAY_TZ
 
 DEFAULT_PROJECT = "dev"
 MAX_QUESTION = 500
@@ -37,6 +37,10 @@ class ChatReply(BaseModel):
     conversation_id: str
     answer: ChatAnswer
     text: str
+
+
+def _when(at: datetime) -> str:
+    return at.astimezone(DISPLAY_TZ).strftime("%m/%d %H:%M")
 
 
 def _guide(text: str, **ids) -> AnswerSentence:
@@ -75,11 +79,16 @@ def answer_question(
         raise ServiceException(ErrorCode.LLM_CALL_FAILED, result.error)
 
     runs = CheckRunStore(engine)
+    # 인용은 이번 턴에 본 번호이거나 이 대화의 이전 답변이 이미 인용한 번호이고 DB에도 있어야 한다.
+    prev_ev, prev_issues, prev_runs = chat.cited(conversation_id)
+    seen_ev = agent.seen.evidence | prev_ev
+    seen_issues = agent.seen.issues | prev_issues
+    seen_runs = agent.seen.runs | prev_runs
     answer = validate_answer(
         result.answer,
-        evidence=lambda i: EvidenceStore(engine).get(i) is not None,
-        issue=lambda i: IncidentStore(engine).get(i) is not None,
-        run=runs.exists,
+        evidence=lambda i: i in seen_ev and EvidenceStore(engine).get(i) is not None,
+        issue=lambda i: i in seen_issues and IncidentStore(engine).get(i) is not None,
+        run=lambda i: i in seen_runs and runs.exists(i),
     )
     sentences = [s.model_copy(update={"text": redact_text(s.text)}) for s in answer.sentences]
 
@@ -89,7 +98,7 @@ def answer_question(
             run_id, started_at = latest
             front.append(
                 _guide(
-                    f"마지막 점검: {hhmm(started_at)} /p/{project}/checks/{run_id}",
+                    f"마지막 점검: {_when(started_at)} /p/{project}/checks/{run_id}",
                     run_ids=[run_id],
                 )
             )

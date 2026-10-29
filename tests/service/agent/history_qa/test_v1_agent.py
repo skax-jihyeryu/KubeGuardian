@@ -6,13 +6,14 @@ from datetime import UTC, datetime
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from core.db import AlertStore, IncidentStore, create_db_engine
+from core.db import AlertStore, CheckRunStore, EvidenceStore, IncidentStore, create_db_engine
 from core.guard.budget import Budget, BudgetTracker
 from service.agent.base import RunContext
 from service.agent.history_qa.v1 import ReadOnlyEvidence
 from service.agent.history_qa.v1.agent import HistoryQaV1
 from service.agent.history_qa.v1.config import SPEC
 from service.agent.history_qa.v1.tools import KNOWLEDGE_DIR, build_history_tools
+from service.model import Evidence
 from service.model.chat import ChatRequest, ChatTurn
 from tests.service.agent.history_qa.fakes import ScriptedLLM
 
@@ -140,3 +141,26 @@ def test_unknown_tool(engine):
     result = _agent(engine, llm)[0].run(ChatRequest(question="?"))
     assert "UNKNOWN_TOOL" in llm.calls[1][-1].content
     assert result.status == "done"
+
+
+def test_seen_collects_ids_from_ok_results(engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    inc = IncidentStore(engine).open("fp", {}, "high", run_id, NOW)
+    ev_id = EvidenceStore(engine).add(
+        Evidence(kind="log_excerpt", subject="p", collected_at=NOW, source="s", data={})
+    )
+    llm = ScriptedLLM(
+        script=[
+            _call(1, "list_runs"),
+            _call(2, "list_issues"),
+            _call(3, "get_evidence", {"evidence_id": ev_id}),
+            _call(4, "get_evidence", {"evidence_id": "ev-9999"}),
+            "끝",
+            ANSWER,
+        ]
+    )
+    agent, _ = _agent(engine, llm)
+    agent.run(ChatRequest(question="q"))
+    assert agent.seen.runs == {run_id}
+    assert agent.seen.issues == {inc}
+    assert agent.seen.evidence == {ev_id}

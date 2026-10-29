@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import ClassVar
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -22,12 +23,39 @@ FINAL_ASK = "지금까지 확인한 것으로 ChatAnswer 형식의 JSON 하나�
 )
 
 
+@dataclass
+class Seen:
+    """이번 실행에서 ok 도구 결과에 나온 번호. 답변 인용은 여기 있는 것만 인정한다."""
+
+    evidence: set[str] = field(default_factory=set)
+    issues: set[int] = field(default_factory=set)
+    runs: set[int] = field(default_factory=set)
+
+    def collect(self, name: str, result: dict) -> None:
+        if not result.get("ok"):
+            return
+        match name:
+            case "list_runs":
+                for r in result.get("runs", []):
+                    self.runs.add(r["id"])
+                    self.issues.update(i["id"] for i in r.get("incidents", []))
+            case "get_snapshot":
+                self.runs.add(result["run_id"])
+            case "get_evidence":
+                self.evidence.add(result["id"])
+            case "list_issues":
+                self.issues.update(i["id"] for i in result.get("issues", []))
+            case "list_alerts":
+                self.issues.update(a["issue_id"] for a in result.get("alerts", []))
+
+
 @register
 class HistoryQaV1(BaseAgent):
     spec: ClassVar[AgentSpec] = SPEC
 
     def __init__(self, llm_factory: LlmFactory, tools: Sequence[HistoryTool], ctx: RunContext):
         super().__init__(llm_factory, tools, ctx)
+        self.seen = Seen()
 
     def _run(self, request: InvestigationRequest | ChatRequest) -> AgentResult:
         assert isinstance(request, ChatRequest)
@@ -72,4 +100,6 @@ class HistoryQaV1(BaseAgent):
             s.tool, s.args = name, args
             if tool is None:
                 return {"ok": False, "error": "UNKNOWN_TOOL"}
-            return tool.run(args, self.ctx.budget)
+            result = tool.run(args, self.ctx.budget)
+            self.seen.collect(name, result)
+            return result

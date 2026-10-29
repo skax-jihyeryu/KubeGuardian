@@ -63,6 +63,21 @@ def test_get_snapshot_summary_then_filter(tools, engine):
     assert [i["metadata"]["name"] for i in one["items"]] == ["agent-1"]
 
 
+def test_get_snapshot_kind_case_insensitive(tools, engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    _snapshot(run_id, engine, [_pod("agent-1")])
+    out = tools["get_snapshot"].run({"run_id": run_id, "kind": "pod"}, _budget())
+    assert out["ok"] is True
+    assert [i["metadata"]["name"] for i in out["items"]] == ["agent-1"]
+
+
+def test_get_snapshot_unknown_kind_not_found(tools, engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    _snapshot(run_id, engine, [_pod("agent-1")])
+    out = tools["get_snapshot"].run({"run_id": run_id, "kind": "Nope"}, _budget())
+    assert out == {"ok": False, "error": "NOT_FOUND", "kinds": ["Pod", "Service"]}
+
+
 def test_get_snapshot_not_found(tools, engine):
     assert tools["get_snapshot"].run({"run_id": 9}, _budget()) == {
         "ok": False,

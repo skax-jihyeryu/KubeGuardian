@@ -30,3 +30,19 @@ def test_conversations_isolated(engine):
 
     assert [t.text for t in store.recent("a")] == ["A"]
     assert store.recent("none") == []
+
+
+def test_cited_collects_ids_from_assistant_answers(engine):
+    store = ChatStore(engine)
+    answer = {
+        "sentences": [
+            {"text": "A", "kind": "fact", "evidence_ids": ["ev-0001"], "issue_ids": [3]},
+            {"text": "B", "kind": "fact", "run_ids": [7], "issue_ids": [3]},
+        ]
+    }
+    store.add("c1", "user", "q", NOW)
+    store.add("c1", "assistant", "a", NOW, answer)
+    store.add("other", "assistant", "a", NOW, {"sentences": [{"text": "x", "run_ids": [99]}]})
+
+    assert store.cited("c1") == ({"ev-0001"}, {3}, {7})
+    assert store.cited("none") == (set(), set(), set())
