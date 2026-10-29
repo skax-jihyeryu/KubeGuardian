@@ -220,3 +220,34 @@ def test_run_investigation_attaches_judgement_from_stored_evidence(engine):
     # 스크립트 보고서는 신호판 S04 근거(설정·상태)만 인용하고 원인 리소스 설정은 인용하지 않는다
     assert result.report.judgement == "candidate"
     assert result.report.judgement_basis == "원인 리소스 설정 미인용 · 근거 출처 1종(설정·상태)"
+
+
+# ── 조사 기록 (#98) ──
+
+
+def test_investigation_and_steps_are_stored_for_the_check(engine):
+    from core.db import InvestigationStore
+    from tests.test_cli import _scripted
+
+    reader = _reader("s04/localhost")
+    out = run_check(reader, CONFIG, engine, trigger="check", now=NOW)
+    llm = _scripted()
+
+    result = run_investigation(
+        out,
+        CONFIG,
+        engine,
+        run_id="t-1",
+        llm_factory=lambda m: llm,
+        k8s=reader,
+        http=FakeHttp(),
+    )
+
+    store = InvestigationStore(engine)
+    [inv] = store.for_check(out.run_id)
+    assert (inv.status, inv.run_key, inv.trigger) == ("done", "t-1", "check")
+    assert inv.report == result.report and inv.ended_at is not None
+    assert inv.report.judgement == "candidate"  # 판단 수준까지 붙은 보고서가 저장된다
+    steps = store.steps(inv.id)
+    assert [s.node for s in steps] == [s.node for s in result.steps]  # 결과에도 그대로 남는다
+    assert steps[0].node == "preliminary"

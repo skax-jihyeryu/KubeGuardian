@@ -5,14 +5,14 @@
 """
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine
 
 from core.config import KubeGuardianConfig
-from core.db import EvidenceStore, InvestigationQueue
+from core.db import EvidenceStore, InvestigationQueue, InvestigationStore
 from core.guard.budget import BudgetTracker
 from core.guard.judgement import judge
 from core.guard.redact import redact_text
@@ -84,6 +84,7 @@ def run_investigation(
     http: Any = None,
     agent_key: str = AGENT_KEY,
     symptom: str | None = None,
+    incident_id: int | None = None,
 ) -> AgentResult | None:
     """게이트가 열렸으면 조사한다. 경로 C면 None."""
     request = build_request(outcome, config, trigger=trigger, symptom=symptom)
@@ -99,6 +100,7 @@ def run_investigation(
         k8s=k8s,
         http=http,
         agent_key=agent_key,
+        incident_id=incident_id,
     )
 
 
@@ -113,13 +115,24 @@ def run_request(
     k8s: Any = None,
     http: Any = None,
     agent_key: str = AGENT_KEY,
+    incident_id: int | None = None,
 ) -> AgentResult:
     """저장해 둔 조사 요청으로 조사한다 (작업자가 대기열에서 집은 요청, #28).
 
     근거는 요청을 만든 점검(check_run_id)에 쌓인다. 신호판의 근거 번호를 인용할 수 있게 한다.
+    조사와 단계는 investigation·agent_step에 기록한다 (보고서 화면, #23). 단계는 끝날 때마다 쓴다.
     """
     setup_tracing()
     agent_cls = registry.get(agent_key)
+    store = InvestigationStore(engine)
+    investigation_id = store.start(
+        check_run_id=check_run_id,
+        incident_id=incident_id,
+        run_key=run_id,
+        agent=agent_key,
+        trigger=request.trigger,
+        now=datetime.now(UTC),
+    )
     ctx = RunContext(
         run_id=run_id,
         namespace=config.target.namespace,
@@ -127,6 +140,7 @@ def run_request(
         budget=BudgetTracker(agent_cls.spec.budget),
         k8s=k8s,
         http=http,
+        steps=store.steps_sink(investigation_id),
     )
     agent = agent_cls(llm_factory=llm_factory, tools=build_tools(config), ctx=ctx)
     result = agent.run(request)
@@ -134,4 +148,5 @@ def run_request(
         result.report is not None
     ):  # 판단 수준은 에이전트가 아니라 여기서 저장된 근거로 정한다 (#106)
         result.report = judge(result.report, EvidenceStore(engine).get)
+    store.finish(investigation_id, result, datetime.now(UTC))  # 판단 수준까지 붙은 보고서를 남긴다
     return result

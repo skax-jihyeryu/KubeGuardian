@@ -108,3 +108,14 @@ def test_each_investigation_gets_fresh_clients(engine):
     work.run_once()
 
     assert made == ["k8s", "http"]
+
+
+def test_worker_investigation_is_stored_with_its_incident(engine):
+    from core.db import InvestigationStore
+
+    iid = _opened(engine)
+    llm = _scripted()  # 역할마다 같은 스크립트를 이어 쓴다
+    _worker(engine, lambda m: llm).run_once()
+
+    [inv] = InvestigationStore(engine).for_incident(iid)
+    assert inv.status == "done" and inv.report is not None and inv.trigger == "schedule"

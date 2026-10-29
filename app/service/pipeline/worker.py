@@ -99,6 +99,7 @@ class Worker:
                 llm_factory=self._llm_factory,
                 k8s=self._make_k8s(),
                 http=self._make_http(),
+                incident_id=job.incident_id,
             )
         except Exception as e:  # noqa: BLE001 — 한 이슈의 실패가 작업자를 멈추지 않게
             logger.warning(f"이슈 #{job.incident_id} 조사 실패: {type(e).__name__}")
