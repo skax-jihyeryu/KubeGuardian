@@ -12,6 +12,9 @@ CHAOS_NS="${KG_CHAOS_NS:-chaos-mesh}"
 NAME=kg-http-1
 DEPLOY=agent
 
+# 주입 대상 기록(inject.sh가 남긴 Pod 이름)은 원복하면 의미가 없다
+rm -f "$(dirname "$0")/.state/target"
+
 if kubectl -n "$CHAOS_NS" get httpchaos "$NAME" >/dev/null 2>&1; then
   # Chaos Mesh가 Pod의 주입을 걷어낸 뒤에 객체가 사라진다 (finalizer)
   kubectl -n "$CHAOS_NS" delete httpchaos "$NAME" --wait=true --timeout=120s >/dev/null
