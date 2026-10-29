@@ -61,6 +61,18 @@ class AlertStore:
         with Session(self._engine) as s:
             return [_to_alert(r) for r in s.scalars(stmt)]
 
+    def list_alerts(
+        self, since: datetime | None = None, incident_id: int | None = None, limit: int = 20
+    ) -> list[Alert]:
+        """최신순 알림 목록. 이력 질의용."""
+        stmt = select(AlertRow)
+        if since is not None:
+            stmt = stmt.where(AlertRow.sent_at >= require_aware(since))
+        if incident_id is not None:
+            stmt = stmt.where(AlertRow.incident_id == incident_id)
+        with Session(self._engine) as s:
+            return [_to_alert(r) for r in s.scalars(stmt.order_by(AlertRow.id.desc()).limit(limit))]
+
     def count(self, incident_id: int, kind: str) -> int:
         stmt = select(func.count()).where(
             AlertRow.incident_id == incident_id, AlertRow.kind == kind, AlertRow.error.is_(None)

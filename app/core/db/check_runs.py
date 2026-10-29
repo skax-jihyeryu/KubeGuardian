@@ -36,6 +36,36 @@ class CheckRunStore:
         with Session(self._engine) as s:
             return s.scalar(stmt)
 
+    def list_runs(
+        self, since: datetime | None = None, until: datetime | None = None, limit: int = 20
+    ) -> list[tuple[int, datetime, str, bool]]:
+        """최신순 점검 목록: (id, 시작 시각, 트리거, 스냅샷 있음). 이력 질의용."""
+        stmt = select(
+            CheckRunRow.id,
+            CheckRunRow.started_at,
+            CheckRunRow.trigger,
+            CheckRunRow.snapshot.is_not(None),
+        )
+        if since is not None:
+            stmt = stmt.where(CheckRunRow.started_at >= require_aware(since))
+        if until is not None:
+            stmt = stmt.where(CheckRunRow.started_at <= require_aware(until))
+        with Session(self._engine) as s:
+            rows = s.execute(stmt.order_by(CheckRunRow.id.desc()).limit(limit))
+            return [(r[0], r[1], r[2], bool(r[3])) for r in rows]
+
+    def exists(self, run_id: int) -> bool:
+        with Session(self._engine) as s:
+            return s.get(CheckRunRow, run_id) is not None
+
+    def latest_run(self) -> tuple[int, datetime] | None:
+        stmt = (
+            select(CheckRunRow.id, CheckRunRow.started_at).order_by(CheckRunRow.id.desc()).limit(1)
+        )
+        with Session(self._engine) as s:
+            row = s.execute(stmt).first()
+            return (row[0], row[1]) if row else None
+
     def previous_snapshot(self, run_id: int, namespace: str) -> ClusterSnapshot | None:
         """run_id보다 앞선 점검 중 같은 네임스페이스의 스냅샷이 있는 가장 최근 것. 없으면 None.
 
