@@ -51,6 +51,15 @@ def test_question_masked_before_llm(engine):
     assert all("hunter2" not in str(m.content) for call in llm.calls for m in call)
 
 
+def test_masked_question_longer_than_limit_reaches_llm(engine):
+    question = "pass=a " * 71 + "abc"
+    assert len(question) == 500
+    _, llm = _ask(engine, ["끝", _answer()], question=question)
+    sent = str(llm.calls[0][-1].content)
+    assert len(sent) > 500
+    assert "pass=a" not in sent
+
+
 def test_answer_masked(engine):
     s = [{"text": "설정은 token=abc123secret 입니다", "kind": "guide"}]
     reply, _ = _ask(engine, ["끝", _answer(s)])

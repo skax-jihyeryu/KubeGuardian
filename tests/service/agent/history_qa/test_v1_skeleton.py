@@ -1,26 +1,18 @@
 from datetime import UTC, datetime
 
 import pytest
-from pydantic import ValidationError
 
 from service.agent import registry
 from service.agent.base import AgentResult
 from service.agent.history_qa.v1 import ReadOnlyEvidence
 from service.agent.history_qa.v1.agent import HistoryQaV1
 from service.model import Evidence
-from service.model.chat import ChatRequest
 
 
 def test_registered():
     assert registry.get("history_qa:v1") is HistoryQaV1
     assert HistoryQaV1.spec.models == {"answer": "gpt-6.1-sol"}
     assert HistoryQaV1.spec.budget.total_tool_calls == 8
-
-
-def test_question_limit():
-    ChatRequest(question="가" * 500)
-    with pytest.raises(ValidationError):
-        ChatRequest(question="가" * 501)
 
 
 def test_read_only_evidence_refuses_writes():

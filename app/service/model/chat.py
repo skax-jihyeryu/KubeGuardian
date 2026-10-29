@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 SentenceKind = Literal["fact", "guide", "interpretation"]  # 사실 / 안내 / 해석
 
@@ -28,5 +28,5 @@ class ChatTurn(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(max_length=500)
+    question: str
     history: list[ChatTurn] = []
