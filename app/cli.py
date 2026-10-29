@@ -15,6 +15,7 @@ import argparse
 import json
 import signal
 import sys
+import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -26,20 +27,22 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from core.accounts import load_accounts
 from core.config import KubeGuardianConfig, get_setting, load_kubeguardian_config
-from core.db import IncidentStore, create_db_engine
+from core.db import InvestigationQueue, create_db_engine
+from core.db.investigation_queue import Job
 from core.error.service_exception import ErrorCode, ServiceException
 from core.http import NamespacedHttp
 from core.llm import build_chat_model
 from service.agent.base import AgentResult
-from service.alerts.incidents import record_investigation
 from service.checks.detectors.catalog import CATALOG
 from service.notify.notifier import Notifier
 from service.notify.sender import Sender, build_sender
 from service.pipeline.check import CheckOutcome, clean_symptom, run_check
-from service.pipeline.investigate import run_investigation
+from service.pipeline.investigate import queue_investigations, run_investigation
+from service.pipeline.worker import STALE_CLAIM, Worker, complete_job
 from service.sensors.collector import KubeReader
 
 DEFAULT_DB = "kubeguardian.db"
+WORKER_POLL_S = 5  # 조사 대기를 보는 간격. 원인 파악 7분(기획서 §9.2)에 비해 작다
 VERDICT_LABEL = {
     "detected": "적발",
     "observing": "관찰 중",
@@ -105,6 +108,7 @@ def check(
     print_outcome(outcome)
     notifier = Notifier(engine, config, make_sender(config))
     _notify(lambda: notifier.after_check(outcome.run_id, outcome.gate, outcome.incidents, _now()))
+    _queue(engine, config, outcome, args.trigger)  # 1차 알림 뒤에 (작업자가 집는다)
     print_alerts(notifier)
 
 
@@ -130,9 +134,10 @@ def investigate(
     notifier = Notifier(engine, config, make_sender(config))
     # 1차 감지 알림은 AI 조사를 기다리지 않는다
     _notify(lambda: notifier.after_check(outcome.run_id, outcome.gate, outcome.incidents, _now()))
-    pending = _pending_incidents(engine, outcome)
-    if args.trigger == "schedule" and outcome.gate.path != "C" and not pending:
-        print("\n조사 생략: 진행 중인 이슈와 같은 지문이다 (같은 장애를 다시 조사하지 않는다)")
+    _queue(engine, config, outcome, args.trigger, symptom)
+    jobs = _claim_jobs(engine, outcome) if args.trigger == "schedule" else []
+    if args.trigger == "schedule" and outcome.gate.path != "C" and not jobs:
+        print("\n조사 생략: 이번 점검이 넣은 조사 대기가 없다 (같은 지문이거나 작업자가 이미 맡음)")
         print_alerts(notifier)
         return 0
     result = run_investigation(
@@ -147,21 +152,48 @@ def investigate(
         symptom=symptom,
     )
     print_investigation(result)
-    if args.trigger == "schedule":
-        # 1차 알림의 "조사 중"을 먼저 결과로 바꾼다 (기록이 실패해도 운영자는 결과를 받는다)
-        for incident_id in pending:
-            _notify(
-                lambda i=incident_id: notifier.after_investigation(
-                    i, outcome.run_id, result, _now()
-                )
-            )
-        try:
-            for incident_id in pending:
-                record_investigation(engine, incident_id, result)
-        except SQLAlchemyError as e:
-            raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
+    try:
+        for job in jobs:
+            complete_job(engine, notifier, job, result, _now())
+    except SQLAlchemyError as e:
+        raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
     print_alerts(notifier)
     return 1 if result is not None and result.status == "failed" else 0
+
+
+def worker(
+    args: argparse.Namespace,
+    make_reader: ReaderFactory,
+    make_http: HttpFactory,
+    make_llm: LlmFactory,
+    make_sender: SenderFactory,
+) -> int:
+    """대기열이 비면 WORKER_POLL_S만큼 쉬고 다시 본다. SIGTERM이면 지금 조사를 끝내지 않고 멈춘다
+    (집힘은 만료 뒤 다른 작업자가 다시 집는다)."""
+    config = _load_config(args.config)
+    engine = _open_db(args.db)
+    notifier = Notifier(engine, config, make_sender(config))
+    work = Worker(
+        engine,
+        config,
+        notifier,
+        llm_factory=make_llm,
+        make_k8s=lambda: make_reader(config),
+        make_http=lambda: make_http(config),
+    )
+    print(f"작업자 시작: {args.db} (알림 {'dry-run' if notifier.dry_run else 'Slack'})", flush=True)
+    while True:
+        try:
+            done = work.run_once()
+        except SQLAlchemyError as e:  # DB가 잠깐 잠겨도 작업자는 계속 돈다
+            print(f"저장소 오류: {type(e).__name__}", file=sys.stderr, flush=True)
+            done = None
+        if done is not None:
+            print(f"이슈 #{done} 조사 끝", flush=True)
+        if args.once:
+            return 0
+        if done is None:
+            time.sleep(WORKER_POLL_S)
 
 
 def _now() -> datetime:
@@ -182,14 +214,34 @@ def print_alerts(notifier: Notifier) -> None:
         print("\n" + "\n".join(f"알림: {kind}{mode}" for kind in notifier.sent))
 
 
-def _pending_incidents(engine: Engine, outcome: CheckOutcome) -> list[int]:
-    """이번 점검이 걸친 이슈 중 조사 대기인 것. 지난 조사가 끊겨 대기로 남은 이슈도 포함한다."""
-    store = IncidentStore(engine)
-    ids = dict.fromkeys(c.incident_id for c in outcome.incidents if c.action != "resolved")
+def _queue(
+    engine: Engine,
+    config: KubeGuardianConfig,
+    outcome: CheckOutcome,
+    trigger: str,
+    symptom: str | None = None,
+) -> None:
     try:
-        return [i for i in ids if (inc := store.get(i)) and inc.investigation == "pending"]
+        queue_investigations(engine, config, outcome, trigger=trigger, now=_now(), symptom=symptom)
     except SQLAlchemyError as e:
         raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
+
+
+def _claim_jobs(engine: Engine, outcome: CheckOutcome) -> list[Job]:
+    """이번 점검이 넣은 조사 대기를 집는다 (작업자와 겹치지 않게).
+
+    다른 점검이 넣은 요청은 그 점검의 근거에 묶여 있어 작업자에게 맡긴다.
+    """
+    queue = InvestigationQueue(engine)
+    ids = dict.fromkeys(c.incident_id for c in outcome.incidents if c.needs_investigation)
+    try:
+        jobs = [
+            queue.claim(_now(), STALE_CLAIM, incident_id=i, check_run_id=outcome.run_id)
+            for i in ids
+        ]
+    except SQLAlchemyError as e:
+        raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
+    return [j for j in jobs if j is not None]
 
 
 def print_investigation(result: AgentResult | None) -> None:
@@ -272,8 +324,16 @@ def main(
         default="investigate",
         help="실행 방식 (기본: investigate)",
     )
+    p_work = sub.add_parser(
+        "worker", help="조사 대기 이슈를 집어 조사하고 점검 중단을 감시한다 (diagnostic-agent)"
+    )
+    p_work.add_argument("--config", default=get_setting().KG_CONFIG_PATH, help="kubeguardian.yaml")
+    p_work.add_argument("--db", default=DEFAULT_DB, help="SQLite 파일 (CronJob과 같은 파일)")
+    p_work.add_argument("--once", action="store_true", help="한 번만 처리하고 끝낸다 (확인용)")
     args = parser.parse_args(argv)
     try:
+        if args.command == "worker":
+            return worker(args, make_reader, make_http, make_llm, make_sender)
         if args.command == "check":
             check(args, make_reader, make_http, make_sender)
         elif args.command == "investigate":

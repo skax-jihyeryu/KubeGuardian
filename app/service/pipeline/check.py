@@ -174,17 +174,18 @@ def _run_locked(
             signals=signals,
             symptoms=symptoms,
         )
+        outcome = CheckOutcome(
+            run_id=run_id,
+            snapshot=snapshot,
+            signals=signals,
+            gate=gate,
+            board=build_signal_board(signals),
+            symptoms=symptoms,
+            incidents=incidents,
+        )
     except SQLAlchemyError as e:
         raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
-    return CheckOutcome(
-        run_id=run_id,
-        snapshot=snapshot,
-        signals=signals,
-        gate=gate,
-        board=build_signal_board(signals),
-        symptoms=symptoms,
-        incidents=incidents,
-    )
+    return outcome
 
 
 def _store_evidence(
