@@ -366,7 +366,7 @@ def test_ai_path_records_the_trace_id_from_the_pod(tmp_path, monkeypatch):
     monkeypatch.setattr(run_mod, "build_chat_model", lambda *a, **k: None)
     _, result, _ = _run_in_cluster(tmp_path, monkeypatch, "H0", stub_hook=hook, condition="ai")
 
-    assert result["ai"]["trace_id"] == "0af7651916cd43dd8448eb211c80319c"
+    assert result["ai_runs"][0]["trace_id"] == "0af7651916cd43dd8448eb211c80319c"
 
 
 def test_describe_reports_image_id_and_config_resource_version():

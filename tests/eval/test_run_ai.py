@@ -6,7 +6,7 @@ from run import (
     EXIT_FAIL,
     EXIT_INVALID,
     EXIT_PASS,
-    decide_exit,
+    decide_exit_runs,
     investigate_and_judge,
     save_ai_artifacts,
 )
@@ -33,7 +33,7 @@ def test_unsupported_conclusion_fails_even_when_judge_matches():
 
     assert judged and ai["judge"]["match"] is True
     assert ai["conclusion_supported"] is False
-    assert ai["passed"] is False
+    assert ai["legacy_passed"] is False
     assert "근거" in ai["fail_reason"]
 
 
@@ -76,23 +76,26 @@ def test_ai_block_records_conclusion_judge_and_usage():
     assert ai["expected_top1"] == EXPECTED["expected_top1"]
     assert ai["judge"] == {"match": True, "reason": "같은 원인"}
     assert ai["usage"]["input_tokens"] == 100 and ai["usage"]["output_tokens"] == 20
-    assert ai["passed"] is True
+    assert ai["legacy_passed"] is True
+    assert ai["passed"] is False  # 최종 통과는 2단계 채점(score_layers)이 정한다
+    assert ai["judge_match"] is True
     assert report["conclusion"] == "agent Service selector 오타"
 
 
 def test_mismatch_fails_and_unjudged_is_not_passed():
-    assert _run(_result(), JudgeResult(match=False, reason="다른 원인"))[0]["passed"] is False
-    assert _run(_result(), JudgeResult(match=None, reason="채점 실패"))[0]["passed"] is False
+    mismatch = _run(_result(), JudgeResult(match=False, reason="다른 원인"))[0]
+    unjudged = _run(_result(), JudgeResult(match=None, reason="채점 실패"))[0]
+    assert mismatch["legacy_passed"] is False and unjudged["legacy_passed"] is False
 
 
 def test_judge_failure_is_invalid_not_fail():
     ai, _, _ = _run(_result(), JudgeResult(match=None, reason="채점 실패: Timeout"))
 
     assert "채점 실패" in ai["invalid"]
-    assert decide_exit(True, ai) == EXIT_INVALID
-    assert decide_exit(True, {"passed": False}) == EXIT_FAIL
-    assert decide_exit(True, {"passed": True}) == EXIT_PASS
-    assert decide_exit(False, {"passed": True}) == EXIT_FAIL
+    assert decide_exit_runs(True, [ai]) == EXIT_INVALID
+    assert decide_exit_runs(True, [{"passed": False}]) == EXIT_FAIL
+    assert decide_exit_runs(True, [{"passed": True}]) == EXIT_PASS
+    assert decide_exit_runs(False, [{"passed": True}]) == EXIT_FAIL
 
 
 GATE_C = {"gate_path": "C", "expected_top1": "", "root_cause": ""}
@@ -129,7 +132,7 @@ def test_failed_agent_is_not_judged():
     )
 
     assert judged == [] and report is None
-    assert ai["status"] == "failed" and ai["error"] == "LLM 오류" and ai["passed"] is False
+    assert ai["status"] == "failed" and ai["error"] == "LLM 오류" and ai["legacy_passed"] is False
 
 
 def test_gate_closed_means_no_investigation():
@@ -155,10 +158,10 @@ def test_tracing_is_set_up_before_the_investigation_span_starts(monkeypatch):
 
 
 def test_steps_json_is_saved_next_to_report(tmp_path):
-    save_ai_artifacts(tmp_path, {"conclusion": "c"}, [{"node": "triage"}])
+    save_ai_artifacts(tmp_path, {"conclusion": "c"}, [{"node": "triage"}], 1)
 
-    assert json.loads((tmp_path / "steps.json").read_text()) == [{"node": "triage"}]
-    assert json.loads((tmp_path / "report.json").read_text())["conclusion"] == "c"
+    assert json.loads((tmp_path / "steps-1.json").read_text()) == [{"node": "triage"}]
+    assert json.loads((tmp_path / "report-1.json").read_text())["conclusion"] == "c"
 
 
 def test_ai_block_records_must_check_and_cause_resource():
@@ -185,6 +188,7 @@ def test_ai_block_records_must_check_and_cause_resource():
     ai, _, _ = _run(result, expected=expected)
 
     assert ai["cause_resource"] == {"kind": "Deployment", "name": "agent"}
+    assert ai["eval"] == {"cause_match": False, "forbidden_cause": False}
     assert ai["must_check"]["config"]["status"] == "checked"
     assert ai["must_check"]["config"]["has_evidence"] is True
     assert ai["must_check"]["logs"]["status"] == "not_checked"
