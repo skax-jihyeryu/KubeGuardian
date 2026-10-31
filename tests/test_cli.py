@@ -556,3 +556,15 @@ def test_worker_once_investigates_incident_queued_by_schedule_check(tmp_path, ca
 
     assert code == 0 and "이슈 #1 조사 끝" in capsys.readouterr().out
     assert IncidentStore(create_db_engine(str(tmp_path / "kg.db"))).get(1).investigation == "done"
+
+
+def test_investigate_prints_judgement_and_llm_confidence(tmp_path, capsys):
+    cli.main(
+        _investigate_args(tmp_path),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=_llm_factory(_scripted()),
+    )
+
+    out = capsys.readouterr().out
+    assert "(판단 " in out and "LLM 확신도 high" in out and "판단 근거: " in out
