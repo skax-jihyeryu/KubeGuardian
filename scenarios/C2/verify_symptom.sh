@@ -17,7 +17,7 @@ source "$TEST_ENV"
 code=$(curl -s -m 150 -o /dev/null -w '%{http_code}' "$BASE/auth/login" -H 'Content-Type: application/json' \
   -d "$(jq -n --arg id "$KG_TEST_USER" --arg pw "$KG_TEST_PASSWORD" '{id: $id, password: $pw}')" || true)
 # 시간 초과(000)가 port-forward가 끊겨서 난 것이 아닌지 확인한다
-kill -0 "$PF_PID" 2>/dev/null || die "무효: port-forward가 끊겼다 (로그인 응답 $code를 믿을 수 없다)"
+kill -0 "$PF_PID" 2>/dev/null || die "무효: port-forward가 끊겼다 (로그인 응답 ${code}를 믿을 수 없다)"
 if [[ $code != 5?? && $code != 000 ]]; then
   echo "증상 없음: 로그인 응답 $code (5xx·시간 초과가 아님)" >&2
   exit 1
