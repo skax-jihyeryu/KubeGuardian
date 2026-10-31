@@ -156,6 +156,9 @@ class KubeGuardianConfig(_Strict):
     topology: TopologyConfig = TopologyConfig()
     api_scenarios: list[ApiScenario] = []
     app_apis: dict[str, list[str]] = {}  # query_app_api 허용 목록 (GET만)
+    # 수집에서 뺄 이벤트의 대상 API 그룹 (involvedObject.apiVersion의 그룹, 정확히 일치).
+    # 평가용 장애 주입 도구의 흔적이 점검·조사 입력에 들어가지 않게 한다 (#82). 운영 기본값은 비움
+    exclude_event_api_groups: list[str] = []
     slack: SlackConfig | None = None
     knowledge: KnowledgeConfig = KnowledgeConfig()
 

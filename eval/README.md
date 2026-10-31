@@ -77,6 +77,7 @@
 - 정답 파일의 `${injected_target}`(B1처럼 실행 때 정해지는 원인)은 `inject.sh`가 `scenarios/<ID>/.state/target`에 적은 Pod 이름으로 바뀌고, 이 항목은 소유 관계 규칙 없이 이름이 정확히 같아야 맞다. 대상을 읽지 못하면 실행 전체가 무효다(종료 코드 2, 조사 회차 없음)
 - W2~W3 결과(`ai` 단일 블록)는 다시 채점하지 않는다. `report.py`는 `ai_runs`가 있는 결과만 읽는다
 - 러너가 로컬에서 돌면 클러스터 DNS를 찾지 못해 HTTP 도구(probe·run_api_scenario·query_app_api)가 실패한다. k8s 조회 도구는 동작한다
+- **주입 흔적 제외**: Chaos Mesh는 Chaos 객체를 `chaos-mesh` 네임스페이스에 두어도 대상 네임스페이스에 PodNetworkChaos·PodHttpChaos를 만들고 그 이벤트를 남긴다. 조사가 이 이벤트로 주입 사실을 읽지 않도록 설정에 `exclude_event_api_groups: [chaos-mesh.org]`를 둔다 (예시 설정에 있음, #82). 직접 만든 `kubeguardian.yaml`을 쓰면 이 줄을 넣고 `make kg-up`으로 runner 설정을 다시 올린다
 
 ### 클러스터 안 실행 (`--in-cluster`)
 

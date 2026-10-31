@@ -152,3 +152,73 @@ def test_from_config_uses_target_namespace(monkeypatch):
     config = KubeGuardianConfig.model_validate({"target": {"namespace": "staging"}})
 
     assert K8sClient.from_config(config).namespace == "staging"
+
+
+class _EventApi(FakeApi):
+    def __init__(self, events):
+        super().__init__()
+        self.events = events
+
+    def __getattr__(self, method):
+        if method == "list_namespaced_event":
+            return lambda *a, **k: _Resp({"items": self.events})
+        return super().__getattr__(method)
+
+
+def _event(name, api_version, kind):
+    return {
+        "metadata": {"name": name},
+        "involvedObject": {"apiVersion": api_version, "kind": kind, "name": "admin-abc"},
+    }
+
+
+CHAOS = _event("e1", "chaos-mesh.org/v1alpha1", "PodNetworkChaos")
+POD = _event("e2", "v1", "Pod")
+DEPLOY = _event("e3", "apps/v1", "Deployment")
+
+
+def test_events_of_excluded_api_groups_are_dropped():
+    core = _EventApi([CHAOS, POD, DEPLOY])
+    client = K8sClient(
+        "dev",
+        core=core,
+        apps=FakeApi(),
+        discovery=FakeApi(),
+        exclude_event_api_groups=("chaos-mesh.org",),
+    )
+
+    assert [e["metadata"]["name"] for e in client.list("Event")] == ["e2", "e3"]
+
+
+def test_events_are_kept_when_no_group_is_excluded():
+    core = _EventApi([CHAOS, POD])
+    client = K8sClient("dev", core=core, apps=FakeApi(), discovery=FakeApi())
+
+    assert len(client.list("Event")) == 2
+
+
+def test_group_match_is_exact_not_prefix():
+    # core 그룹(v1)·apps 그룹은 빈 그룹·다른 이름이라 chaos-mesh.org 제외에 걸리지 않는다
+    lookalike = _event("e4", "chaos-mesh.org.example/v1", "Thing")
+    core = _EventApi([lookalike])
+    client = K8sClient(
+        "dev",
+        core=core,
+        apps=FakeApi(),
+        discovery=FakeApi(),
+        exclude_event_api_groups=("chaos-mesh.org",),
+    )
+
+    assert len(client.list("Event")) == 1
+
+
+def test_from_config_passes_excluded_event_groups(monkeypatch):
+    monkeypatch.setattr("core.k8s._load_kube_config", lambda: None)
+    monkeypatch.setattr("core.k8s.client.CoreV1Api", lambda: _EventApi([CHAOS, POD]))
+    monkeypatch.setattr("core.k8s.client.AppsV1Api", FakeApi)
+    monkeypatch.setattr("core.k8s.client.DiscoveryV1Api", FakeApi)
+    config = KubeGuardianConfig.model_validate(
+        {"target": {"namespace": "dev"}, "exclude_event_api_groups": ["chaos-mesh.org"]}
+    )
+
+    assert [e["metadata"]["name"] for e in K8sClient.from_config(config).list("Event")] == ["e2"]

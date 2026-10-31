@@ -7,6 +7,8 @@
 - 응답은 원본 JSON(camelCase dict)으로 돌려준다. 정규화·마스킹은 `service/sensors/collector`가 한다.
 - API 오류·연결 오류는 `K8sCallError`(사유 문자열)로 바꾼다.
   수집기는 이것을 "확인하지 못함"으로 둔다.
+- 설정 `exclude_event_api_groups`의 그룹을 대상으로 한 이벤트는 읽을 때 뺀다.
+  점검·도구가 모두 이 클라이언트로 읽으므로 한 곳에서 거르면 어디에도 들어가지 않는다 (#82).
 """
 
 import json
@@ -51,9 +53,16 @@ def _load_kube_config() -> None:
 
 class K8sClient:
     def __init__(
-        self, namespace: str, *, core: Any = None, apps: Any = None, discovery: Any = None
+        self,
+        namespace: str,
+        *,
+        core: Any = None,
+        apps: Any = None,
+        discovery: Any = None,
+        exclude_event_api_groups: tuple[str, ...] = (),
     ):
         self._namespace = namespace
+        self._excluded_groups = frozenset(exclude_event_api_groups)
         self._apis = {
             "core": core or client.CoreV1Api(),
             "apps": apps or client.AppsV1Api(),
@@ -63,7 +72,9 @@ class K8sClient:
     @classmethod
     def from_config(cls, cfg: KubeGuardianConfig) -> "K8sClient":
         _load_kube_config()
-        return cls(cfg.target.namespace)
+        return cls(
+            cfg.target.namespace, exclude_event_api_groups=tuple(cfg.exclude_event_api_groups)
+        )
 
     @property
     def namespace(self) -> str:
@@ -74,7 +85,10 @@ class K8sClient:
         if kind not in _LIST_METHODS:
             raise ValueError(f"네임스페이스 범위로 수집하지 않는 kind: {kind}")
         api, method = _LIST_METHODS[kind]
-        return _items(self._call(api, method, self._namespace))
+        items = _items(self._call(api, method, self._namespace))
+        if kind == "Event" and self._excluded_groups:
+            items = [e for e in items if _event_group(e) not in self._excluded_groups]
+        return items
 
     def list_nodes(self) -> Items:
         """노드 목록 (클러스터 범위). 대상 Pod가 올라간 노드만 고르는 것은 수집기가 한다."""
@@ -104,6 +118,12 @@ class K8sClient:
             raise K8sCallError(f"{e.status} {e.reason}") from e
         except (urllib3.exceptions.HTTPError, OSError) as e:
             raise K8sCallError(f"{type(e).__name__}: {e}") from e
+
+
+def _event_group(event: dict[str, Any]) -> str:
+    """이벤트 대상의 API 그룹. `chaos-mesh.org/v1alpha1` → `chaos-mesh.org`, core(`v1`)는 빈 값."""
+    api_version = (event.get("involvedObject") or {}).get("apiVersion") or ""
+    return api_version.rpartition("/")[0]
 
 
 def _items(body: bytes) -> Items:
