@@ -803,3 +803,15 @@ def test_recheck_parallel_tool_calls_over_total_budget_stay_done():
     assert result.usage.tool_calls == 4
     assert result.status == "done", result.error
     assert "예산 소진" in result.report.coverage.config.summary
+
+
+# ── 판단 수준 (#106) ──
+
+
+def test_graph_leaves_judgement_to_the_pipeline():
+    # 판단 수준은 에이전트가 아니라 run_request가 저장된 근거로 붙인다
+    result, _, _ = _run(
+        [TRIAGE, PLAN, _tool_call(1), AIMessage(content="조사 완료"), _report(["ev-1"])]
+    )
+
+    assert result.report.judgement is None

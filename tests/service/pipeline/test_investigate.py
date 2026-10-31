@@ -195,3 +195,28 @@ def test_continuing_incident_is_not_requeued(engine):
             queue.complete(job, "done", None)
 
     assert queue.claim(NOW + timedelta(minutes=5), timedelta(minutes=10)) is None
+
+
+# ── 판단 수준 (#106) ──
+
+
+def test_run_investigation_attaches_judgement_from_stored_evidence(engine):
+    from tests.test_cli import _scripted
+
+    reader = _reader("s04/localhost")
+    out = run_check(reader, CONFIG, engine, trigger="check", now=NOW)
+    llm = _scripted()  # 역할마다 같은 스크립트를 이어 쓴다
+
+    result = run_investigation(
+        out,
+        CONFIG,
+        engine,
+        run_id="t",
+        llm_factory=lambda m: llm,
+        k8s=reader,
+        http=FakeHttp(),
+    )
+
+    # 스크립트 보고서는 신호판 S04 근거(설정·상태)만 인용하고 원인 리소스 설정은 인용하지 않는다
+    assert result.report.judgement == "candidate"
+    assert result.report.judgement_basis == "원인 리소스 설정 미인용 · 근거 출처 1종(설정·상태)"

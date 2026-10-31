@@ -36,6 +36,7 @@ from core.llm import build_chat_model
 from service.agent.base import AgentResult
 from service.chat import answer_question, format_answer
 from service.checks.detectors.catalog import CATALOG
+from service.model import JUDGEMENT_LABEL
 from service.notify.notifier import Notifier
 from service.notify.sender import Sender, build_sender
 from service.pipeline.check import CheckOutcome, clean_symptom, run_check
@@ -277,7 +278,10 @@ def print_investigation(result: AgentResult | None) -> None:
     report = result.report
     if report is None:
         return
-    print(f"결론: {report.conclusion} (신뢰도 {report.confidence})")
+    judgement = JUDGEMENT_LABEL.get(report.judgement or "", "-")
+    print(f"결론: {report.conclusion} (판단 {judgement}, LLM 확신도 {report.confidence})")
+    if report.judgement_basis:
+        print(f"판단 근거: {report.judgement_basis}")
     if top := report.top_issue:
         print(f"1순위: {top.title} ({top.severity})")
     print(f"근거 {len(report.evidence_ids)}건")
