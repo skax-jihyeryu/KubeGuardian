@@ -36,7 +36,7 @@ def test_extract_claims_picks_conclusion_top_issue_and_decided_hypotheses():
         ("conclusion", "gateway env가 localhost", ["ev-0001"]),
         ("issue", "첫 번째 문제", ["ev-0002"]),
         ("hypothesis:1", "B / r1", ["ev-0004"]),
-        ("hypothesis:2", "C / r2", ["ev-0005"]),
+        ("hypothesis:2", "기각한 가설: C / 기각 이유: r2", ["ev-0005"]),
     ]
 
 
@@ -67,6 +67,7 @@ def test_evidence_is_truncated_to_4000_chars(monkeypatch):
     # 직렬화 `{"x": "` 접두 포함 4000자까지만 들어간다
     assert "가" * (EVIDENCE_CHARS - 20) in prompt
     assert "가" * EVIDENCE_CHARS not in prompt
+    assert "기각한 가설:" in prompt  # 기각 주장은 기각이 뒷받침되는지 보라는 지침
 
 
 def test_llm_error_marks_only_that_claim_none(monkeypatch):

@@ -57,6 +57,8 @@ CLAIM_PROMPT = """당신은 Kubernetes 장애 조사 보고서의 근거 채점�
 - supported: 주장의 핵심이 근거에 그대로 있다.
 - partial: 일부만 근거에 있거나 근거가 간접적이다.
 - unsupported: 근거에 없거나 근거와 어긋난다.
+"기각한 가설:"로 시작하는 주장은 가설이 참인지가 아니라 근거가 그 기각을 뒷받침하는지 판정합니다.
+근거가 가설과 어긋나면 supported입니다.
 
 주장: {claim}
 
@@ -101,10 +103,13 @@ def extract_claims(report: dict) -> list[Claim]:
         )
     for i, h in enumerate(report.get("hypotheses") or []):
         if h["status"] in ("supported", "refuted"):
+            text = f"{h['statement']} / {h.get('reason', '')}"
+            if h["status"] == "refuted":
+                text = f"기각한 가설: {h['statement']} / 기각 이유: {h.get('reason', '')}"
             claims.append(
                 Claim(
                     source=f"hypothesis:{i}",
-                    text=f"{h['statement']} / {h.get('reason', '')}",
+                    text=text,
                     evidence_ids=h.get("evidence_ids") or [],
                 )
             )
