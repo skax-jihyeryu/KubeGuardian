@@ -148,6 +148,31 @@ def test_get_evidence_by_run_counts_budget(tools, engine):
     assert budget.tool_calls == 1
 
 
+def test_list_issues_and_alerts_as_of_run(tools, engine):
+    assert tools["list_issues"].run({}, _budget())["as_of_run"] is None
+    assert tools["list_alerts"].run({}, _budget())["as_of_run"] is None
+    runs = CheckRunStore(engine)
+    runs.create("schedule", NOW)
+    latest = runs.create("schedule", NOW)
+    assert tools["list_issues"].run({}, _budget())["as_of_run"] == latest
+    assert tools["list_alerts"].run({}, _budget())["as_of_run"] == latest
+
+
+def test_get_snapshot_total_survives_truncation(tools, engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    _snapshot(run_id, engine, [_pod(f"pod-{i}") for i in range(500)])
+    out = tools["get_snapshot"].run({"run_id": run_id, "kind": "Pod"}, _budget())
+    assert out["truncated"] is True and out["total"] == 500
+    assert len(out["items"]) < 500
+
+
+def test_get_snapshot_total_counts_after_name_filter(tools, engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    _snapshot(run_id, engine, [_pod("agent-1"), _pod("agent-2"), _pod("web-1")])
+    out = tools["get_snapshot"].run({"run_id": run_id, "kind": "Pod", "name": "agent"}, _budget())
+    assert out["total"] == 2
+
+
 def test_list_issues_keyword(tools, engine):
     run_id = CheckRunStore(engine).create("schedule", NOW)
     store = IncidentStore(engine)

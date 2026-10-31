@@ -179,3 +179,19 @@ def test_seen_collects_evidence_list_and_run(engine):
     agent.run(ChatRequest(question="q"))
     assert agent.seen.evidence == set(ids)
     assert agent.seen.runs == {run_id}
+
+
+def test_seen_collects_as_of_run_even_when_empty(engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    llm = ScriptedLLM(script=[_call(1, "list_issues"), _call(2, "list_alerts"), "끝", ANSWER])
+    agent, _ = _agent(engine, llm)
+    agent.run(ChatRequest(question="q"))
+    assert agent.seen.runs == {run_id} and agent.seen.issues == set()
+
+
+def test_as_of_run_none_does_not_fail(tmp_path):
+    engine = create_db_engine(tmp_path / "empty.db")
+    llm = ScriptedLLM(script=[_call(1, "list_issues"), "끝", ANSWER])
+    agent, _ = _agent(engine, llm)
+    result = agent.run(ChatRequest(question="q"))
+    assert result.status == "done" and agent.seen.runs == set()

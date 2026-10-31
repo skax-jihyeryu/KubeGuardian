@@ -48,9 +48,15 @@ class Seen:
                 else:
                     self.evidence.add(result["id"])
             case "list_issues":
+                self._add_as_of(result)
                 self.issues.update(i["id"] for i in result.get("issues", []))
             case "list_alerts":
+                self._add_as_of(result)
                 self.issues.update(a["issue_id"] for a in result.get("alerts", []))
+
+    def _add_as_of(self, result: dict) -> None:
+        if result.get("as_of_run") is not None:
+            self.runs.add(result["as_of_run"])
 
 
 @register

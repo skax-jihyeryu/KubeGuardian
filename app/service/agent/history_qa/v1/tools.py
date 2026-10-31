@@ -165,7 +165,7 @@ class GetSnapshot(HistoryTool):
         if inp.name:
             needle = inp.name.lower()
             items = [i for i in items if needle in _item_name(i).lower()]
-        return {**head, "kind": kind, "items": items}
+        return {**head, "kind": kind, "total": len(items), "items": items}
 
 
 def _item_name(item: dict) -> str:
@@ -237,6 +237,7 @@ class ListIssues(HistoryTool):
             ][: inp.limit]
         return {
             "ok": True,
+            "as_of_run": _latest_run_id(self._engine),
             "issues": [
                 {
                     "id": i.id,
@@ -258,6 +259,12 @@ class ListIssues(HistoryTool):
         }
 
 
+def _latest_run_id(engine: Engine) -> int | None:
+    """조회 기준 시점. 없음 답이 인용할 수 있는 최신 점검 id."""
+    latest = CheckRunStore(engine).latest_run()
+    return None if latest is None else latest[0]
+
+
 def _haystack(i: Any) -> str:
     targets = [" ".join(t) for t in i.targets]
     return " ".join([*i.services, *i.features, *i.rule_ids, *targets])
@@ -274,6 +281,7 @@ class ListAlerts(HistoryTool):
         alerts = AlertStore(self._engine).list_alerts(inp.since, inp.issue_id, inp.limit)
         return {
             "ok": True,
+            "as_of_run": _latest_run_id(self._engine),
             "alerts": [
                 {
                     "id": a.id,
