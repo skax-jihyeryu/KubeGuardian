@@ -2,8 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from core.db import AlertStore, CheckRunStore, IncidentStore, create_db_engine
-from service.model import ClusterSnapshot
+from core.db import AlertStore, CheckRunStore, EvidenceStore, IncidentStore, create_db_engine
+from service.model import ClusterSnapshot, Evidence
 
 NOW = datetime(2026, 10, 20, 1, 0, tzinfo=UTC)
 
@@ -67,3 +67,20 @@ def test_list_alerts_filters(engine):
     assert [a.id for a in store.list_alerts(incident_id=i1)] == [x]
     assert [a.id for a in store.list_alerts(since=NOW + timedelta(minutes=30))] == [y]
     assert len(store.list_alerts(limit=1)) == 1
+
+
+def _ev(subject):
+    return Evidence(kind="log_excerpt", subject=subject, collected_at=NOW, source="s", data={})
+
+
+def test_evidence_list_for_run(engine):
+    runs = CheckRunStore(engine)
+    r1, r2 = runs.create("schedule", NOW), runs.create("schedule", NOW)
+    a = EvidenceStore(engine, check_run_id=r1)
+    b = EvidenceStore(engine, check_run_id=r2)
+    ids = [a.add(_ev("p1")), b.add(_ev("other")), a.add(_ev("p2")), a.add(_ev("p3"))]
+    store = EvidenceStore(engine)
+    assert [e.id for e in store.list_for_run(r1)] == [ids[0], ids[2], ids[3]]
+    assert [e.subject for e in store.list_for_run(r1)] == ["p1", "p2", "p3"]
+    assert [e.id for e in store.list_for_run(r1, limit=2)] == [ids[0], ids[2]]
+    assert store.list_for_run(999) == []

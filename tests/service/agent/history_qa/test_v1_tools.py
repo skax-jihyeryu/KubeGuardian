@@ -112,6 +112,42 @@ def test_get_evidence_masks(tools, engine):
     )
 
 
+def test_get_evidence_by_run_lists_without_data(tools, engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    store = EvidenceStore(engine, check_run_id=run_id)
+    ids = [
+        store.add(
+            Evidence(kind="event", subject=f"s{i}", collected_at=NOW, source="src", data={"a": i})
+        )
+        for i in range(2)
+    ]
+    out = tools["get_evidence"].run({"run_id": run_id}, _budget())
+    assert out["ok"] and out["run_id"] == run_id
+    assert [e["id"] for e in out["evidences"]] == ids
+    assert all(e["id"].startswith("ev-") for e in out["evidences"])
+    assert set(out["evidences"][0]) == {"id", "kind", "subject", "source"}
+    assert "data" not in json.dumps(out)
+
+
+def test_get_evidence_by_run_empty(tools, engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    out = tools["get_evidence"].run({"run_id": run_id}, _budget())
+    assert out == {"ok": True, "run_id": run_id, "evidences": []}
+
+
+def test_get_evidence_needs_exactly_one_arg(tools):
+    both = tools["get_evidence"].run({"evidence_id": "ev-0001", "run_id": 1}, _budget())
+    neither = tools["get_evidence"].run({}, _budget())
+    assert both["error"] == "VALIDATION_ERROR" and neither["error"] == "VALIDATION_ERROR"
+
+
+def test_get_evidence_by_run_counts_budget(tools, engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    budget = _budget()
+    tools["get_evidence"].run({"run_id": run_id}, budget)
+    assert budget.tool_calls == 1
+
+
 def test_list_issues_keyword(tools, engine):
     run_id = CheckRunStore(engine).create("schedule", NOW)
     store = IncidentStore(engine)

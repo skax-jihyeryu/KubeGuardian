@@ -42,7 +42,11 @@ class Seen:
             case "get_snapshot":
                 self.runs.add(result["run_id"])
             case "get_evidence":
-                self.evidence.add(result["id"])
+                if "evidences" in result:
+                    self.evidence.update(e["id"] for e in result["evidences"])
+                    self.runs.add(result["run_id"])
+                else:
+                    self.evidence.add(result["id"])
             case "list_issues":
                 self.issues.update(i["id"] for i in result.get("issues", []))
             case "list_alerts":

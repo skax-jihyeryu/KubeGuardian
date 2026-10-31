@@ -164,3 +164,18 @@ def test_seen_collects_ids_from_ok_results(engine):
     assert agent.seen.runs == {run_id}
     assert agent.seen.issues == {inc}
     assert agent.seen.evidence == {ev_id}
+
+
+def test_seen_collects_evidence_list_and_run(engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    ids = [
+        EvidenceStore(engine, check_run_id=run_id).add(
+            Evidence(kind="event", subject=f"s{i}", collected_at=NOW, source="s", data={})
+        )
+        for i in range(2)
+    ]
+    llm = ScriptedLLM(script=[_call(1, "get_evidence", {"run_id": run_id}), "끝", ANSWER])
+    agent, _ = _agent(engine, llm)
+    agent.run(ChatRequest(question="q"))
+    assert agent.seen.evidence == set(ids)
+    assert agent.seen.runs == {run_id}

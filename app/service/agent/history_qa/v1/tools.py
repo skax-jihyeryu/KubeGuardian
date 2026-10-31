@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import Engine
 
 from core.db import AlertStore, CheckRunStore, EvidenceStore, IncidentStore
@@ -175,12 +175,32 @@ def _item_name(item: dict) -> str:
 
 class GetEvidence(HistoryTool):
     name = "get_evidence"
-    description = "근거(evidence) 한 건. id는 ev-0001 형식."
+    description = (
+        "근거. evidence_id를 주면 그 한 건(ev-0001 형식), "
+        "run_id를 주면 그 점검의 근거 목록(id·종류·대상)."
+    )
 
     class Input(_Input):
-        evidence_id: str = Field(pattern=r"^ev-\d+$")
+        evidence_id: str | None = Field(default=None, pattern=r"^ev-\d+$")
+        run_id: int | None = None
+
+        @model_validator(mode="after")
+        def _exactly_one(self) -> "GetEvidence.Input":
+            if (self.evidence_id is None) == (self.run_id is None):
+                raise ValueError("evidence_id와 run_id 중 하나만 준다")
+            return self
 
     def _query(self, inp: Any) -> dict:
+        if inp.run_id is not None:
+            found = EvidenceStore(self._engine).list_for_run(inp.run_id)
+            return {
+                "ok": True,
+                "run_id": inp.run_id,
+                "evidences": [
+                    {"id": e.id, "kind": e.kind, "subject": e.subject, "source": e.source}
+                    for e in found
+                ],
+            }
         ev = EvidenceStore(self._engine).get(inp.evidence_id)
         if ev is None:
             return {"ok": False, "error": "NOT_FOUND"}
