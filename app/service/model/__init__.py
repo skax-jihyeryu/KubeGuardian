@@ -9,6 +9,7 @@ from service.model.gate import GatePath, GateResult, Symptom
 from service.model.investigation import InvestigationRequest, Trigger
 from service.model.report import (
     AREAS,
+    JUDGEMENT_LABEL,
     Area,
     AreaCoverage,
     Confidence,
@@ -34,6 +35,7 @@ __all__ = [
     "AreaCoverage",
     "ClusterSnapshot",
     "Confidence",
+    "JUDGEMENT_LABEL",
     "Judgement",
     "Coverage",
     "CoverageStatus",

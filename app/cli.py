@@ -34,7 +34,7 @@ from core.http import NamespacedHttp
 from core.llm import build_chat_model
 from service.agent.base import AgentResult
 from service.checks.detectors.catalog import CATALOG
-from service.notify.messages import JUDGEMENT
+from service.model import JUDGEMENT_LABEL
 from service.notify.notifier import Notifier
 from service.notify.sender import Sender, build_sender
 from service.pipeline.check import CheckOutcome, clean_symptom, run_check
@@ -255,7 +255,7 @@ def print_investigation(result: AgentResult | None) -> None:
     report = result.report
     if report is None:
         return
-    judgement = JUDGEMENT.get(report.judgement or "", "-")
+    judgement = JUDGEMENT_LABEL.get(report.judgement or "", "-")
     print(f"결론: {report.conclusion} (판단 {judgement}, LLM 확신도 {report.confidence})")
     if report.judgement_basis:
         print(f"판단 근거: {report.judgement_basis}")

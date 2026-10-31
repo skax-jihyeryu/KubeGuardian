@@ -64,11 +64,6 @@ def _cause_gap(report: Report, observations: list[Observation]) -> str | None:
     return None
 
 
-def cause_fetched(report: Report, observations: list[Observation]) -> bool:
-    """1순위 원인 리소스를 지정했고 그 설정을 직접(성공한 get_resource로) 조회했다."""
-    return bool(report.issues) and _cause_gap(report, observations) is None
-
-
 def find_gaps(report: Report, observations: list[Observation]) -> list[str]:
     gaps = []
     if cause_gap := _cause_gap(report, observations):

@@ -14,6 +14,7 @@ from sqlalchemy import Engine
 from core.config import KubeGuardianConfig
 from core.db import EvidenceStore, InvestigationQueue
 from core.guard.budget import BudgetTracker
+from core.guard.judgement import judge
 from core.guard.redact import redact_text
 from core.llm import build_chat_model
 from core.tracing import setup_tracing
@@ -128,4 +129,9 @@ def run_request(
         http=http,
     )
     agent = agent_cls(llm_factory=llm_factory, tools=build_tools(config), ctx=ctx)
-    return agent.run(request)
+    result = agent.run(request)
+    if (
+        result.report is not None
+    ):  # 판단 수준은 에이전트가 아니라 여기서 저장된 근거로 정한다 (#106)
+        result.report = judge(result.report, EvidenceStore(engine).get)
+    return result

@@ -808,35 +808,10 @@ def test_recheck_parallel_tool_calls_over_total_budget_stay_done():
 # ── 판단 수준 (#106) ──
 
 
-def test_fetched_cause_with_two_sources_is_confirmed():
-    # 사전 확인 ev-1(토폴로지)·ev-2(이벤트) → 원인 Deployment/gateway 직접 조회 ev-3
-    look = _tool_call(1, args={"kind": "Deployment", "name": "gateway"})
+def test_graph_leaves_judgement_to_the_pipeline():
+    # 판단 수준은 에이전트가 아니라 run_request가 저장된 근거로 붙인다
     result, _, _ = _run(
-        [TRIAGE, PLAN, look, AIMessage(content="조사 완료"), _report(["ev-2", "ev-3"], **_cause())]
+        [TRIAGE, PLAN, _tool_call(1), AIMessage(content="조사 완료"), _report(["ev-1"])]
     )
 
-    assert result.report.judgement == "confirmed", result.report.judgement_basis
-    assert (
-        result.report.judgement_basis == "원인 리소스 직접 조회 · 근거 출처 2종(설정·상태, 이벤트)"
-    )
-
-
-def test_unfetched_cause_is_candidate():
-    script = [
-        TRIAGE,
-        PLAN,
-        AIMessage(content="조사 완료"),
-        _report(["ev-1", "ev-2"], **_cause()),
-        AIMessage(content="조사 완료"),  # 재조사에서도 원인 리소스를 조회하지 않는다
-        _report(["ev-1", "ev-2"], **_cause()),
-    ]
-    result, _, _ = _run(script)
-
-    assert result.report.judgement == "candidate"
-    assert result.report.judgement_basis.startswith("원인 리소스 미조회")
-
-
-def test_unsupported_report_is_guess():
-    result, _, _ = _run([TRIAGE, PLAN, AIMessage(content="조사 완료"), _report([]), _report([])])
-
-    assert result.report.judgement == "guess"
+    assert result.report.judgement is None

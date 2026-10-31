@@ -6,12 +6,11 @@ from zoneinfo import ZoneInfo
 from core.db.incidents import Incident
 from service.alerts.fingerprint import OTHER_FEATURE
 from service.model import Report
-from service.model.report import severity_for
+from service.model.report import JUDGEMENT_LABEL, severity_for
 
 DISPLAY_TZ = ZoneInfo("Asia/Seoul")  # 운영자에게 보이는 시각
 _SEVERITY = {"critical": "🔴 긴급", "warning": "🟠 주의", "info": "⚪ 참고"}
 # 판단 수준(코드가 정함, #106). LLM 확신도는 기준이 없어 알림에 쓰지 않는다
-JUDGEMENT = {"confirmed": "확정", "candidate": "후보", "guess": "추정"}
 _JUDGEMENT_HINT = {
     "confirmed": "조치를 바로 실행해도 됩니다",
     "candidate": "조치 전에 보고서의 근거를 확인하세요",
@@ -86,7 +85,7 @@ def cause_update(
             "규칙 점검·증상 결과는 점검 상세에서 볼 수 있습니다.\n"
             f"{link}"
         )
-    label = JUDGEMENT.get(report.judgement or "")
+    label = JUDGEMENT_LABEL.get(report.judgement or "")
     lines = [
         f"{mark}{_head(namespace, severity_for(top.impact))} — {top.title}"
         + (f" (판단 {label})" if label else ""),
@@ -95,7 +94,12 @@ def cause_update(
     ]
     if label:
         basis = f" ({report.judgement_basis})" if report.judgement_basis else ""
-        lines.append(f"판단: {label}{basis} — {_JUDGEMENT_HINT[report.judgement]}")
+        hint = _JUDGEMENT_HINT[report.judgement]
+        if status == "incomplete" and report.judgement == "confirmed":
+            hint = (
+                "인용한 근거로는 확정이지만 조사가 끝나지 않았습니다. 확인 범위를 보고 조치하세요"
+            )
+        lines.append(f"판단: {label}{basis} — {hint}")
     if report.actions:
         lines.append(f"조치: {report.actions[0]}")
     others = sorted((i for i in report.issues if i is not top), key=lambda i: i.rank)[:2]
@@ -110,9 +114,10 @@ def cause_reply(status: str, report: Report | None) -> str:
     """M9: 메시지 갱신만으로는 알림이 울리지 않아 스레드 답글로 다시 알린다."""
     top = report.top_issue if report else None
     if status == "done" and report and top and report.judgement != "guess":
-        if report.judgement == "candidate":
+        if report.judgement != "confirmed":  # 후보, 또는 판정되지 않은 보고서(None)는 확정이 아니다
+            mark = " (판단 후보)" if report.judgement else ""
             return (
-                f"원인 후보를 찾았습니다: {top.title} (판단 후보). "
+                f"원인 후보를 찾았습니다: {top.title}{mark}. "
                 "조치 전에 위 메시지의 보고서 링크에서 근거를 확인하세요."
             )
         return (

@@ -3,6 +3,7 @@
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic.json_schema import SkipJsonSchema
 
 from service.model.signal import Severity
 
@@ -10,6 +11,7 @@ Impact = Literal["core_path_broken", "partial_users", "latent_risk", "improvemen
 Confidence = Literal["high", "medium", "low"]  # LLM이 스스로 매긴 값. 화면·알림에는 쓰지 않는다
 # 판단 수준: 코드가 근거로 정한다 (기획서 §6.2 후보·확정, #106). 화면·알림에 보이는 값
 Judgement = Literal["confirmed", "candidate", "guess"]  # 확정 / 후보 / 추정
+JUDGEMENT_LABEL: dict[str, str] = {"confirmed": "확정", "candidate": "후보", "guess": "추정"}
 HypothesisStatus = Literal["supported", "refuted", "inconclusive"]
 Area = Literal["run", "config", "wiring", "logs"]  # 구동·설정·연결·로그 (eval must_check와 같은 키)
 AREAS: tuple[Area, ...] = ("run", "config", "wiring", "logs")
@@ -86,8 +88,9 @@ class Report(BaseModel):
     conclusion: str
     confidence: Confidence
     conclusion_supported: bool = True  # False = 결론이 인용한 근거가 없다 (검증기가 정한다)
-    judgement: Judgement | None = None  # 코드가 붙인다 (core/guard/judgement.py). LLM은 쓰지 않는다
-    judgement_basis: str = ""  # 판단 근거 설명 (예: "원인 리소스 직접 조회 · 근거 출처 2종(...)")
+    # 판단 수준은 코드가 붙인다 (core/guard/judgement.py). LLM 구조화 출력 스키마에서는 뺀다
+    judgement: SkipJsonSchema[Judgement | None] = None
+    judgement_basis: SkipJsonSchema[str] = ""  # 예: "원인 리소스 설정 인용 · 근거 출처 2종(...)"
     impact_scope: str
     issues: list[Issue] = []
     preliminary_facts: list[Fact] = []
