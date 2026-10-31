@@ -817,7 +817,7 @@ def test_fetched_cause_with_two_sources_is_confirmed():
 
     assert result.report.judgement == "confirmed", result.report.judgement_basis
     assert (
-        result.report.judgement_basis == "원인 리소스 직접 조회 · 근거 출처 2종(설정·상태·이벤트)"
+        result.report.judgement_basis == "원인 리소스 직접 조회 · 근거 출처 2종(설정·상태, 이벤트)"
     )
 
 

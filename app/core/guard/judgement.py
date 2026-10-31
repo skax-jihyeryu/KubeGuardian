@@ -52,7 +52,7 @@ def judge(report: Report, *, cause_fetched: bool, sources: Mapping[str, str]) ->
     basis = " · ".join(
         [
             "원인 리소스 직접 조회" if cause_fetched else "원인 리소스 미조회",
-            f"근거 출처 {len(kinds)}종({'·'.join(kinds)})",
+            f"근거 출처 {len(kinds)}종({', '.join(kinds)})",
         ]
     )
     confirmed = cause_fetched and len(kinds) >= CONFIRM_MIN_SOURCES

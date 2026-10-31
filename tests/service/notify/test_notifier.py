@@ -98,7 +98,7 @@ def _report(**kw):
         ],
         "actions": ["Service agent의 selector를 app=agent로 고친다"],
         "judgement": "confirmed",
-        "judgement_basis": "원인 리소스 직접 조회 · 근거 출처 2종(로그·설정·상태)",
+        "judgement_basis": "원인 리소스 직접 조회 · 근거 출처 2종(로그, 설정·상태)",
     }
     return Report.model_validate({**base, **kw})
 
@@ -136,7 +136,7 @@ def test_investigation_updates_first_alert_and_replies(env):
     assert up["ts"] == "ts-1"
     assert "원인: agent Service selector가 Pod 라벨과 다름" in up["text"]
     assert "조치: Service agent의 selector" in up["text"] and "(판단 확정)" in up["text"]
-    assert "판단: 확정 (원인 리소스 직접 조회 · 근거 출처 2종(로그·설정·상태))" in up["text"]
+    assert "판단: 확정 (원인 리소스 직접 조회 · 근거 출처 2종(로그, 설정·상태))" in up["text"]
     assert "확신도" not in up["text"]  # LLM 확신도는 알림에 쓰지 않는다
     reply = sender.posts[-1]
     assert reply["thread"] == "ts-1" and reply["text"].startswith("원인을 확인했습니다")

@@ -36,7 +36,7 @@ def test_fetched_cause_and_two_kinds_of_evidence_is_confirmed():
     out = judge(_report(["ev-1", "ev-2"]), cause_fetched=True, sources=SOURCES)
 
     assert out.judgement == "confirmed"
-    assert out.judgement_basis == "원인 리소스 직접 조회 · 근거 출처 2종(로그·설정·상태)"
+    assert out.judgement_basis == "원인 리소스 직접 조회 · 근거 출처 2종(로그, 설정·상태)"
 
 
 def test_issue_evidence_counts_toward_sources():
