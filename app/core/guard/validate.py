@@ -10,15 +10,18 @@
 - 영역별 coverage는 근거를 거른다. 확인함(checked)인데 남은 근거가 없으면 확인하지 못함으로 내리고
   `demoted`에 `coverage.<영역>`을 남긴다. 확인하지 못함·해당 없음인데 사유가 비면 "(사유 미기재)".
 - 결론의 근거가 없으면 conclusion_supported=False. 호출한 쪽이 보고서를 1회 다시 쓰게 한다.
+
+`validate_answer`는 채팅 답변의 인용(근거·이슈·점검 번호)을 같은 방식으로 거른다.
 """
 
 from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from service.model import AREAS, Report
+from service.model import AREAS, ChatAnswer, Report
 
 _ESTIMATE = "(추정) "
+_ESTIMATE_SUFFIX = " (추정)"  # 채팅 답변은 문장 끝에 붙인다
 
 
 def _estimate(text: str) -> str:
@@ -83,3 +86,32 @@ def validate_report(report: Report, known: Callable[[str], bool]) -> ValidationO
     return ValidationOutcome(
         report=cleaned, demoted=demoted, conclusion_supported=bool(evidence_ids)
     )
+
+
+def validate_answer(
+    answer: ChatAnswer,
+    *,
+    evidence: Callable[[str], bool],
+    issue: Callable[[int], bool],
+    run: Callable[[int], bool],
+) -> ChatAnswer:
+    """없는 인용 번호를 지우고, 인용이 안 남은 사실·해석 끝에 "(추정)"을 붙인다."""
+    sentences = []
+    for s in answer.sentences:
+        ev_ids = [i for i in s.evidence_ids if evidence(i)]
+        issue_ids = [i for i in s.issue_ids if issue(i)]
+        run_ids = [i for i in s.run_ids if run(i)]
+        text = s.text
+        if s.kind != "guide" and not (ev_ids or issue_ids or run_ids):
+            text = text if text.endswith(_ESTIMATE_SUFFIX) else text + _ESTIMATE_SUFFIX
+        sentences.append(
+            s.model_copy(
+                update={
+                    "text": text,
+                    "evidence_ids": ev_ids,
+                    "issue_ids": issue_ids,
+                    "run_ids": run_ids,
+                }
+            )
+        )
+    return answer.model_copy(update={"sentences": sentences})

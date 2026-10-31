@@ -4,6 +4,7 @@ ClusterSnapshot, Evidence, Signal, SignalBoard, GateResult,
 InvestigationRequest, Issue, Hypothesis, Report.
 """
 
+from service.model.chat import AnswerSentence, ChatAnswer, ChatRequest, ChatTurn, SentenceKind
 from service.model.evidence import Evidence, EvidenceKind
 from service.model.gate import GatePath, GateResult, Symptom
 from service.model.investigation import InvestigationRequest, Trigger
@@ -31,6 +32,10 @@ __all__ = [
     "AREAS",
     "Area",
     "AreaCoverage",
+    "AnswerSentence",
+    "ChatAnswer",
+    "ChatRequest",
+    "ChatTurn",
     "ClusterSnapshot",
     "Confidence",
     "Coverage",
@@ -48,6 +53,7 @@ __all__ = [
     "Issue",
     "Report",
     "ResourceRef",
+    "SentenceKind",
     "Severity",
     "Signal",
     "SignalBoard",

@@ -116,6 +116,34 @@ class IncidentStore:
     def open_incidents(self) -> list[Incident]:
         return self._list(select(IncidentRow).where(IncidentRow.status == "open"))
 
+    def list_incidents(
+        self, since: datetime | None = None, status: str | None = None, limit: int = 20
+    ) -> list[Incident]:
+        """최신순 이슈 목록. since는 opened_at 기준. 이력 질의용."""
+        stmt = select(IncidentRow)
+        if since is not None:
+            stmt = stmt.where(IncidentRow.opened_at >= require_aware(since))
+        if status is not None:
+            stmt = stmt.where(IncidentRow.status == status)
+        with Session(self._engine) as s:
+            rows = s.scalars(stmt.order_by(IncidentRow.id.desc()).limit(limit))
+            return [_to_incident(r) for r in rows]
+
+    def actions_for_runs(self, run_ids: list[int]) -> dict[int, list[tuple[int, str]]]:
+        """점검 id → [(이슈 id, 그 점검에서 한 일)]."""
+        stmt = (
+            select(
+                IncidentCheckRow.check_run_id, IncidentCheckRow.incident_id, IncidentCheckRow.action
+            )
+            .where(IncidentCheckRow.check_run_id.in_(run_ids))
+            .order_by(IncidentCheckRow.incident_id)
+        )
+        out: dict[int, list[tuple[int, str]]] = {}
+        with Session(self._engine) as s:
+            for run_id, incident_id, action in s.execute(stmt):
+                out.setdefault(run_id, []).append((incident_id, action))
+        return out
+
     def check_ids(self, incident_id: int) -> list[int]:
         stmt = (
             select(IncidentCheckRow.check_run_id)
