@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
+from core.guard.judgement import SIGNAL_SOURCE, SOURCE_OF_TOOL, SYMPTOM_SOURCE, judge
 from core.guard.validate import validate_report
 from service.agent._common.prompts import load_prompt
 from service.agent._common.structured import invoke_structured
@@ -30,6 +31,7 @@ from service.agent.investigator.v1.context import (
     render_symptoms,
 )
 from service.agent.investigator.v1.coverage import (
+    cause_fetched,
     downgrade_unresolved_cause,
     find_gaps,
     mark_unobserved,
@@ -338,7 +340,25 @@ def build_graph(agent: "InvestigatorV1"):
             "확인하지 못함 (예산 소진)" if exhausted else "확인하지 못함 (재조사 후에도 근거 없음)"
         )
         report = downgrade_unresolved_cause(mark_unobserved(report, obs, reason), obs)
+        report = judge(report, cause_fetched=cause_fetched(report, obs), sources=sources(state))
         return {"report": report, "recheck": False}
+
+    def sources(state: InvestigationState) -> dict[str, str]:
+        """근거 번호 → 출처 종류. 신호판·실패 증상·성공한 도구 호출만 (판단 수준, #106)."""
+        req = state["request"]
+        out = {
+            s.evidence_id: SIGNAL_SOURCE
+            for ss in req.signal_board.by_service.values()
+            for s in ss
+            if s.evidence_id
+        }
+        out |= {x.evidence_id: SYMPTOM_SOURCE for x in req.symptoms if x.evidence_id}
+        out |= {
+            o.evidence_id: SOURCE_OF_TOOL[o.tool]
+            for o in state["observations"]
+            if o.ok and o.tool in SOURCE_OF_TOOL
+        }
+        return out
 
     def after_stop_check(state: InvestigationState) -> str:
         return "act" if state["recheck"] else END
