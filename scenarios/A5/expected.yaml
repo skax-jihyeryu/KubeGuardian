@@ -8,6 +8,20 @@ allowed_signals: []
 forbidden_signals: []
 must_check:
   config: "gateway 주소 env 값이 localhost"
+expected_cause:
+  - {kind: Deployment, name: gateway}
+key_evidence:
+  - id: gateway-localhost-address
+    desc: "gateway의 하위 서비스 주소가 localhost를 가리킨다"
+    # get_resource는 env 값을 보여 주지 않고(키만) ConfigMap도 키만이라, 값은 get_topology의 unresolved edge
+    # (target localhost)나 gateway 로그(접속 시도한 localhost 주소)로 확인한다 (2026-10-26 A5 실행 근거로 확인)
+    obtainable: true
+    any_of:
+      - {kind: resource, subject: "*/Topology/*", contains: [localhost, unresolved]}
+      - {kind: log_excerpt, subject: "*/Pod/gateway-*", contains: "localhost"}
+not_a_cause:
+  - text: "admin은 정상이다 (gateway가 localhost로 잘못 호출할 뿐)"
+    resource: {kind: Deployment, name: admin}
 root_cause: "gateway의 하위 서비스 주소 설정(ADMIN_SERVICE_URL 등)이 localhost를 가리켜 gateway가 하위 서비스를 호출하지 못한다"
 affected_services: [gateway, front-chat, front-admin]
 expected_top1: "gateway의 서비스 주소 env가 localhost를 가리켜 로그인·채팅 등 모든 API가 실패"

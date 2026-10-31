@@ -1,4 +1,4 @@
-.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix eval kg-build kg-up kg-down kg-cron-suspend kg-cron-resume kg-cron-run
+.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix eval eval-batch eval-report kg-build kg-up kg-down kg-cron-suspend kg-cron-resume kg-cron-run
 
 # 진단 대상(템플릿 포크) 위치. 포크 6개 + shared-infra가 이 아래에 있어야 한다.
 TARGET_DIR ?= $(HOME)/Cursor/kg-target
@@ -106,6 +106,17 @@ EVAL_CONFIG ?= $(if $(wildcard kubeguardian.yaml),kubeguardian.yaml,kubeguardian
 eval:  ## 시나리오 하나 평가 (주입 → 증상 확인 → 점검·게이트 → 채점 → 원복). 예: make eval S=A5, AI 조건은 make eval S=A5 ARGS="--condition ai"
 	@test -n "$(S)" || { echo "S=<시나리오 ID>가 필요하다. 예: make eval S=A5"; exit 2; }
 	uv run python eval/run.py $(S) --config $(EVAL_CONFIG) $(ARGS)
+
+eval-batch:  ## 시나리오 여러 개를 한 묶음으로 평가하고 리포트 생성. 예: make eval-batch B=w3 S="A1 A3 A5" ARGS="--condition ai --ai-repeats 3"
+	@test -n "$(B)" -a -n "$(S)" || { echo "B=<묶음 이름>, S=\"<시나리오 ID들>\"가 필요하다. 예: make eval-batch B=w3 S=\"A1 A3\""; exit 2; }
+	@for s in $(S); do \
+		uv run python eval/run.py $$s --config $(EVAL_CONFIG) --batch $(B) $(ARGS) || true; \
+	done
+	@$(MAKE) eval-report B=$(B) BASE=$(BASE)
+
+eval-report:  ## 묶음 결과를 모아 eval/report.md 생성. 예: make eval-report B=w3 BASE=w2
+	@test -n "$(B)" || { echo "B=<묶음 이름>이 필요하다. 예: make eval-report B=w3"; exit 2; }
+	uv run python eval/report.py $(B) $(if $(BASE),--baseline $(BASE))
 
 kg-build:  ## KubeGuardian runner 이미지를 minikube 노드의 docker에 빌드
 	@for img in python:3.12-slim ghcr.io/astral-sh/uv:0.9.13; do minikube ssh -- docker pull -q $$img >/dev/null || exit 1; done

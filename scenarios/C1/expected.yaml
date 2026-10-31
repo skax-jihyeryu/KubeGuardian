@@ -9,6 +9,20 @@ allowed_signals: []
 forbidden_signals: []
 must_check:
   wiring: "채팅 응답 answer의 429 오류 문구"
+expected_cause:
+  - {kind: Deployment, name: llm-gateway}
+  - {kind: Service, name: llm-gateway}
+key_evidence:
+  - id: llm-gateway-429
+    desc: "llm-gateway가 채팅 완성 요청에 429(Too Many Requests, insufficient_quota)를 돌려준 기록"
+    # HTTPChaos가 llm-gateway의 응답을 바꾸므로 llm-gateway 자기 로그에는 429가 남지 않는다 (2026-10-26 C1 실행의 llm-gateway 로그로 확인).
+    # 429는 호출한 agent 로그("POST http://llm-gateway-svc:8080/api/v1/chat/completions ... 429 Too Many Requests")로 관측된다
+    obtainable: true
+    any_of:
+      - {kind: log_excerpt, subject: "*/Pod/agent-*", contains: ["chat/completions", "429 too many requests"]}
+not_a_cause:
+  - text: "agent는 정상이다 (llm-gateway가 돌려준 429를 그대로 전한 것)"
+    resource: {kind: Deployment, name: agent}
 root_cause: "llm-gateway가 LLM 호출(채팅 완성 요청)에 429(할당량 초과)를 돌려줘 채팅이 실패한다"
 affected_services: [llm-gateway, agent, gateway, front-chat]
 expected_top1: "llm-gateway가 채팅 요청에 429(할당량 초과)를 돌려줘 채팅이 실패"

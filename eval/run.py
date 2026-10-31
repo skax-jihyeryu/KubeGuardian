@@ -6,7 +6,10 @@
 상한(기본 2700초)에 닿으면 마지막 점검으로 채점한다. 기대 신호가 없는 시나리오는 한 번만 점검한다.
 실행: uv run python eval/run.py <시나리오 ID> [--config kubeguardian.yaml]
       [--check-interval 300] [--check-max 2700] [--condition rules|ai] [--in-cluster]
-종료 코드: 0 통과, 1 실패, 2 무효(증상이 나지 않음·원복 실패 등 실행 자체를 믿을 수 없음)
+      [--ai-repeats N] [--batch 이름]
+--ai-repeats는 같은 점검 결과로 조사를 N회 돌린다 (회차별 report-<i>·steps-<i>.json).
+채점은 두 단계다: 조사 직후 원인·판정을 보고, 원복 뒤 DB를 가져와 핵심·주장별 근거를 본다.
+종료 코드: 0 통과, 1 실패, 2 무효(증상 없음·원복 실패·근거 DB 없음 등 실행 자체를 믿을 수 없음)
 결과는 eval/history/<시각>-<ID>/에 result.json과 점검 DB로 남긴다 (커밋하지 않음).
 """
 
@@ -34,9 +37,28 @@ from core.http import NamespacedHttp  # noqa: E402
 from core.k8s import K8sClient  # noqa: E402
 from core.llm import build_chat_model  # noqa: E402
 from core.tracing import setup_tracing  # noqa: E402
-from judge import JUDGE_MODEL, JudgeResult, judge_top1  # noqa: E402
+from evidence_db import agent_evidence_ids, load_evidence  # noqa: E402
+from judge import (  # noqa: E402
+    JUDGE_MODEL,
+    Claim,
+    ClaimVerdict,
+    JudgeResult,
+    extract_claims,
+    judge_claims,
+    judge_top1,
+    support_summary,
+)
 from remote import RemoteError, RemoteRunner  # noqa: E402
-from scoring import coverage_record, expected_record, score  # noqa: E402
+from scoring import (  # noqa: E402
+    cause_record,
+    classify,
+    coverage_record,
+    expected_record,
+    key_evidence_record,
+    needs_target,
+    resolve_expected,
+    score,
+)
 from service.agent.base import AgentResult  # noqa: E402
 from service.pipeline.check import run_check  # noqa: E402
 from service.pipeline.investigate import run_investigation  # noqa: E402
@@ -140,8 +162,10 @@ def investigate_and_judge(
 ) -> tuple[dict, dict | None, list[dict]]:
     """조사를 돌리고 결론을 채점한다. 반환: (result.json의 ai 블록, 보고서 dict 또는 None, 단계).
 
-    통과 = 조사가 보고서를 냈고(done·incomplete) 채점이 match이며 결론에 근거가 있다.
-    채점이 match가 아니면 실패, 채점 자체가 실패(None)하면 무효(ai["invalid"])다.
+    1단계 채점이다. 옛 통과 기준(채점 match + 결론 근거 있음)은 ai["legacy_passed"]에 남기고,
+    ai["eval"]에 원인 리소스 대조를, ai["judge_match"]에 채점을 넣는다. 최종 ai["passed"]는
+    원복 뒤 score_layers가 정하므로 여기서는 False다 (기대 게이트 C 처리만 여기서 정한다).
+    채점 자체가 실패(None)하면 무효(ai["invalid"])다.
     기대 게이트가 C면 조사하지 않아야 통과다. 조사가 돌았으면 채점 없이 실패한다.
     trace_id는 조사 전체를 감싸는 span의 id로 Phoenix에서 이 실행을 찾는 열쇠다 (추적 꺼짐: None).
     """
@@ -156,11 +180,12 @@ def investigate_and_judge(
         "expected_top1": expected.get("expected_top1"),
         "trace_id": trace_id,
         "passed": False,
+        "legacy_passed": False,
     }
     expect_closed = expected.get("gate_path") == "C"
     if result is None:
         ai["status"] = "skipped"  # 게이트 경로 C: 조사하지 않음
-        ai["passed"] = expect_closed
+        ai["passed"] = ai["legacy_passed"] = expect_closed
         return ai, None, []
     steps = [s.model_dump(mode="json") for s in result.steps]
     ai["status"] = result.status
@@ -177,35 +202,113 @@ def investigate_and_judge(
     ai["must_check"] = coverage_record(expected.get("must_check") or {}, report_dict["coverage"])
     top = min(result.report.issues, key=lambda i: i.rank, default=None)
     ai["cause_resource"] = top.cause_resource.model_dump() if top and top.cause_resource else None
+    ai["eval"] = cause_record(ai["cause_resource"], expected)
     verdict = judge(result.report.conclusion)
     ai["judge"] = {"match": verdict.match, "reason": verdict.reason}
-    ai["passed"] = verdict.match is True
+    ai["judge_match"] = verdict.match
+    ai["legacy_passed"] = verdict.match is True
     if verdict.match is None:
         ai["invalid"] = verdict.reason or "채점 실패"
     ai["conclusion_supported"] = result.report.conclusion_supported
     validate = next((s for s in result.steps if s.node == "validate"), None)
     ai["demoted"] = list(validate.detail.get("demoted", [])) if validate else []
-    if ai["passed"] and not ai["conclusion_supported"]:
+    if ai["legacy_passed"] and not ai["conclusion_supported"]:
         # 근거 없는 결론이 우연히 맞은 것은 통과가 아니다
-        ai["passed"] = False
+        ai["legacy_passed"] = False
         ai["fail_reason"] = "결론이 인용한 근거가 없다 (conclusion_supported=False)"
     return ai, report_dict, steps
 
 
-def save_ai_artifacts(out_dir: Path, report: dict | None, steps: list[dict]) -> None:
-    """보고서와 단계 기록을 history 디렉터리에 남긴다 (도구 결과는 이미 마스킹된 상태)."""
-    for name, data in (("report.json", report), ("steps.json", steps or None)):
+def save_ai_artifacts(out_dir: Path, report: dict | None, steps: list[dict], index: int) -> None:
+    """회차별 보고서와 단계 기록을 history 디렉터리에 남긴다 (도구 결과는 이미 마스킹된 상태)."""
+    for name, data in ((f"report-{index}.json", report), (f"steps-{index}.json", steps or None)):
         if data is not None:
             (out_dir / name).write_text(
                 json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
             )
 
 
-def decide_exit(rules_passed: bool, ai: dict) -> int:
-    """점검 채점과 AI 조사 결과를 종료 코드로 합친다. 채점 실패는 실패가 아니라 무효다."""
-    if ai.get("invalid"):
+def _cited_evidence_ids(claims: list[Claim]) -> list[str]:
+    return list(dict.fromkeys(i for c in claims for i in c.evidence_ids))
+
+
+def score_layers(
+    ai: dict,
+    report: dict | None,
+    steps: list[dict],
+    expected: dict,
+    *,
+    db_path: Path,
+    claim_judge: Callable[[list[Claim], dict[str, dict]], list[ClaimVerdict]],
+) -> dict:
+    """2단계 채점: 원복 뒤 가져온 근거 DB로 핵심 근거와 주장별 근거를 채점해 실패를 분류한다.
+
+    ai["eval"]에 핵심 근거 기록을, ai["claims"]·support_rate·conclusion_support·failure를 채우고
+    ai["passed"] = (failure == "pass")로 정한다. 보고서가 없거나 조사가 failed면 failure는 error다.
+    DB가 없거나 보고서가 인용한 근거 id가 DB에 없거나 채점이 실패(None)하면 그 회차는
+    무효(ai["invalid"])이고 failure는 F0이다. 기대 게이트 C 처리(skipped·fail)는 건드리지 않는다.
+    """
+    if ai.get("status") == "skipped" or (report is None and ai.get("fail_reason")):
+        return ai
+    if ai.get("status") == "incomplete":
+        ai["limited"] = True  # 상한에 닿아 끝난 조사. 실패 분류와는 별도로 남긴다
+    if report is None or ai.get("status") == "failed":
+        ai["failure"] = "error"
+        ai["passed"] = False
+        return ai
+
+    def invalid(reason: str) -> dict:
+        ai["invalid"] = ai.get("invalid") or reason
+        ai["failure"] = "F0"
+        ai["passed"] = False
+        return ai
+
+    if ai.get("judge_match") is None:
+        return invalid("채점 실패")
+    claims = extract_claims(report)
+    ids = list(dict.fromkeys(_cited_evidence_ids(claims) + agent_evidence_ids(steps)))
+    try:
+        evidence = load_evidence(db_path, ids)
+    except FileNotFoundError:
+        return invalid("근거 DB 없음")
+    if any(i not in evidence for i in _cited_evidence_ids(claims)):
+        return invalid("근거 DB 없음")
+    tool_evidence = [evidence[i] for i in agent_evidence_ids(steps) if i in evidence]
+    key = key_evidence_record(expected.get("key_evidence") or [], tool_evidence)
+    verdicts = claim_judge(claims, evidence)
+    ai["claims"] = [v.model_dump() for v in verdicts]
+    summary = support_summary(verdicts)
+    ai["support_rate"] = summary["support_rate"]
+    ai["conclusion_support"] = summary["conclusion_support"]
+    ai["eval"] = {**ai.get("eval", {}), **key}
+    if any(v.verdict is None for v in verdicts):
+        return invalid("주장 채점 실패")
+    ai["failure"] = classify(
+        cause_match=ai["eval"]["cause_match"],
+        judge_match=ai["judge_match"],
+        forbidden_cause=ai["eval"]["forbidden_cause"],
+        key=key,
+        conclusion_support=summary["conclusion_support"],
+    )
+    ai["passed"] = ai["failure"] == "pass"
+    return ai
+
+
+def decide_exit_runs(rules_passed: bool, runs: list[dict]) -> int:
+    """점검 채점과 조사 회차들을 종료 코드로 합친다. 한 회차라도 무효면 무효, 모두 통과해야 통과."""
+    if any(r.get("invalid") for r in runs):
         return EXIT_INVALID
-    return EXIT_PASS if rules_passed and ai["passed"] else EXIT_FAIL
+    return EXIT_PASS if rules_passed and all(r["passed"] for r in runs) else EXIT_FAIL
+
+
+def read_target(scenario: str) -> str | None:
+    """inject.sh가 남긴 주입 대상 이름 (B1). 없거나 비면 None. 원복 전에 읽는다."""
+    path = SCENARIOS / scenario / ".state" / "target"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    return lines[0].strip() or None if lines else None
 
 
 def run(
@@ -216,6 +319,8 @@ def run(
     max_s: int,
     condition: str = "rules",
     in_cluster: bool = False,
+    ai_repeats: int = 1,
+    batch: str | None = None,
 ) -> int:
     expected = yaml.safe_load((SCENARIOS / scenario / "expected.yaml").read_text(encoding="utf-8"))
     config = load_kubeguardian_config(config_path)
@@ -228,6 +333,8 @@ def run(
         "started_at": started.isoformat(),
         "expected": expected_record(expected),
     }
+    if batch:
+        result["batch"] = batch
     exit_code = EXIT_INVALID
 
     # --in-cluster: 점검·조사는 runner Pod에서 한다. 주입 전에 Pod부터 확인한다 (없으면 주입 안 함)
@@ -249,6 +356,9 @@ def run(
         return finish(result, out_dir, exit_code)
 
     check_started = False  # 점검을 한 번이라도 시작했을 때만 Pod의 DB를 가져온다
+    rules_passed = False
+    resolved = expected  # 자리표시자를 주입 대상으로 바꾼 정답 (AI 조건에서만 바뀐다)
+    pending: list[tuple[dict, dict | None, list[dict]]] = []  # 2단계 채점을 기다리는 회차
     try:
         injected_at = time.monotonic()
         r = sh(scenario, "inject.sh")
@@ -325,45 +435,57 @@ def run(
             f" 금지 적발 {s['forbidden_hit']} 기대 밖 {s['unexpected']}"
             f" 관찰 중 {s['observing']} 확인하지 못함 {s['unknown']}",
         )
-        passed = s["passed"]
+        rules_passed = s["passed"]
         if condition == "ai":
-            run_id = f"eval-{scenario}-{started:%Y%m%dT%H%M%S}"
-            remote_trace: dict = {}
+            if needs_target(expected):
+                try:
+                    resolved = resolve_expected(expected, read_target(scenario))
+                except ValueError as e:
+                    result["invalid"] = str(e)
+                    return exit_code
+            result["ai_runs"] = []
+            exit_code = EXIT_FAIL  # 잠정. 원복·2단계 채점 뒤 decide_exit_runs로 다시 정한다
 
-            def investigate_remote() -> AgentResult | None:
-                res, remote_trace["id"] = remote.investigate(outcome.run_id, run_id)
-                return res
+            def investigate_round(i: int) -> tuple[dict, dict | None, list[dict]]:
+                run_id = f"eval-{scenario}-{started:%Y%m%dT%H%M%S}-{i}"
+                remote_trace: dict = {}
 
-            ai, report, steps = investigate_and_judge(
-                expected,
-                investigate=investigate_remote
-                if remote
-                else lambda: run_investigation(
-                    outcome,
-                    config,
-                    engine,
-                    run_id=run_id,
-                    k8s=reader,
-                    http=target_http(config),
-                ),
-                judge=lambda conclusion: judge_top1(
-                    conclusion, expected, build_chat_model(JUDGE_MODEL)
-                ),
-            )
-            if remote:
-                ai["trace_id"] = remote_trace.get("id")  # Pod 안 추적의 id (Mac의 span이 아니다)
-            result["ai"] = ai
-            save_ai_artifacts(out_dir, report, steps)
-            log(
-                "ai",
-                f"{ai['status']} 결론 {ai.get('conclusion')!r} | 기대 {ai['expected_top1']!r}"
-                f" | 채점 {ai.get('judge')} | 사용 {ai.get('usage')} | trace {ai['trace_id']}",
-            )
-            if ai.get("invalid"):
-                result["invalid"] = ai["invalid"]
-            exit_code = decide_exit(passed, ai)
+                def investigate_remote() -> AgentResult | None:
+                    res, remote_trace["id"] = remote.investigate(outcome.run_id, run_id)
+                    return res
+
+                ai, report, steps = investigate_and_judge(
+                    resolved,
+                    investigate=investigate_remote
+                    if remote
+                    else lambda: run_investigation(
+                        outcome,
+                        config,
+                        engine,
+                        run_id=run_id,
+                        k8s=reader,
+                        http=target_http(config),
+                    ),
+                    judge=lambda conclusion: judge_top1(
+                        conclusion, resolved, build_chat_model(JUDGE_MODEL)
+                    ),
+                )
+                if remote:
+                    ai["trace_id"] = remote_trace.get("id")  # Pod 안 추적의 id (Mac의 span 아님)
+                return ai, report, steps
+
+            for i in range(ai_repeats):
+                ai, report, steps = investigate_round(i)
+                result["ai_runs"].append(ai)
+                pending.append((ai, report, steps))
+                save_ai_artifacts(out_dir, report, steps, i)
+                log(
+                    f"ai {i}",
+                    f"{ai['status']} 결론 {ai.get('conclusion')!r} | 기대 {ai['expected_top1']!r}"
+                    f" | 채점 {ai.get('judge')} | 사용 {ai.get('usage')} | trace {ai['trace_id']}",
+                )
         else:
-            exit_code = EXIT_PASS if passed else EXIT_FAIL
+            exit_code = EXIT_PASS if rules_passed else EXIT_FAIL
     except Exception as e:  # 설정·kubeconfig·저장소 오류 등: 실행 자체를 믿을 수 없다
         traceback.print_exc()
         result["invalid"] = f"{type(e).__name__}: {e}"
@@ -385,11 +507,56 @@ def run(
                 log("fetch", f"점검 DB를 가져오지 못함: {result['db_fetch_failed']}")
             if remote.db_incomplete:
                 result["db_incomplete"] = True
+        if pending:
+            score_ai_runs(result, pending, resolved, out_dir)
+            if exit_code != EXIT_INVALID:
+                exit_code = decide_exit_runs(rules_passed, result["ai_runs"])
+            # 회차 무효는 result["invalid"]로 올리지 않는다. 리포트가 회차별로 센다 (spec §5.1)
+            invalid_runs = [i for i, r in enumerate(result["ai_runs"]) if r.get("invalid")]
+            if invalid_runs:
+                result["invalid_runs"] = invalid_runs
         if not recovered:
             result["invalid"] = result.get("invalid") or "원복 확인 실패"
             exit_code = EXIT_INVALID
         exit_code = finish(result, out_dir, exit_code)
     return exit_code
+
+
+def score_ai_runs(
+    result: dict,
+    pending: list[tuple[dict, dict | None, list[dict]]],
+    expected: dict,
+    out_dir: Path,
+) -> None:
+    """원복·DB 가져오기가 끝난 뒤 회차마다 2단계 채점을 하고 한 줄씩 남긴다."""
+    # 가져오기가 실패했거나 중간에 끊긴 DB는 믿지 않는다: 없는 경로를 넘겨 F0이 되게 한다
+    unusable = result.get("db_fetch_failed") or result.get("db_incomplete")
+    db_path = out_dir / ("kg.db.unusable" if unusable else "kg.db")
+    for i, (ai, report, steps) in enumerate(pending):
+        try:
+            score_layers(
+                ai,
+                report,
+                steps,
+                expected,
+                db_path=db_path,
+                claim_judge=lambda claims, ev: judge_claims(
+                    claims, ev, build_chat_model(JUDGE_MODEL)
+                ),
+            )
+        except Exception as e:  # 한 회차의 채점 오류가 다른 회차와 결과 저장을 막지 않는다
+            traceback.print_exc()
+            ai["invalid"] = f"{type(e).__name__}: {e}"
+            ai["failure"] = "F0"
+            ai["passed"] = False
+        ev = ai.get("eval") or {}
+        rate = ai.get("support_rate")
+        log(
+            f"ai {i}",
+            f"{ai.get('failure', '-')} 원인 일치 {ev.get('cause_match')}"
+            f" 판정 일치 {ai.get('judge_match')}"
+            f" 근거 지지율 {'-' if rate is None else f'{rate:.2f}'}",
+        )
 
 
 def finish(result: dict, out_dir: Path, exit_code: int) -> int:
@@ -407,7 +574,7 @@ def finish(result: dict, out_dir: Path, exit_code: int) -> int:
     return exit_code
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="KubeGuardian 평가 러너")
     p.add_argument("scenario", help="scenarios/<ID>")
     p.add_argument("--config", default="kubeguardian.yaml")
@@ -424,9 +591,15 @@ def main() -> int:
     p.add_argument(
         "--condition", choices=["rules", "ai"], default="rules", help="rules: 규칙만, ai: 조사 포함"
     )
-    args = p.parse_args()
+    p.add_argument("--ai-repeats", type=int, default=1, help="같은 점검 결과로 조사를 돌릴 횟수")
+    p.add_argument("--batch", help="여러 실행을 묶어 보는 이름 (result.json의 batch)")
+    args = p.parse_args(argv)
     if args.check_interval <= 0:
         p.error("--check-interval은 0보다 커야 한다")
+    if args.ai_repeats < 1:
+        p.error("--ai-repeats는 1 이상이어야 한다")
+    if args.ai_repeats > 1 and args.condition != "ai":
+        p.error("--ai-repeats는 --condition ai와 함께 쓴다")
     if not (SCENARIOS / args.scenario / "expected.yaml").is_file():
         print(f"시나리오 없음: scenarios/{args.scenario}/expected.yaml", file=sys.stderr)
         return EXIT_INVALID
@@ -439,6 +612,8 @@ def main() -> int:
             args.check_max,
             args.condition,
             args.in_cluster,
+            args.ai_repeats,
+            args.batch,
         )
     except Exception as e:  # 설정 파일 오류 등 주입 전에 난 오류
         print(f"무효: {type(e).__name__}: {e}", file=sys.stderr)
