@@ -14,7 +14,7 @@ def make_run(failure="pass", *, judge=True, cause=True, seconds=10.0, tokens=(10
         "status": "done",
         "usage": {"input_tokens": tokens[0], "output_tokens": tokens[1], "seconds": seconds},
         "passed": failure == "pass",
-        "eval": {"cause_match": cause, "forbidden_cause": False, "judge_match": judge, **KEY_OK},
+        "eval": {"cause_match": cause, "forbidden_cause": False, **KEY_OK},
         "claims": [{"source": "conclusion", "verdict": "supported", "reason": ""}],
         "support_rate": 1.0,
         "conclusion_support": "supported",
@@ -57,6 +57,13 @@ def test_load_batch_filters_by_batch(tmp_path):
     assert [n for n, _ in load_batch(history, "b1")] == ["a"]
 
 
+def test_scenario_judge_match_rate_reads_top_level(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run(judge=True), make_run(judge=False)]})
+    assert summarize(results, {}, scen)["scenarios"]["A1"]["judge_match"] == 0.5
+    results, scen = build(tmp_path / "z", {"A1": [make_run(), make_run()]})
+    assert summarize(results, {}, scen)["scenarios"]["A1"]["judge_match"] == 1.0
+
+
 def test_invalid_runs_excluded_from_denominator(tmp_path):
     runs = [make_run(), make_run(), make_run("F0", invalid="근거 DB 없음"), make_run("error")]
     results, scen = build(tmp_path, {"A1": runs})
@@ -66,7 +73,6 @@ def test_invalid_runs_excluded_from_denominator(tmp_path):
 
 def test_label_overrides_judge_and_reclassifies():
     run = make_run("F4", judge=False)
-    run["eval"]["judge_match"] = False
     label = {
         "index": 1,
         "top1_match": True,

@@ -79,7 +79,6 @@ def apply_label(run: dict, label: dict | None) -> dict:
         passed=failure == "pass",
         labeled=True,
     )
-    out["eval"] = {**ev, "judge_match": judge_match}
     return out
 
 
@@ -185,10 +184,13 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
         s["dist"] = dict(sorted(_count(_outcome(r) for r in runs).items()))
         ran = [r for r in runs if _outcome(r) not in NOT_INVESTIGATED]  # 조사가 돈 회차
         judged_runs = [r for r in ran if r.get("eval")]
-        for key in ("cause_match", "judge_match", "key_all_found"):
+        for key in ("cause_match", "key_all_found"):
             s[key] = _rate(
                 sum(bool((r.get("eval") or {}).get(key)) for r in judged_runs), len(judged_runs)
             )
+        s["judge_match"] = _rate(
+            sum(bool(r.get("judge_match")) for r in judged_runs), len(judged_runs)
+        )
         s["support_rate"] = _mean(
             [r["support_rate"] for r in ran if r.get("support_rate") is not None]
         )
