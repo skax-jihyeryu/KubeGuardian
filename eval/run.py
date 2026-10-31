@@ -48,7 +48,9 @@ EXIT_PASS, EXIT_FAIL, EXIT_INVALID = 0, 1, 2
 
 def sh(scenario: str, script: str) -> subprocess.CompletedProcess[str]:
     path = SCENARIOS / scenario / script
-    return subprocess.run(["bash", str(path)], capture_output=True, text=True, cwd=ROOT)
+    return subprocess.run(
+        ["bash", str(path)], capture_output=True, encoding="utf-8", errors="replace", cwd=ROOT
+    )
 
 
 def until_ok(scenario: str, script: str, timeout_s: int, interval_s: int = 10) -> tuple[bool, str]:
