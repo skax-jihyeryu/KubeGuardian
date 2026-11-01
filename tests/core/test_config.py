@@ -119,3 +119,23 @@ def test_excluded_event_groups_default_empty():
 def test_example_config_hides_chaos_mesh_events():
     # 이 PoC는 Chaos Mesh로 장애를 주입한다. 주입 흔적이 조사 입력에 들어가면 안 된다 (#82)
     assert "chaos-mesh.org" in load_kubeguardian_config(EXAMPLE).exclude_event_api_groups
+
+
+def test_slack_needs_only_alert_target():
+    # 10/31: Slack은 알림만. 명령용 앱 토큰·허용 채널은 선택 (예전 설정도 거부하지 않음)
+    config = KubeGuardianConfig.model_validate(
+        {"target": {"namespace": "dev"}, "slack": {"alert_target": "#ops"}}
+    )
+    assert config.slack.app_token_secret is None and config.slack.bot_token_secret is None
+
+    old = KubeGuardianConfig.model_validate(
+        {
+            "target": {"namespace": "dev"},
+            "slack": {
+                "alert_target": "#ops",
+                "app_token_secret": "kg-slack-app",
+                "allowed_users": [],
+            },
+        }
+    )
+    assert old.slack.app_token_secret == "kg-slack-app"

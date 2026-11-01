@@ -18,7 +18,7 @@ TOKEN=$(login superadmin "$(superadmin_password)")
 
 deployment_id=$(api GET /llm-gateway/deployments | jq -r --arg m "$MODEL" \
   '[.deployment_list[] | select(.model_name == $m and .is_active)][0].id // empty')
-[ -n "$deployment_id" ] || die "llm-gateway에 활성 배포 $MODEL이 없다. 먼저 등록한다 (환경 설치 가이드 10단계)"
+[ -n "$deployment_id" ] || die "llm-gateway에 활성 배포 ${MODEL}이 없다. 먼저 등록한다 (환경 설치 가이드 10단계)"
 
 org_id=$(api GET /admin/organization | jq -r --arg n "$ORG" '.organization_list[] | select(.name == $n) | .id' | head -1)
 if [ -z "$org_id" ]; then

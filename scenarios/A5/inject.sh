@@ -31,7 +31,7 @@ original=()
 for kv in "${DEFAULTS[@]}"; do
   line="$(grep -E "^${kv%%=*}=" <<<"$current" || true)"
   if [[ -z "$line" ]]; then
-    echo "$NS/Deployment/$DEPLOY에 ${kv%%=*} env가 없다. F1이 적용된 상태에서 주입한다." >&2
+    echo "$NS/Deployment/${DEPLOY}에 ${kv%%=*} env가 없다. F1이 적용된 상태에서 주입한다." >&2
     exit 1
   fi
   original+=("$line")

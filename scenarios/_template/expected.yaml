@@ -8,8 +8,19 @@ allowed_signals: []       # 나와도 되는 장애 신호 (오탐이 아님), �
 forbidden_signals: []     # 나오면 오탐인 장애 신호. ["*"]는 반드시·허용 신호를 뺀 장애 신호 전부 (정상 기준선용)
 # must_check:             # 선택. 조사가 확인해야 할 사실. run|config|wiring|logs 중 해당하는 것만 (기록만, 채점 안 함)
 #   config: "확인할 사실 한 문장"
-# not_a_cause:            # 선택. 원인으로 지목하면 안 되는 것 (기록만, 채점 안 함)
-#   - "원인이 아닌 것 한 문장"
+# expected_cause:         # 1순위 원인으로 받아들이는 리소스 (하나 이상). Deployment는 하위 Pod·ReplicaSet도 인정한다
+#   - {kind: Deployment, name: agent}
+#   - {kind: Pod, name: "${injected_target}"}   # 실행 때 정해지는 원인: inject.sh가 .state/target에 Pod 이름을 기록한다 (소유 관계 규칙 없음)
+# key_evidence:           # 에이전트가 골라 받아야 하는 원인 쪽 근거 1~3개 (증상을 다시 보여 주는 근거는 적지 않는다)
+#   - id: some-fact       # 시나리오 안에서 고유
+#     desc: "사실 한 문장"
+#     obtainable: true    # 현재 도구로 얻을 수 있는가. 확인 방법을 주석으로 남긴다. false면 도구 한계
+#     any_of:             # 하나라도 맞으면 손에 넣은 것: kind 일치 + subject glob + contains(근거 data의 JSON 문자열, 대소문자 무시)
+#       - {kind: log_excerpt, subject: "*/Pod/agent-*", contains: ["문자열1", "문자열2"]}
+# not_a_cause:            # 선택. 원인으로 지목하면 안 되는 것 (문자열은 기록만, resource가 있으면 대조)
+#   - "원인이 아닌 것 한 문장"               # 문자열이면 기록만 한다
+#   - text: "원인이 아닌 것 한 문장"          # resource를 달면 1순위 원인과 대조해 forbidden_cause를 남긴다
+#     resource: {kind: Deployment, name: gateway}
 root_cause: ""            # 정답 원인
 affected_services: []     # 영향 서비스
 expected_top1: ""         # 기대 요약 1순위

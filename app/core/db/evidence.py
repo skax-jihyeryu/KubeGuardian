@@ -2,7 +2,7 @@
 
 import re
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from core.db.tables import EvidenceRow, require_aware
@@ -58,6 +58,27 @@ class EvidenceStore:
             source=row.source,
             data=row.data,
         )
+
+    def list_for_run(self, run_id: int, limit: int = 20) -> list[Evidence]:
+        """한 점검에 묶인 근거를 id 오름차순으로."""
+        stmt = (
+            select(EvidenceRow)
+            .where(EvidenceRow.check_run_id == run_id)
+            .order_by(EvidenceRow.id)
+            .limit(limit)
+        )
+        with Session(self._engine) as s:
+            return [
+                Evidence(
+                    id=format_evidence_id(r.id),
+                    kind=r.kind,
+                    subject=r.subject,
+                    collected_at=r.collected_at,
+                    source=r.source,
+                    data=r.data,
+                )
+                for r in s.scalars(stmt)
+            ]
 
     def check_run_of(self, ev_id: str) -> int | None:
         row = self._row(ev_id)

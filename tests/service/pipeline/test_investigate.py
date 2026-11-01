@@ -153,3 +153,70 @@ def test_build_request_drops_blank_user_symptom(engine):
     out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
 
     assert build_request(out, CONFIG, trigger="investigate", symptom="  ").user_symptom is None
+
+
+# ── 조사 대기열 (#28) ──
+
+
+def test_queue_investigations_puts_request_for_new_incident(engine):
+    from datetime import timedelta
+
+    from core.db import InvestigationQueue
+    from service.model import InvestigationRequest
+    from service.pipeline.investigate import queue_investigations
+
+    out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="schedule", now=NOW)
+    queue_investigations(engine, CONFIG, out, trigger="schedule", now=NOW, symptom="채팅 실패")
+    job = InvestigationQueue(engine).claim(NOW, timedelta(minutes=10))
+
+    assert (job.incident_id, job.check_run_id) == (out.incidents[0].incident_id, out.run_id)
+    request = InvestigationRequest.model_validate(job.request)
+    assert (request.trigger, request.gate_path, request.user_symptom) == (
+        "schedule",
+        "A",
+        "채팅 실패",
+    )
+    assert "S01" in {s.rule_id for ss in request.signal_board.by_service.values() for s in ss}
+
+
+def test_continuing_incident_is_not_requeued(engine):
+    from datetime import timedelta
+
+    from core.db import InvestigationQueue
+    from service.pipeline.investigate import queue_investigations
+
+    queue = InvestigationQueue(engine)
+    for minutes in (0, 5):
+        at = NOW + timedelta(minutes=minutes)
+        out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="schedule", now=at)
+        queue_investigations(engine, CONFIG, out, trigger="schedule", now=at)
+        if minutes == 0:
+            job = queue.claim(at, timedelta(minutes=10))
+            queue.complete(job, "done", None)
+
+    assert queue.claim(NOW + timedelta(minutes=5), timedelta(minutes=10)) is None
+
+
+# ── 판단 수준 (#106) ──
+
+
+def test_run_investigation_attaches_judgement_from_stored_evidence(engine):
+    from tests.test_cli import _scripted
+
+    reader = _reader("s04/localhost")
+    out = run_check(reader, CONFIG, engine, trigger="check", now=NOW)
+    llm = _scripted()  # 역할마다 같은 스크립트를 이어 쓴다
+
+    result = run_investigation(
+        out,
+        CONFIG,
+        engine,
+        run_id="t",
+        llm_factory=lambda m: llm,
+        k8s=reader,
+        http=FakeHttp(),
+    )
+
+    # 스크립트 보고서는 신호판 S04 근거(설정·상태)만 인용하고 원인 리소스 설정은 인용하지 않는다
+    assert result.report.judgement == "candidate"
+    assert result.report.judgement_basis == "원인 리소스 설정 미인용 · 근거 출처 1종(설정·상태)"

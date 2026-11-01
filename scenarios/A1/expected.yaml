@@ -9,6 +9,17 @@ allowed_signals: []
 forbidden_signals: []
 must_check:
   config: "agent Service selector 값과 agent Pod 라벨"
+expected_cause:               # 1순위 원인으로 받아들이는 리소스 (spec §3.1)
+  - {kind: Service, name: agent}
+key_evidence:                 # 에이전트가 골라 받아야 하는 원인 쪽 근거 (spec §3.2). 원인 쪽 사실만 적는다
+  - id: agent-selector-mismatch
+    desc: "agent Service의 selector 값이 agent Pod 라벨과 다르다 (app=agentx)"
+    obtainable: true          # get_resource Service는 spec.selector를 그대로 돌려준다 (2026-10-26 A1 실행 근거로 확인)
+    any_of:
+      - {kind: resource, subject: "*/Service/*", contains: "agentx"}
+not_a_cause:
+  - text: "agent Deployment·Pod는 정상이다 (Pod는 Ready, 원인은 Service selector)"
+    resource: {kind: Deployment, name: agent}
 root_cause: "agent Service의 spec.selector 값 오타로 selector에 맞는 Pod가 없어 엔드포인트가 비었다"
 affected_services: [agent, gateway, front-chat]
 expected_top1: "agent Service selector가 agent Pod 라벨과 맞지 않아 agent로 가는 요청이 전부 실패"

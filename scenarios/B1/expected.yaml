@@ -10,6 +10,16 @@ allowed_signals: []
 forbidden_signals: []
 must_check:
   run: "agent Pod 하나만 HTTP 500을 돌려주고 나머지는 정상"
+expected_cause:
+  - {kind: Pod, name: "${injected_target}"}   # inject.sh가 .state/target에 기록한 Pod. 소유 관계 규칙 없이 정확히 일치해야 한다
+key_evidence:
+  - id: target-pod-500
+    desc: "주입 대상 agent Pod만 상태 확인 요청에 HTTP 500을 돌려준다"
+    obtainable: true          # probe via=pod가 Pod별 호출 결과(calls[].pod·status)를 돌려준다 (2026-10-26 A 실행들의 probe 형식으로 확인).
+                              # Pod 로그는 응답 코드를 바꾸는 tproxy 바깥이라 500이 남지 않을 수 있어 넣지 않는다
+    any_of:
+      - {kind: probe_result, subject: "*/Service/agent", contains: ["${injected_target}", '"status": 500']}
+      - {kind: probe_result, subject: "*/Pod/${injected_target}", contains: '"status": 500'}
 root_cause: "agent Pod 3개 중 1개만 모든 요청에 HTTP 500을 돌려준다 (나머지 Pod는 정상)"
 affected_services: [agent, gateway, front-chat]
 expected_top1: "agent Pod 1개만 HTTP 500을 돌려줘 agent 요청 일부가 실패"

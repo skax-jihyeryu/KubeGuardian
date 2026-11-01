@@ -57,3 +57,15 @@ def test_no_unknown_symptom_is_scored_normally(monkeypatch, tmp_path):
     result = _result(tmp_path)
     assert code == eval_run.EXIT_PASS
     assert "invalid" not in result and result["score"]["passed"]
+
+
+def test_sh_survives_non_utf8_script_output(tmp_path, monkeypatch):
+    scenario = tmp_path / "X1"
+    scenario.mkdir()
+    (scenario / "bad.sh").write_text("printf 'FAIL \\xea\\n' >&2; exit 1\n", encoding="utf-8")
+    monkeypatch.setattr(eval_run, "SCENARIOS", tmp_path)
+
+    r = eval_run.sh("X1", "bad.sh")
+
+    assert r.returncode == 1
+    assert "FAIL" in r.stderr

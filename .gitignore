@@ -30,6 +30,7 @@ build/
 *.sqlite
 *.sqlite3
 eval/history/
+eval/report.md
 eval/runs/
 eval/blind/answers/
 scenarios/*/.state/

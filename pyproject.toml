@@ -16,6 +16,7 @@ dependencies = [
     "opentelemetry-sdk>=1.45.1",
     "pydantic-settings>=2.15.0",
     "pyyaml>=6.0.3",
+    "slack-sdk>=3.33",
     "sqlalchemy>=2.1.4",
     "uvicorn>=0.54.0",
 ]

@@ -24,7 +24,7 @@ fi
 original="$(kubectl -n "$NS" get service "$SVC" -o jsonpath='{.spec.selector}')"
 value="$(kubectl -n "$NS" get service "$SVC" -o jsonpath="{.spec.selector.${KEY//./\\.}}")"
 if [[ -z "$value" ]]; then
-  echo "Service $NS/$SVC selector에 키 $KEY가 없다: $original" >&2
+  echo "Service $NS/$SVC selector에 키 ${KEY}가 없다: $original" >&2
   exit 1
 fi
 

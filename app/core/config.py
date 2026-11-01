@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     AZURE_OPENAI_API_KEY: str = ""
     AZURE_OPENAI_API_VERSION: str = ""
 
+    # Slack 봇 토큰. 클러스터에서는 make kg-up이 .env의 선택 키를 kubeguardian-env Secret에 넣는다.
+    # 비어 있으면 알림은 dry-run(알림 이력에만 기록)
+    SLACK_BOT_TOKEN: str = ""
+
     # 실행 추적 (Phoenix, OpenTelemetry)
     OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
     PHOENIX_PROJECT_NAME: str = "test"  # Phoenix 프로젝트 이름. 실서비스 전까지 test
@@ -31,6 +35,8 @@ class Settings(BaseSettings):
     KG_CONFIG_PATH: str = "kubeguardian.yaml"
     # 시나리오용 테스트 계정 Secret을 마운트한 디렉터리 (<디렉터리>/<Secret 이름>/<키>)
     KG_ACCOUNTS_DIR: str = "/etc/kubeguardian/accounts"
+    # 점검·이슈·대화 이력 SQLite 파일
+    KG_DB_PATH: str = "kubeguardian.db"
 
 
 @lru_cache
@@ -122,13 +128,22 @@ class ReminderPolicy(_Strict):
     max: int = Field(ge=1)  # 리마인더 총 횟수
 
 
+DEFAULT_REPORT_URL = "http://localhost:8000/p/default"
+
+
 class SlackConfig(_Strict):
-    alert_target: str
-    bot_token_secret: str
-    app_token_secret: str
+    """Slack 알림 설정. 명령(슬래시 명령)은 받지 않는다 (10/31, 확장 후보)."""
+
+    alert_target: str  # 채널(#이름) 또는 채널 ID. 앱을 초대해야 보낼 수 있다
+    # 아래 키는 지금 쓰지 않고, 예전 설정 파일이 거부되지 않게 받아만 둔다.
+    # 봇 토큰은 이 Secret 이름이 아니라 환경 변수 SLACK_BOT_TOKEN(kubeguardian-env)으로 읽는다
+    bot_token_secret: str | None = None
+    app_token_secret: str | None = None  # (확장 후보) 명령용
     allowed_channels: list[str] = []
     allowed_users: list[str] = []
     reminders: dict[Literal["critical", "warning"], ReminderPolicy] = {}  # 심각도별 재알림
+    # 알림 링크의 보고서 화면 주소 (UI 정의서 §1.2: <report_url>/checks/{run}, /issues/{id})
+    report_url: str = DEFAULT_REPORT_URL
 
 
 class KnowledgeConfig(_Strict):

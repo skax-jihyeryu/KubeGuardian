@@ -1,4 +1,4 @@
-"""SQLite 테이블. W1: 점검 이력·Evidence·관측 기록. 조사 단계·보고서·알림 이력은 W2~W3에 더한다."""
+"""SQLite 테이블. W1: 점검 이력·Evidence·관측 기록. W3: 점검 잠금·건너뜀, 이후 보고서·알림 이력."""
 
 from datetime import UTC, datetime
 from typing import Any
@@ -62,3 +62,108 @@ class ObservationRow(Base):
     first_seen: Mapped[datetime] = mapped_column(UTCDateTime)
     last_seen: Mapped[datetime] = mapped_column(UTCDateTime)
     values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class CheckLockRow(Base):
+    """점검 동시 실행 1건 잠금 (UI 정의서 §6.5). 행은 id=1 하나만 쓴다."""
+
+    __tablename__ = "check_lock"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(String(32))  # 잡은 쪽만 놓을 수 있게 하는 값
+    trigger: Mapped[str] = mapped_column(String(16))
+    run_id: Mapped[int | None] = mapped_column()  # 점검 이력을 만든 뒤 붙인다
+    acquired_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+
+class CheckSkipRow(Base):
+    """잠금 때문에 건너뛴 점검. check_run에 열을 더하지 않는다 (기존 DB에 열이 추가되지 않음)."""
+
+    __tablename__ = "check_skip"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    skipped_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    trigger: Mapped[str] = mapped_column(String(16))
+    holder_trigger: Mapped[str] = mapped_column(String(16))
+    holder_run_id: Mapped[int | None] = mapped_column()
+
+
+class IncidentRow(Base):
+    """이슈 (기획서 §6.6). 장애 신호·증상이 이어지는 동안 하나로 묶이는 단위. 화면 용어는 이슈."""
+
+    __tablename__ = "incident"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), index=True)  # open / resolved
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    detail: Mapped[dict[str, Any]] = mapped_column(JSON)  # 지문 구성 요소·영향 기능·해결 판정 대상
+    first_severity: Mapped[str | None] = mapped_column(String(16))  # 1차 (3값)
+    final_severity: Mapped[str | None] = mapped_column(String(32))  # 보고서 impact (4값)
+    investigation: Mapped[str | None] = mapped_column(String(16))  # pending → (작업자가) done 등
+    opened_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_reminder_at: Mapped[datetime | None] = mapped_column(UTCDateTime)  # #27
+    slack_ts: Mapped[str | None] = mapped_column(String(32))  # #27: 1차 알림 메시지 ID
+
+
+class IncidentCheckRow(Base):
+    """점검 ↔ 이슈 (다대다). action: opened / continued / changed / seen / resolved."""
+
+    __tablename__ = "incident_check"
+
+    incident_id: Mapped[int] = mapped_column(ForeignKey("incident.id"), primary_key=True)
+    check_run_id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    action: Mapped[str] = mapped_column(String(16))
+
+
+class AlertRow(Base):
+    """알림 이력 (기획서 §6.6). dry-run이면 보내지 않고 본문만 남긴다. 평가 러너가 시각을 읽는다."""
+
+    __tablename__ = "alert"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    incident_id: Mapped[int | None] = mapped_column(ForeignKey("incident.id"), index=True)
+    # M1 / M1u(갱신) / M9 / M2 / M3 / M7. TEST는 kg slack-test가 남긴 연결 확인(실제 알림 아님)
+    kind: Mapped[str] = mapped_column(String(8))
+    channel: Mapped[str] = mapped_column(String(128))
+    ts: Mapped[str | None] = mapped_column(String(32))  # Slack 메시지 ID (실패면 None)
+    thread_ts: Mapped[str | None] = mapped_column(String(32))
+    text: Mapped[str] = mapped_column(String)
+    sent_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    dry_run: Mapped[bool] = mapped_column(default=False)
+    error: Mapped[str | None] = mapped_column(String(512))
+
+
+class ChatMessageRow(Base):
+    """이력 질의 대화 턴. text는 마스킹된 본문, answer는 assistant의 ChatAnswer."""
+
+    __tablename__ = "chat_message"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String(32), index=True)
+    role: Mapped[str] = mapped_column(String(16))  # user / assistant
+    text: Mapped[str] = mapped_column(String)
+    answer: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+
+class InvestigationQueueRow(Base):
+    """조사 대기열: 이슈마다 최신 조사 요청 하나 (점검 시점의 신호판·토폴로지, #28).
+
+    diagnostic-agent 작업자가 claim으로 집고, 끝나면 지운다. 지문이 바뀌면 새 요청으로 덮는다.
+    """
+
+    __tablename__ = "investigation_queue"
+
+    incident_id: Mapped[int] = mapped_column(ForeignKey("incident.id"), primary_key=True)
+    check_run_id: Mapped[int] = mapped_column()  # 요청을 만든 점검 (근거가 이 점검에 쌓인다)
+    request: Mapped[dict[str, Any]] = mapped_column(JSON)  # InvestigationRequest
+    queued_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    claim_token: Mapped[str | None] = mapped_column(String(32))
+    claimed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

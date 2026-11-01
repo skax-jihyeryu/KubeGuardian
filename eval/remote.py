@@ -170,7 +170,9 @@ class RemoteRunner:
     def _kubectl(self, *args: str, timeout: int = 60) -> subprocess.CompletedProcess:
         cmd = ["kubectl", "-n", NAMESPACE, *args]
         try:
-            return self._run(cmd, capture_output=True, text=True, timeout=timeout)
+            return self._run(
+                cmd, capture_output=True, encoding="utf-8", errors="replace", timeout=timeout
+            )
         except subprocess.TimeoutExpired as e:
             raise RemoteTimeout(f"kubectl 시간 초과 ({timeout}초): {args[0]}") from e
 

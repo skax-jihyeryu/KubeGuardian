@@ -219,6 +219,7 @@ def _run_in_cluster(
     stub_hook=None,
     symptom_ok=True,
     condition="rules",
+    ai_repeats=1,
 ):
     import run as run_mod
 
@@ -246,7 +247,9 @@ def _run_in_cluster(
         stub_hook(stub)
     stub.events = events  # reset.sh와 fetch의 순서를 한 목록으로 본다
     monkeypatch.setattr(run_mod, "RemoteRunner", lambda name: stub)
-    code = run_mod.run(scenario, str(cfg), 1, 300, 2700, condition, in_cluster=True)
+    code = run_mod.run(
+        scenario, str(cfg), 1, 300, 2700, condition, in_cluster=True, ai_repeats=ai_repeats
+    )
     result = json.loads(next((tmp_path / "history").glob("*/result.json")).read_text())
     return code, result, stub
 
@@ -366,7 +369,33 @@ def test_ai_path_records_the_trace_id_from_the_pod(tmp_path, monkeypatch):
     monkeypatch.setattr(run_mod, "build_chat_model", lambda *a, **k: None)
     _, result, _ = _run_in_cluster(tmp_path, monkeypatch, "H0", stub_hook=hook, condition="ai")
 
-    assert result["ai"]["trace_id"] == "0af7651916cd43dd8448eb211c80319c"
+    assert result["ai_runs"][0]["trace_id"] == "0af7651916cd43dd8448eb211c80319c"
+
+
+def test_one_invalid_round_does_not_invalidate_the_whole_run_result(tmp_path, monkeypatch):
+    import run as run_mod
+
+    calls = []
+
+    def score_layers(ai, *a, **k):
+        calls.append(ai)
+        if len(calls) == 2:
+            raise ValueError("근거 id가 DB에 없음")
+
+    monkeypatch.setattr(run_mod, "build_chat_model", lambda *a, **k: None)
+    monkeypatch.setattr(run_mod, "score_layers", score_layers)
+
+    def hook(stub):
+        stub.investigate = lambda check_run_id, run_id: (None, None)
+
+    code, result, _ = _run_in_cluster(
+        tmp_path, monkeypatch, "H0", stub_hook=hook, condition="ai", ai_repeats=3
+    )
+
+    assert code == run_mod.EXIT_INVALID  # 종료 코드는 하나라도 무효면 2
+    assert "invalid" not in result  # 실행 단위 사유가 아니다
+    assert [bool(r.get("invalid")) for r in result["ai_runs"]] == [False, True, False]
+    assert result["invalid_runs"] == [1]
 
 
 def test_describe_reports_image_id_and_config_resource_version():

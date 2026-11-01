@@ -23,7 +23,7 @@ from core.guard.budget import Budget, BudgetTracker
 from core.guard.redact import redact_mapping, redact_text
 from core.log.logging import get_logging
 from service.agent._common.usage import UsageTracker
-from service.model import InvestigationRequest, Report
+from service.model import ChatAnswer, ChatRequest, InvestigationRequest, Report
 from service.tools.base import EvidenceSink, Tool, ToolContext
 
 AgentStatus = Literal["done", "incomplete", "failed"]  # 완료 / 상한 도달(부분 결과) / 실패
@@ -79,6 +79,7 @@ class Usage(BaseModel):
 class AgentResult(BaseModel):
     status: AgentStatus
     report: Report | None = None
+    answer: ChatAnswer | None = None  # 이력 질의(history_qa)의 답
     steps: list[AgentStep] = []
     usage: Usage = Usage()
     error: str | None = None  # failed일 때 사유 (마스킹)
@@ -132,7 +133,7 @@ class BaseAgent(ABC):
             s.args, s.detail = redact_mapping(s.args), redact_mapping(s.detail)
             self.ctx.steps.record(s)
 
-    def run(self, request: InvestigationRequest) -> AgentResult:
+    def run(self, request: InvestigationRequest | ChatRequest) -> AgentResult:
         try:
             result = self._run(request)
         except Exception as e:
@@ -154,4 +155,4 @@ class BaseAgent(ABC):
         return result
 
     @abstractmethod
-    def _run(self, request: InvestigationRequest) -> AgentResult: ...
+    def _run(self, request: InvestigationRequest | ChatRequest) -> AgentResult: ...

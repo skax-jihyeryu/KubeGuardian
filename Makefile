@@ -1,4 +1,4 @@
-.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix eval kg-build kg-up kg-down kg-cron-suspend kg-cron-resume kg-cron-run
+.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix eval eval-batch eval-report kg-build kg-up kg-down kg-cron-suspend kg-cron-resume kg-cron-run
 
 # 진단 대상(템플릿 포크) 위치. 포크 6개 + shared-infra가 이 아래에 있어야 한다.
 TARGET_DIR ?= $(HOME)/Cursor/kg-target
@@ -107,6 +107,17 @@ eval:  ## 시나리오 하나 평가 (주입 → 증상 확인 → 점검·게�
 	@test -n "$(S)" || { echo "S=<시나리오 ID>가 필요하다. 예: make eval S=A5"; exit 2; }
 	uv run python eval/run.py $(S) --config $(EVAL_CONFIG) $(ARGS)
 
+eval-batch:  ## 시나리오 여러 개를 한 묶음으로 평가하고 리포트 생성. 예: make eval-batch B=w3 S="A1 A3 A5" ARGS="--condition ai --ai-repeats 3"
+	@test -n "$(B)" -a -n "$(S)" || { echo "B=<묶음 이름>, S=\"<시나리오 ID들>\"가 필요하다. 예: make eval-batch B=w3 S=\"A1 A3\""; exit 2; }
+	@for s in $(S); do \
+		uv run python eval/run.py $$s --config $(EVAL_CONFIG) --batch $(B) $(ARGS) || true; \
+	done
+	@$(MAKE) eval-report B=$(B) BASE=$(BASE)
+
+eval-report:  ## 묶음 결과를 모아 eval/report.md 생성. 예: make eval-report B=w3 BASE=w2
+	@test -n "$(B)" || { echo "B=<묶음 이름>이 필요하다. 예: make eval-report B=w3"; exit 2; }
+	uv run python eval/report.py $(B) $(if $(BASE),--baseline $(BASE))
+
 kg-build:  ## KubeGuardian runner 이미지를 minikube 노드의 docker에 빌드
 	@for img in python:3.12-slim ghcr.io/astral-sh/uv:0.9.13; do minikube ssh -- docker pull -q $$img >/dev/null || exit 1; done
 	@eval $$(minikube docker-env) && docker build -q -t kubeguardian:local .
@@ -115,8 +126,10 @@ kg-build:  ## KubeGuardian runner 이미지를 minikube 노드의 docker에 빌�
 KG_NS := kubeguardian
 KG_ENV_KEYS := LLM_PROVIDER|AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_API_KEY|AZURE_OPENAI_API_VERSION
 KG_ENV_COUNT := 4
+# 선택 키: 없으면 알림은 dry-run (#27)
+KG_ENV_OPTIONAL := SLACK_BOT_TOKEN
 
-kg-up: kg-build ca  ## runner Pod와 주기 점검 CronJob 기동 (kubeguardian 네임스페이스, 이미지·Secret·ConfigMap·CA 포함)
+kg-up: kg-build ca  ## runner Pod, 주기 점검 CronJob, 조사 작업자(diagnostic-agent) 기동 (kubeguardian 네임스페이스, 이미지·Secret·ConfigMap·CA 포함)
 	@kubectl get ns $(KG_NS) >/dev/null 2>&1 || kubectl create ns $(KG_NS)
 	kubectl apply -f deploy/kubeguardian/rbac.yaml
 	@# 비밀값은 .env에서 필요한 키만 골라 Secret으로 만든다. 값은 출력하지 않는다.
@@ -124,6 +137,7 @@ kg-up: kg-build ca  ## runner Pod와 주기 점검 CronJob 기동 (kubeguardian 
 	@set -o pipefail; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
 	grep -E '^($(KG_ENV_KEYS))=' .env > "$$tmp"; n=$$(wc -l < "$$tmp" | tr -d ' '); \
 	if [ "$$n" != "$(KG_ENV_COUNT)" ]; then echo "키 $$n/$(KG_ENV_COUNT): .env에 필요한 키가 모자라거나 겹친다 (값은 출력하지 않음)"; exit 1; fi; \
+	grep -E '^($(KG_ENV_OPTIONAL))=.+' .env >> "$$tmp" || true; \
 	kubectl -n $(KG_NS) create secret generic kubeguardian-env --from-env-file="$$tmp" --dry-run=client -o yaml \
 	  | kubectl apply --server-side --force-conflicts -f - >/dev/null && echo "secret/kubeguardian-env applied"
 	@# 예전 client-side apply가 남긴 annotation(값 포함)을 지운다. 없으면 무시한다.
@@ -137,15 +151,22 @@ kg-up: kg-build ca  ## runner Pod와 주기 점검 CronJob 기동 (kubeguardian 
 	if [ -n "$$existed" ]; then kubectl -n $(KG_NS) rollout restart deployment/kg-runner; fi
 	kubectl -n $(KG_NS) rollout status deployment/kg-runner --timeout=180s
 	kubectl apply -f deploy/kubeguardian/cronjob.yaml
+	@# 조사 작업자. 이미지 태그가 같아 다시 빌드해도 Pod가 바뀌지 않으므로 재시작한다
+	@existed=$$(kubectl -n $(KG_NS) get deployment diagnostic-agent -o name 2>/dev/null); \
+	kubectl apply -f deploy/kubeguardian/diagnostic-agent.yaml || exit 1; \
+	if [ -n "$$existed" ]; then kubectl -n $(KG_NS) rollout restart deployment/diagnostic-agent; fi
+	kubectl -n $(KG_NS) rollout status deployment/diagnostic-agent --timeout=180s
 
-kg-down:  ## runner Pod·Secret·ConfigMap 삭제 (RBAC·Phoenix는 남김)
-	kubectl -n $(KG_NS) delete deployment/kg-runner secret/kubeguardian-env configmap/kubeguardian-config configmap/kubeguardian-ca --ignore-not-found
+kg-down:  ## runner Pod·작업자·Secret·ConfigMap 삭제 (RBAC·Phoenix·CronJob·점검 DB PVC는 남김)
+	kubectl -n $(KG_NS) delete deployment/kg-runner deployment/diagnostic-agent secret/kubeguardian-env configmap/kubeguardian-config configmap/kubeguardian-ca --ignore-not-found
 
-kg-cron-suspend:  ## 주기 점검 CronJob 일시 중지 (평가 중 부하·LLM 호출을 피한다)
+kg-cron-suspend:  ## 주기 점검 CronJob 일시 중지 (평가 중 부하·LLM 호출을 피한다). 작업자도 멈춰 M7을 막는다
 	kubectl -n $(KG_NS) patch cronjob/kg-check -p '{"spec":{"suspend":true}}'
+	kubectl -n $(KG_NS) scale deployment/diagnostic-agent --replicas=0
 
-kg-cron-resume:  ## 주기 점검 CronJob 재개
+kg-cron-resume:  ## 주기 점검 CronJob과 작업자 재개
 	kubectl -n $(KG_NS) patch cronjob/kg-check -p '{"spec":{"suspend":false}}'
+	kubectl -n $(KG_NS) scale deployment/diagnostic-agent --replicas=1
 
 kg-cron-run:  ## 주기 점검을 지금 1회 실행 (CronJob에서 Job 생성)
 	kubectl -n $(KG_NS) create job --from=cronjob/kg-check kg-check-$$(date +%Y%m%d%H%M%S)

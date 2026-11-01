@@ -8,6 +8,21 @@ allowed_signals: []
 forbidden_signals: []
 must_check:
   wiring: "로그인 요청이 응답 대기 끝에 시간 초과(504)로 실패"
+expected_cause:
+  - {kind: Deployment, name: admin}
+  - {kind: Deployment, name: redis}
+key_evidence:
+  - id: admin-redis-connect-fail
+    desc: "admin 로그에 redis 연결 실패·시간 초과가 남는다"
+    # obtainable: false. 2026-10-21~26 C2 실행 5회 중 kg.db가 남은 2회(20261026T024945Z, 20261026T060504Z)의
+    # evidence(subject */Pod/admin-*, 100줄)에 redis·connect·timeout 줄이 없다. 연결이 걸려 멈춰 오류 줄이 안 남는다.
+    # 도구가 이 사실을 돌려주지 못한다 → 도구 한계 시나리오 (F1)
+    obtainable: false
+    any_of:
+      - {kind: log_excerpt, subject: "*/Pod/admin-*", contains: redis}
+not_a_cause:
+  - text: "gateway는 정상이다 (admin 응답을 기다리다 504를 낼 뿐)"
+    resource: {kind: Deployment, name: gateway}
 root_cause: "admin에서 redis로 가는 네트워크가 차단되어 admin이 로그인 세션을 Redis에 저장하지 못하고 멈춘다"
 affected_services: [admin, gateway, front-chat, front-admin]
 expected_top1: "admin → Redis 연결 차단으로 로그인이 시간 초과(5xx)로 실패, Pod는 전부 Ready"

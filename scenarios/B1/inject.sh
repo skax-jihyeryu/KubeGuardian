@@ -47,4 +47,12 @@ if [[ "$injected" != True ]]; then
   exit 1
 fi
 pod="$(kubectl -n "$CHAOS_NS" get httpchaos "$NAME" -o jsonpath='{.status.experiment.containerRecords[0].id}')"
+pod="${pod##*/}"  # containerRecords id는 ns/pod 형식이다. 접두사를 뗀다
+if [[ -z "$pod" ]]; then
+  echo "주입 대상 Pod를 읽지 못함: $CHAOS_NS/HTTPChaos/$NAME containerRecords" >&2
+  exit 1
+fi
+# 채점기가 정답 파일의 ${injected_target}을 이 값으로 바꾼다 (진단 대상 밖, 커밋하지 않음)
+mkdir -p "$(dirname "$0")/.state"
+printf '%s\n' "$pod" >"$(dirname "$0")/.state/target"
 echo "B1 주입: $pod 응답 코드 → 500 ($CHAOS_NS/HTTPChaos/$NAME)"

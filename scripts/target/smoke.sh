@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.."
 TARGET_SVC=front-chat-svc:80 TARGET_PORT=${TARGET_PORT:-18081}
 source scripts/target/lib.sh
 
-[ -f "$TEST_ENV" ] || die "$TEST_ENV가 없다. make seed를 먼저 실행한다"
+[ -f "$TEST_ENV" ] || die "${TEST_ENV}가 없다. make seed를 먼저 실행한다"
 source "$TEST_ENV"
 MODEL=${TARGET_MODEL:-gpt-4.1}
 
