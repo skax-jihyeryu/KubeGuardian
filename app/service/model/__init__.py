@@ -10,6 +10,7 @@ from service.model.gate import GatePath, GateResult, Symptom
 from service.model.investigation import InvestigationRequest, Trigger
 from service.model.report import (
     AREAS,
+    JUDGEMENT_LABEL,
     Area,
     AreaCoverage,
     Confidence,
@@ -20,6 +21,7 @@ from service.model.report import (
     HypothesisStatus,
     Impact,
     Issue,
+    Judgement,
     Report,
     ResourceRef,
     severity_for,
@@ -38,6 +40,8 @@ __all__ = [
     "ChatTurn",
     "ClusterSnapshot",
     "Confidence",
+    "JUDGEMENT_LABEL",
+    "Judgement",
     "Coverage",
     "CoverageStatus",
     "EdgeStatus",

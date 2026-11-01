@@ -210,6 +210,10 @@ def investigate_and_judge(
     if verdict.match is None:
         ai["invalid"] = verdict.reason or "채점 실패"
     ai["conclusion_supported"] = result.report.conclusion_supported
+    # 판단 수준(코드)과 LLM 확신도를 함께 남겨 W4에서 각각의 정답률을 잰다 (#106)
+    ai["judgement"] = result.report.judgement
+    ai["judgement_basis"] = result.report.judgement_basis
+    ai["llm_confidence"] = result.report.confidence
     validate = next((s for s in result.steps if s.node == "validate"), None)
     ai["demoted"] = list(validate.detail.get("demoted", [])) if validate else []
     if ai["legacy_passed"] and not ai["conclusion_supported"]:

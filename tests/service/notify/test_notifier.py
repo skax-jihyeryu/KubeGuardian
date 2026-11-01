@@ -97,6 +97,8 @@ def _report(**kw):
             }
         ],
         "actions": ["Service agent의 selector를 app=agent로 고친다"],
+        "judgement": "confirmed",
+        "judgement_basis": "원인 리소스 설정 인용 · 근거 출처 2종(로그, 설정·상태)",
     }
     return Report.model_validate({**base, **kw})
 
@@ -133,7 +135,9 @@ def test_investigation_updates_first_alert_and_replies(env):
     [up] = sender.updates
     assert up["ts"] == "ts-1"
     assert "원인: agent Service selector가 Pod 라벨과 다름" in up["text"]
-    assert "조치: Service agent의 selector" in up["text"] and "확신도 높음" in up["text"]
+    assert "조치: Service agent의 selector" in up["text"] and "(판단 확정)" in up["text"]
+    assert "판단: 확정 (원인 리소스 설정 인용 · 근거 출처 2종(로그, 설정·상태))" in up["text"]
+    assert "확신도" not in up["text"]  # LLM 확신도는 알림에 쓰지 않는다
     reply = sender.posts[-1]
     assert reply["thread"] == "ts-1" and reply["text"].startswith("원인을 확인했습니다")
 
@@ -336,3 +340,51 @@ def test_reminder_and_recovery_measure_outage_from_incident_open(env):
     check([_sig(verdict="passed")], NOW + timedelta(minutes=40))
 
     assert "31분째" in sender.posts[1]["text"] and "약 40분" in sender.posts[2]["text"]
+
+
+# ── 판단 수준 (#106) ──
+
+
+@pytest.mark.parametrize(
+    ("judgement", "title", "reply"),
+    [
+        ("candidate", "(판단 후보)", "원인 후보를 찾았습니다"),
+        ("guess", "(판단 추정)", "조사를 마쳤지만 원인을 확정하지 못했습니다"),
+    ],
+)
+def test_candidate_and_guess_are_shown_as_such(env, judgement, title, reply):
+    engine, sender, check = env
+    [c] = check([_sig()], NOW)
+
+    Notifier(engine, CONFIG, sender).after_investigation(
+        c.incident_id, 1, AgentResult(status="done", report=_report(judgement=judgement)), NOW
+    )
+
+    assert title in sender.updates[0]["text"]
+    assert sender.posts[-1]["text"].startswith(reply)
+
+
+def test_unjudged_report_is_not_announced_as_confirmed(env):
+    engine, sender, check = env
+    [c] = check([_sig()], NOW)
+
+    Notifier(engine, CONFIG, sender).after_investigation(
+        c.incident_id, 1, AgentResult(status="done", report=_report(judgement=None)), NOW
+    )
+
+    assert "판단" not in sender.updates[0]["text"].splitlines()[0]
+    assert sender.posts[-1]["text"].startswith("원인 후보를 찾았습니다")
+    assert "확정" not in sender.posts[-1]["text"]
+
+
+def test_incomplete_confirmed_does_not_say_act_now(env):
+    engine, sender, check = env
+    [c] = check([_sig()], NOW)
+
+    Notifier(engine, CONFIG, sender).after_investigation(
+        c.incident_id, 1, AgentResult(status="incomplete", report=_report()), NOW
+    )
+
+    text = sender.updates[0]["text"]
+    assert text.startswith("⚠️ 조사 미완") and "조치를 바로 실행해도 됩니다" not in text
+    assert "조사가 끝나지 않았습니다" in text

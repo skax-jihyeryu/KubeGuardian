@@ -53,6 +53,21 @@ def test_ai_block_records_demoted_from_validate_step():
     assert ai["conclusion_supported"] is True
 
 
+def test_ai_block_records_judgement_and_llm_confidence():
+    result = _result()
+    result.report = result.report.model_copy(
+        update={
+            "judgement": "candidate",
+            "judgement_basis": "원인 리소스 미조회 · 근거 출처 1종(설정·상태)",
+        }
+    )
+
+    ai, _, _ = _run(result)
+
+    assert (ai["judgement"], ai["llm_confidence"]) == ("candidate", "high")
+    assert ai["judgement_basis"].startswith("원인 리소스 미조회")
+
+
 def _run(result, judge_result=None, expected=None):
     judge_result = judge_result or JudgeResult(match=True, reason="같은 원인")
     judged = []
