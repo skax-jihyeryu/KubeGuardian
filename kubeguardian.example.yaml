@@ -41,7 +41,7 @@ app_apis: {}
 slack:
   alert_target: "#pr-service-ops"
   report_url: http://localhost:8000/p/default   # 알림 링크의 보고서 화면 주소 (port-forward 기준)
-  bot_token_secret: kg-slack-bot   # 봇 토큰(chat:write). 값은 .env의 SLACK_BOT_TOKEN → kubeguardian-env
+  # 봇 토큰(chat:write)은 여기 적지 않는다. .env의 SLACK_BOT_TOKEN → make kg-up → kubeguardian-env
   reminders:
     critical: {first_after: 30m, then_every: 2h, max: 3}
     warning: {first_after: 2h, max: 1}

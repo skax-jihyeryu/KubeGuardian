@@ -97,13 +97,13 @@ class Notifier:
         reply = "스레드 답글 확인 (복구·리마인더 알림과 같은 방식)"
         if self._post("TEST", None, reply, now, thread=ts, broadcast=True) is None:
             return self._last_error
+        edited = text + "\n✅ 메시지 수정 확인 (원인 갱신과 같은 방식)"
         error = None
         try:
-            self._sender.update(
-                self._channel, ts, text + "\n✅ 메시지 수정 확인 (원인 갱신과 같은 방식)"
-            )
+            self._sender.update(self._channel, ts, edited)
         except ServiceException as e:
             error = e.detail or e.error_code.name
+        self._record("TEST", None, edited, now, ts=ts, thread=None, error=error)  # 수정도 이력에
         return error
 
     def check_stalled(self, now: datetime) -> bool:

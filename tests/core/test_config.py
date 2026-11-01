@@ -115,7 +115,7 @@ def test_slack_needs_only_alert_target():
     config = KubeGuardianConfig.model_validate(
         {"target": {"namespace": "dev"}, "slack": {"alert_target": "#ops"}}
     )
-    assert config.slack.app_token_secret is None and config.slack.bot_token_secret == "kg-slack-bot"
+    assert config.slack.app_token_secret is None and config.slack.bot_token_secret is None
 
     old = KubeGuardianConfig.model_validate(
         {

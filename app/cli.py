@@ -228,6 +228,9 @@ SLACK_HINTS = {
     "not_authed": "SLACK_BOT_TOKEN이 비어 있습니다",
     "missing_scope": "앱의 Bot Token Scopes에 chat:write를 추가하고 다시 설치하세요",
     "account_inactive": "토큰의 앱이 삭제됐거나 워크스페이스에서 제거됐습니다",
+    "token_revoked": "토큰이 취소됐습니다. 앱을 다시 설치해 새 봇 토큰을 받으세요",
+    "is_archived": "알림 채널이 보관(archive)됐습니다. slack.alert_target을 바꾸세요",
+    "ratelimited": "Slack 호출 한도에 걸렸습니다. 잠시 뒤 다시 실행하세요",
 }
 
 

@@ -613,16 +613,20 @@ def _slack_config(tmp_path):
 class RecordingSender:
     dry_run = False
 
-    def __init__(self, fail=None):
+    def __init__(self, fail=None, fail_reply=None, fail_update=None):
         self.calls, self.fail = [], fail
+        self.fail_reply, self.fail_update = fail_reply, fail_update
 
     def post(self, channel, text, *, thread_ts=None, broadcast=False):
-        if self.fail:
-            raise ServiceException(ErrorCode.NOTIFY_FAILED, self.fail)
+        error = self.fail_reply if thread_ts else self.fail
+        if error:
+            raise ServiceException(ErrorCode.NOTIFY_FAILED, error)
         self.calls.append(("post", channel, thread_ts, broadcast))
         return "1.1" if thread_ts is None else "1.2"
 
     def update(self, channel, ts, text):
+        if self.fail_update:
+            raise ServiceException(ErrorCode.NOTIFY_FAILED, self.fail_update)
         self.calls.append(("update", channel, ts))
 
 
@@ -663,3 +667,20 @@ def test_slack_test_without_token_says_dry_run(tmp_path, capsys):
     assert _slack_test(tmp_path, DryRunSender()) == 2
 
     assert "SLACK_BOT_TOKEN" in capsys.readouterr().err
+
+
+def test_slack_test_reports_reply_and_edit_failures_and_records_them(tmp_path, capsys):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from core.db import create_db_engine
+    from core.db.tables import AlertRow
+
+    assert _slack_test(tmp_path, RecordingSender(fail_reply="not_in_channel")) == 1
+    assert "not_in_channel" in capsys.readouterr().err
+
+    assert _slack_test(tmp_path, RecordingSender(fail_update="cant_update_message")) == 1
+    assert "cant_update_message" in capsys.readouterr().err
+    with Session(create_db_engine(str(tmp_path / "kg.db"))) as s:
+        errors = list(s.scalars(select(AlertRow.error).where(AlertRow.kind == "TEST")))
+    assert errors[-1] == "cant_update_message"  # 수정 실패도 알림 이력에 남는다
