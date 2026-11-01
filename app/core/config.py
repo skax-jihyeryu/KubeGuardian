@@ -132,9 +132,14 @@ DEFAULT_REPORT_URL = "http://localhost:8000/p/default"
 
 
 class SlackConfig(_Strict):
-    alert_target: str
-    bot_token_secret: str
-    app_token_secret: str
+    """Slack 알림 설정. 명령(슬래시 명령)은 받지 않는다 (10/31, 확장 후보)."""
+
+    alert_target: str  # 채널(#이름) 또는 채널 ID. 앱을 초대해야 보낼 수 있다
+    bot_token_secret: str = (
+        "kg-slack-bot"  # 봇 토큰(chat:write) Secret. 값은 SLACK_BOT_TOKEN으로 읽는다
+    )
+    # (확장 후보) 명령용 키. 지금은 쓰지 않고, 예전 설정 파일이 거부되지 않게 받아만 둔다
+    app_token_secret: str | None = None
     allowed_channels: list[str] = []
     allowed_users: list[str] = []
     reminders: dict[Literal["critical", "warning"], ReminderPolicy] = {}  # 심각도별 재알림
