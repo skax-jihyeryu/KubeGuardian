@@ -157,3 +157,11 @@ def stalled(namespace: str, last_run_at: datetime, at: datetime, url: str) -> st
         f"(마지막 점검 {hhmm(last_run_at)})\n"
         f"점검 이력: {url}/checks"
     )
+
+
+def connection_test(namespace: str, at: datetime) -> str:
+    """kg slack-test: 알림 경로 확인용. 실제 알림과 같은 방식(부모 → 스레드 → 수정)으로 보낸다."""
+    return (
+        f"🔧 [KubeGuardian] {namespace} — Slack 알림 연결 확인 ({hhmm(at)}). "
+        "이 메시지는 무시해도 됩니다."
+    )

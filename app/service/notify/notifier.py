@@ -48,6 +48,7 @@ class Notifier:
         self._ns = config.target.namespace
         self.dry_run = sender.dry_run
         self.sent: list[str] = []  # 이번에 보낸(또는 기록한) 메시지 종류, 출력용
+        self._last_error: str | None = None
 
     def after_check(
         self, run_id: int, gate: GateResult, changes: list[IncidentChange], now: datetime
@@ -86,6 +87,24 @@ class Notifier:
             return
         self._update("M1u", incident, thread, text, now)
         self._post("M9", incident.id, messages.cause_reply(status, report), now, thread=thread)
+
+    def connection_test(self, now: datetime) -> str | None:
+        """실제 알림처럼 새 메시지, 스레드·채널 답글, 수정을 보낸다. 실패 사유나 None."""
+        text = messages.connection_test(self._ns, now)
+        ts = self._post("TEST", None, text, now)
+        if ts is None:
+            return self._last_error
+        reply = "스레드 답글 확인 (복구·리마인더 알림과 같은 방식)"
+        if self._post("TEST", None, reply, now, thread=ts, broadcast=True) is None:
+            return self._last_error
+        edited = text + "\n✅ 메시지 수정 확인 (원인 갱신과 같은 방식)"
+        error = None
+        try:
+            self._sender.update(self._channel, ts, edited)
+        except ServiceException as e:
+            error = e.detail or e.error_code.name
+        self._record("TEST", None, edited, now, ts=ts, thread=None, error=error)  # 수정도 이력에
+        return error
 
     def check_stalled(self, now: datetime) -> bool:
         """마지막 점검이 STALL_AFTER보다 오래됐으면 M7을 한 번 보낸다. 보냈으면 True."""
@@ -177,6 +196,7 @@ class Notifier:
         thread: str | None,
         error: str | None,
     ) -> None:
+        self._last_error = error
         self.sent.append(kind if error is None else f"{kind} 실패({error})")
         self._alerts.add(
             kind=kind,

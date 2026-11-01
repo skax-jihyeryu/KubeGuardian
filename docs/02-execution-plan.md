@@ -52,13 +52,13 @@ F 목록 밖 수정은 기동에 꼭 필요한 것만 했다: frontend `pnpm@9`,
 ```text
 KubeGuardian/
 ├── app/                       # Python 루트 (import는 app/ 기준: from core.config import ...). 템플릿 backend-agent 규약: api / service / core
-│   ├── main.py                # FastAPI 앱 진입 (보고서 화면 + Slack Socket Mode 시작)
+│   ├── main.py                # FastAPI 앱 진입 (보고서 화면)
 │   ├── cli.py                 # kg check / investigate / report / evidence / alerts (CronJob·평가 러너 진입)
 │   ├── api/                   # ── 진입점: 요청을 받아 service를 호출 ──
 │   │   ├── routes/            #   보고서 화면 라우트 P1~P5, 점검 실행 (UI 정의서 §6.6)
 │   │   ├── templates/         #   Jinja2 템플릿, HTMX 조각
 │   │   ├── schemas/           #   요청·응답·화면 표시 모델
-│   │   └── slack/             #   Socket Mode 명령 수신 (/kg check·investigate)
+│   │   └── slack/             #   (확장 후보) Slack 명령 수신. 10/31 제외
 │   ├── service/               # ── 업무 로직: 기능별 하위 패키지 ──
 │   │   ├── model/             #   도메인 모델 (§1.3): ClusterSnapshot, Evidence, Signal, SignalBoard, GateResult, InvestigationRequest, Issue, Hypothesis, Report
 │   │   ├── pipeline/          #   점검 실행 흐름 (점검 → 게이트 → 조사 → 저장 → 알림), 동시 실행 제한
@@ -106,7 +106,7 @@ KubeGuardian/
 **나누는 기준**: 외부 요청을 받는 진입점(화면·Slack)은 `api/`, 기능 로직은 `service/` 아래 기능별 패키지, 여러 기능이 같이 쓰는 기반(설정·저장소·K8s 클라이언트·가드레일·추적)은 `core/`에 둔다. 주기 점검(CronJob → `cli.py`), Slack 명령, 화면의 점검 실행, 평가 러너는 모두 `service/pipeline/`의 같은 함수를 호출한다. `service/checks`·`sensors`·`tools`는 에이전트 프레임워크에 묶이지 않는 일반 Python 모듈로 둔다 (기획서 §6.1).
 
 - Python 앱이 하나뿐이라 `apps/<이름>/` 단계 없이 레포 루트에 `app/`·`tests/`를 둔다 (템플릿 backend-agent와 같음). 실행은 `cd app && python main.py`, 테스트는 pytest `pythonpath`로 맞춘다.
-- **배포 단위는 Deployment 1개(FastAPI 보고서 화면 + Slack Socket Mode) + CronJob 1개(주기 점검)**다. 같은 이미지·같은 SQLite(PVC)를 쓰고 실행 명령만 다르다. Slack 알림 발송은 Web API 호출이라 결과를 만든 쪽이 직접 보낸다. 명령 수신과 조사 실행을 한 Deployment에 두는 분리 조건(조사로 인한 수신 중단, 수신부 권한 분리 필요, replicas 증가로 Postgres 전환)은 ADR-002에 기록한다.
+- **배포 단위는 Deployment 1개(조사 작업자 + FastAPI 보고서 화면) + CronJob 1개(주기 점검)**다. 같은 이미지·같은 SQLite(PVC)를 쓰고 실행 명령만 다르다. Slack 알림 발송은 Web API 호출이라 결과를 만든 쪽이 직접 보낸다. 명령 수신과 조사 실행을 한 Deployment에 두는 분리 조건(조사로 인한 수신 중단, 수신부 권한 분리 필요, replicas 증가로 Postgres 전환)은 ADR-002에 기록한다.
 
 ### 1.3 기반 설계 (먼저 정하는 계약)
 
@@ -375,7 +375,7 @@ W2 이슈 중 #16·#18·#19·#22·#24·#46과 W2에 새로 생긴 #53·#54·#59�
 
 | 작업 | 내용 | 산출물 |
 |---|---|---|
-| 발표 준비 | 데모 3종 리허설: C1(주기 점검 → Slack 알림 → 화면), A1(화면 점검 실행 또는 `/kg check`), B1(`/kg investigate`). 발표 자료 | 발표 자료 |
+| 발표 준비 | 데모 3종 리허설: C1(주기 점검 → Slack 알림 → 화면), A1(화면 점검 실행 또는 `kg check`), B1(`kg investigate 증상`). 발표 자료 | 발표 자료 |
 | 선택 비교 실험 | 시간이 남으면 §4 순서대로 | 비교표·ADR |
 
 **Exit (11/20)**
@@ -446,7 +446,7 @@ gantt
 2. 비교 실험 1(investigator v2 deepagents 대 v1 LangGraph)을 L1 시나리오 3개로만 축소
 3. E1(미끼) → 확장 후보로
 4. C5(스키마 드리프트, v2 이미지 빌드 필요) → 확장 후보로
-5. 화면의 점검 실행 버튼 제외 → 즉시 점검은 Slack `/kg check`와 CLI로
+5. 화면의 점검 실행 버튼 제외 → 즉시 점검은 CLI `kg check`로
 6. 보고서 화면 P1·P2·P4 축소 → P3 근거 원문·P5 조사 과정만 남기고, 보고서는 CLI(`kg report`)와 Slack 요약으로 대체
 
 **줄이지 않는 것**: 규칙 점검, AI 조사·검증, 주기 점검 + Slack 알림, 근거 검증, L1·L3 시나리오(A1·A3·A5·C1·C2), 2조건 평가.
@@ -467,5 +467,5 @@ gantt
 - [x] Azure OpenAI 배포 2종 이상 (진단 에이전트용 `gpt-6.1-sol`, 진단 대상 서비스용 `gpt-4.1`, 10/19 확인) 및 PoC 사용·비용 승인. 사용 가능 모델: gpt-4.1, gpt-4.1-mini, gpt-4o, gpt-4o-mini, gpt-5, gpt-5-mini, gpt-5.4, gpt-5.6-luna, text-embedding-3-large·small, ada-002. 진단용은 서비스용과 쿼터를 분리하고, 채점용(LLM-as-judge)은 조사 모델과 다른 모델로 배포한다
 - [x] 사내 SSL 프록시 CA 인증서
 - [x] 템플릿 레포 포크 권한 (개인 계정으로 포크, 10/19)
-- [ ] **Slack 앱 생성 승인** (메시지 발송 `chat:write`, 슬래시 명령 `commands`, Socket Mode 앱 토큰) 및 알림 대상(기존 운영 채널 또는 DM)
+- [ ] **Slack 앱 생성** (메시지 발송 `chat:write`만, 10/31 명령 제외) 및 알림 대상(기존 운영 채널 또는 DM)
 - [ ] 사내망에서 Azure OpenAI·Slack API(slack.com) 통신 허용 여부 (Azure OpenAI는 Pod 안에서 확인, Slack은 미확인)

@@ -220,6 +220,41 @@ def worker(
             time.sleep(WORKER_POLL_S)
 
 
+# kg slack-test에서 자주 나는 Slack 오류와 해결 방법
+SLACK_HINTS = {
+    "not_in_channel": "알림 채널에서 /invite @앱이름 으로 앱을 초대하세요",
+    "channel_not_found": "slack.alert_target(채널 이름·ID)을 확인하세요",
+    "invalid_auth": "SLACK_BOT_TOKEN(xoxb-)이 맞는지 확인하세요",
+    "not_authed": "SLACK_BOT_TOKEN이 비어 있습니다",
+    "missing_scope": "앱의 Bot Token Scopes에 chat:write를 추가하고 다시 설치하세요",
+    "account_inactive": "토큰의 앱이 삭제됐거나 워크스페이스에서 제거됐습니다",
+    "token_revoked": "토큰이 취소됐습니다. 앱을 다시 설치해 새 봇 토큰을 받으세요",
+    "is_archived": "알림 채널이 보관(archive)됐습니다. slack.alert_target을 바꾸세요",
+    "ratelimited": "Slack 호출 한도에 걸렸습니다. 잠시 뒤 다시 실행하세요",
+}
+
+
+def slack_test(args: argparse.Namespace, make_sender: SenderFactory) -> int:
+    """Slack 알림 연결 확인. 0 성공, 1 Slack 오류, 2 토큰·설정 없음(dry-run)."""
+    config = _load_config(args.config)
+    notifier = Notifier(_open_db(args.db), config, make_sender(config))
+    if notifier.dry_run:
+        print(
+            "Slack 연결 확인: 보내지 않음 (dry-run). "
+            ".env의 SLACK_BOT_TOKEN과 설정의 slack.alert_target을 확인하세요",
+            file=sys.stderr,
+        )
+        return 2
+    error = notifier.connection_test(_now())
+    if error:
+        hint = SLACK_HINTS.get(error, "Slack API 오류 이름으로 원인을 확인하세요")
+        print(f"Slack 연결 확인: 실패 ({error}) — {hint}", file=sys.stderr)
+        return 1
+    channel = config.slack.alert_target if config.slack else "-"
+    print(f"Slack 연결 확인: 성공 — {channel}에 메시지·스레드 답글·수정을 보냈습니다")
+    return 0
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -364,8 +399,15 @@ def main(
     p_work.add_argument("--config", default=get_setting().KG_CONFIG_PATH, help="kubeguardian.yaml")
     p_work.add_argument("--db", default=DEFAULT_DB, help="SQLite 파일 (CronJob과 같은 파일)")
     p_work.add_argument("--once", action="store_true", help="한 번만 처리하고 끝낸다 (확인용)")
+    p_slack = sub.add_parser(
+        "slack-test", help="Slack 알림이 실제로 가는지 확인한다 (테스트 메시지)"
+    )
+    p_slack.add_argument("--config", default=get_setting().KG_CONFIG_PATH, help="kubeguardian.yaml")
+    p_slack.add_argument("--db", default=DEFAULT_DB, help="알림 이력을 남길 SQLite 파일")
     args = parser.parse_args(argv)
     try:
+        if args.command == "slack-test":
+            return slack_test(args, make_sender)
         if args.command == "worker":
             return worker(args, make_reader, make_http, make_llm, make_sender)
         if args.command == "check":
