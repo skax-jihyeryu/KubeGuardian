@@ -98,6 +98,7 @@ make eval S=A1 ARGS="--in-cluster --condition ai"   # AI 조건
 
 | 키 | 내용 |
 |---|---|
+| `user_symptom` | 정답 파일의 사용자 증상을 점검·조사에 넘겼을 때 그 문장. 없으면 키가 없다 |
 | `check_interval_s` · `check_max_s` | 이 실행의 점검 간격·상한 |
 | `checks` | 점검이 끝날 때마다 바로 쌓는다 (반복 중 예외가 나도 남는다). 점검별 `n`, `elapsed_s`(주입 시각 기준 초, 점검이 끝난 시각), `gate_path`, `detected`(장애 신호), `observing`, `collect_failed` |
 | `first_detected_s` | 기대 신호별 첫 적발 경과 초. 적발하지 못했으면 `null` |
@@ -111,6 +112,7 @@ make eval S=A1 ARGS="--in-cluster --condition ai"   # AI 조건
 ## 채점 (`scoring.py`, 기준 조건)
 
 - 통과 = `expected.yaml`의 `must_signals`를 모두 적발 + 게이트 경로가 `gate_path`와 같음 + `forbidden_signals`를 하나도 적발하지 않음
+- 정답 파일의 `user_symptom`은 `kg investigate 증상`과 같은 입력이다. 러너가 점검과 조사에 넘겨, 규칙 적발이 없으면 경로 B를 연다 (기획서 §8.2의 "B (사용자 입력)", B1). 채점 항목이 아니라 입력이다
 - 정답 파일의 신호 구분 (05-rules §0.1.1): `must_signals` 반드시, `allowed_signals` 나와도 됨(오탐 아님), `forbidden_signals` 나오면 오탐(`"*"`는 반드시·허용 신호를 뺀 장애 신호 전부, 개선 권고 H는 제외)
 - AI 조건의 새 항목(통과 조건, 위 "AI 조건"): `expected_cause`(1순위 원인으로 받아들이는 리소스 목록), `key_evidence`(원인 쪽 결정적 근거 1~3개. `kind` 일치 + `subject` glob + `contains` 부분 문자열(대소문자 무시)이 맞으면 손에 넣은 것), `not_a_cause[].resource`(리소스가 있는 항목만 `cause_resource`와 대조해 `forbidden_cause`를 남김). 작성 규칙은 `scenarios/_template/expected.yaml` 주석을 따른다
   - 원인 리소스 대조는 kind 대소문자를 무시하고 소유 관계를 허용한다 (`Deployment/agent`는 `Pod/agent-<해시>-<해시>`, `ReplicaSet/agent-<해시>`도 맞음)

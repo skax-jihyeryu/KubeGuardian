@@ -16,6 +16,7 @@ ALLOWED_KEYS = {
     "level",
     "k8s_visible",
     "gate_path",
+    "user_symptom",
     "must_signals",
     "allowed_signals",
     "forbidden_signals",
@@ -34,6 +35,13 @@ EVAL_SCENARIOS = {"A1", "A3", "A5", "B1", "C1", "C2"}  # 층별 채점 대상 (s
 
 def test_expected_files_are_found():
     assert FILES
+
+
+def test_b1_reaches_path_b_by_user_symptom():
+    expected = yaml.safe_load((ROOT / "scenarios/B1/expected.yaml").read_text(encoding="utf-8"))
+
+    assert expected["gate_path"] == "B"
+    assert 0 < len(expected["user_symptom"]) <= 500  # InvestigationRequest.user_symptom 상한
 
 
 @pytest.mark.parametrize("path", FILES, ids=lambda p: p.parent.name)
