@@ -71,9 +71,9 @@ class RemoteRunner:
                 raise RemoteError(f"실행 환경 조회 실패 (exit {r.returncode}): {_tail(r.stderr)}")
         return {"image_id": image.stdout.strip(), "config_resource_version": cm.stdout.strip()}
 
-    def check(self) -> Any:
+    def check(self, symptom: str | None = None) -> Any:
         """점검 한 번. check_repeatedly가 받는 outcome 모양 (증상 포함)."""
-        data = self._exec("check", "--db", self.db_path)
+        data = self._exec("check", "--db", self.db_path, *_symptom_args(symptom))
         return SimpleNamespace(
             run_id=data["run_id"],
             signals=[Signal.model_validate(s) for s in data["signals"]],
@@ -82,7 +82,9 @@ class RemoteRunner:
             symptoms=[Symptom.model_validate(x) for x in data["symptoms"]],
         )
 
-    def investigate(self, check_run_id: int, run_id: str) -> tuple[AgentResult | None, str | None]:
+    def investigate(
+        self, check_run_id: int, run_id: str, symptom: str | None = None
+    ) -> tuple[AgentResult | None, str | None]:
         """조사 한 번. 게이트가 닫혀 있으면 (None, None). 두 번째 값은 Pod 안 추적의 trace_id."""
         data = self._exec(
             "investigate",
@@ -92,6 +94,7 @@ class RemoteRunner:
             str(check_run_id),
             "--run-id",
             run_id,
+            *_symptom_args(symptom),
         )
         if data.get("skipped"):
             return None, None
@@ -175,6 +178,10 @@ class RemoteRunner:
             )
         except subprocess.TimeoutExpired as e:
             raise RemoteTimeout(f"kubectl 시간 초과 ({timeout}초): {args[0]}") from e
+
+
+def _symptom_args(symptom: str | None) -> list[str]:
+    return ["--symptom", symptom] if symptom else []
 
 
 def _tail(text: str) -> str:

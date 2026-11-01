@@ -76,6 +76,22 @@ def test_check_parses_exec_json_into_outcome():
     assert "/data/20261022T000000Z-A1/kg.db" in exec_cmd
 
 
+def test_check_and_investigate_send_symptom_only_when_given():
+    skipped = {"skipped": True}
+    fake = FakeKubectl(execs=[_check_payload(), skipped, _check_payload(), skipped])
+    runner = _runner(fake)
+
+    runner.check()
+    runner.investigate(1, "eval-x")
+    runner.check("채팅이 가끔 실패")
+    runner.investigate(1, "eval-x", "채팅이 가끔 실패")
+
+    execs = [c for c in fake.calls if "exec" in c]
+    assert ["--symptom" in c for c in execs] == [False, False, True, True]
+    assert execs[2][execs[2].index("--symptom") + 1] == "채팅이 가끔 실패"
+    assert execs[3][execs[3].index("--symptom") + 1] == "채팅이 가끔 실패"
+
+
 def test_check_repeatedly_stops_at_expected_signal_through_exec():
     fake = FakeKubectl(execs=[_check_payload(1, detected=False), _check_payload(2, detected=True)])
     runner = _runner(fake)
@@ -198,7 +214,7 @@ class StubRemote:
     def describe(self):
         return {"image_id": "docker://sha256:abc", "config_resource_version": "4242"}
 
-    def check(self):
+    def check(self, symptom=None):
         self.calls += 1
         if self.fail_at == self.calls:
             raise RemoteError("runner Pod가 바뀌었다 (a → b)")
@@ -362,7 +378,10 @@ def test_pod_not_found_at_start_is_invalid_and_nothing_is_injected(tmp_path, mon
 
 def test_ai_path_records_the_trace_id_from_the_pod(tmp_path, monkeypatch):
     def hook(stub):
-        stub.investigate = lambda check_run_id, run_id: (None, "0af7651916cd43dd8448eb211c80319c")
+        stub.investigate = lambda check_run_id, run_id, symptom: (
+            None,
+            "0af7651916cd43dd8448eb211c80319c",
+        )
 
     import run as run_mod
 
@@ -386,7 +405,7 @@ def test_one_invalid_round_does_not_invalidate_the_whole_run_result(tmp_path, mo
     monkeypatch.setattr(run_mod, "score_layers", score_layers)
 
     def hook(stub):
-        stub.investigate = lambda check_run_id, run_id: (None, None)
+        stub.investigate = lambda check_run_id, run_id, symptom: (None, None)
 
     code, result, _ = _run_in_cluster(
         tmp_path, monkeypatch, "H0", stub_hook=hook, condition="ai", ai_repeats=3

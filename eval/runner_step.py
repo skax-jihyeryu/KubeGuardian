@@ -4,8 +4,8 @@
 경고·진단은 stderr로만 나가고, 비밀값은 출력하지 않는다. 수집기(상류)가 redact_mapping으로 가린 값을
 전제로, 출력 직전에 문자열 값만 redact_text로 한 번 더 거른다 (키 이름으로는 가리지 않는다).
 
-  check        --db <경로> [--config ...]
-  investigate  --db <경로> --check-run-id <N> --run-id <ID> [--config ...]
+  check        --db <경로> [--config ...] [--symptom 증상]
+  investigate  --db <경로> --check-run-id <N> --run-id <ID> [--config ...] [--symptom 증상]
 
 check는 같은 DB로 반복해서 부른다 (지속 시간 규칙이 앞 점검의 관찰 기록을 이어 본다).
 조사는 점검 때 DB 옆에 남긴 outcome-<run_id>.json으로 그 점검 결과를 되살려 쓴다.
@@ -105,6 +105,7 @@ def do_check(args: argparse.Namespace, make_reader: ReaderFactory) -> dict:
         _engine(Path(args.db)),
         trigger="check",
         http=_account_http(config),
+        user_symptom=args.symptom,
     )
     full = check_payload(out) | {"snapshot": out.snapshot.model_dump(mode="json")}
     outcome_file(Path(args.db), out.run_id).write_text(
@@ -135,6 +136,7 @@ def do_investigate(
             llm_factory=llm_factory or build_chat_model,
             k8s=make_reader(config),
             http=_account_http(config),
+            symptom=args.symptom,
         )
         ctx = span.get_span_context()
         trace_id = format(ctx.trace_id, "032x") if ctx.is_valid else None
@@ -155,6 +157,7 @@ def main(
         s = sub.add_parser(name)
         s.add_argument("--config", default=get_setting().KG_CONFIG_PATH)
         s.add_argument("--db", required=True)
+        s.add_argument("--symptom", help="사용자 증상 (kg investigate 증상과 같은 입력)")
         s.add_argument("--json", action="store_true", required=True, help="결과를 한 줄 JSON으로")
         if name == "investigate":
             s.add_argument("--check-run-id", type=int, required=True)

@@ -37,6 +37,37 @@ def _check(tmp_path, capsys, case, run="r1"):
     return code, out, db
 
 
+def test_symptom_opens_path_b_and_reaches_the_investigation(tmp_path, capsys, monkeypatch):
+    db = tmp_path / "r1" / "kg.db"
+    args = ["--config", _config(tmp_path), "--db", str(db), "--symptom", "채팅이 가끔 실패"]
+
+    code = runner_step.main(["check", *args, "--json"], make_reader=_reader(None))
+
+    check = json.loads(capsys.readouterr().out)
+    assert (code, check["gate"]["path"]) == (0, "B")
+
+    seen = {}
+
+    def fake_investigation(outcome, config, engine, **kwargs):
+        seen.update(kwargs)
+
+    monkeypatch.setattr("service.pipeline.investigate.run_investigation", fake_investigation)
+    code = runner_step.main(
+        [
+            "investigate",
+            *args,
+            "--check-run-id",
+            str(check["run_id"]),
+            "--run-id",
+            "eval-x",
+            "--json",
+        ],
+        make_reader=_reader(None),
+    )
+    assert code == 0
+    assert seen["symptom"] == "채팅이 가끔 실패"
+
+
 def test_check_prints_one_json_line_with_outcome(tmp_path, capsys):
     code, out, _ = _check(tmp_path, capsys, "s01/detected")
 
