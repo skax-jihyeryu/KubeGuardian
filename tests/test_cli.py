@@ -591,3 +591,75 @@ def test_investigate_prints_judgement_and_llm_confidence(tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert "(판단 " in out and "LLM 확신도 high" in out and "판단 근거: " in out
+
+
+# ── Slack 연결 확인 (#107) ──
+
+SLACK_YAML = (
+    CONFIG_YAML
+    + """
+slack:
+  alert_target: "#ops"
+"""
+)
+
+
+def _slack_config(tmp_path):
+    path = tmp_path / "kubeguardian.yaml"
+    path.write_text(SLACK_YAML, encoding="utf-8")
+    return str(path)
+
+
+class RecordingSender:
+    dry_run = False
+
+    def __init__(self, fail=None):
+        self.calls, self.fail = [], fail
+
+    def post(self, channel, text, *, thread_ts=None, broadcast=False):
+        if self.fail:
+            raise ServiceException(ErrorCode.NOTIFY_FAILED, self.fail)
+        self.calls.append(("post", channel, thread_ts, broadcast))
+        return "1.1" if thread_ts is None else "1.2"
+
+    def update(self, channel, ts, text):
+        self.calls.append(("update", channel, ts))
+
+
+def _slack_test(tmp_path, sender):
+    return cli.main(
+        ["slack-test", "--config", _slack_config(tmp_path), "--db", str(tmp_path / "kg.db")],
+        make_sender=lambda cfg: sender,
+    )
+
+
+def test_slack_test_posts_replies_and_updates_like_real_alerts(tmp_path, capsys):
+    from core.db import AlertStore, create_db_engine
+
+    sender = RecordingSender()
+
+    assert _slack_test(tmp_path, sender) == 0
+
+    assert sender.calls == [
+        ("post", "#ops", None, False),
+        ("post", "#ops", "1.1", True),  # 복구 알림처럼 스레드 + 채널에도
+        ("update", "#ops", "1.1"),  # 원인 갱신처럼 같은 메시지를 고친다
+    ]
+    assert "Slack 연결 확인: 성공" in capsys.readouterr().out
+    engine = create_db_engine(str(tmp_path / "kg.db"))
+    assert AlertStore(engine).last_sent("TEST") is not None  # 알림 이력에도 남는다
+
+
+def test_slack_test_explains_common_failure(tmp_path, capsys):
+    assert _slack_test(tmp_path, RecordingSender(fail="not_in_channel")) == 1
+
+    err = capsys.readouterr().err
+    assert "not_in_channel" in err and "/invite" in err
+
+
+def test_slack_test_without_token_says_dry_run(tmp_path, capsys):
+    from service.notify.sender import DryRunSender
+
+    assert _slack_test(tmp_path, DryRunSender()) == 2
+
+    assert "SLACK_BOT_TOKEN" in capsys.readouterr().err
