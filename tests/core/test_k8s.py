@@ -198,12 +198,40 @@ def test_events_are_kept_when_no_group_is_excluded():
 
 
 def test_group_match_is_exact_not_prefix():
-    # core 그룹(v1)·apps 그룹은 빈 그룹·다른 이름이라 chaos-mesh.org 제외에 걸리지 않는다
+    # 이름만 비슷한 그룹(chaos-mesh.org.example)은 chaos-mesh.org 제외에 걸리지 않는다
     lookalike = _event("e4", "chaos-mesh.org.example/v1", "Thing")
     core = _EventApi([lookalike])
     client = K8sClient(
         "dev",
         core=core,
+        apps=FakeApi(),
+        discovery=FakeApi(),
+        exclude_event_api_groups=("chaos-mesh.org",),
+    )
+
+    assert len(client.list("Event")) == 1
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        pytest.param({"metadata": {"name": "e5"}}, id="no-involved-object"),
+        pytest.param(
+            {"metadata": {"name": "e5"}, "involvedObject": None}, id="null-involved-object"
+        ),
+        pytest.param(
+            {"metadata": {"name": "e5"}, "involvedObject": {"kind": "Pod"}}, id="no-api-version"
+        ),
+        pytest.param(
+            {"metadata": {"name": "e5"}, "involvedObject": {"apiVersion": None, "kind": "Pod"}},
+            id="null-api-version",
+        ),
+    ],
+)
+def test_events_without_api_group_info_are_kept(event):
+    client = K8sClient(
+        "dev",
+        core=_EventApi([event]),
         apps=FakeApi(),
         discovery=FakeApi(),
         exclude_event_api_groups=("chaos-mesh.org",),
