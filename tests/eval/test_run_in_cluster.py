@@ -391,6 +391,33 @@ def test_ai_path_records_the_trace_id_from_the_pod(tmp_path, monkeypatch):
     assert result["ai_runs"][0]["trace_id"] == "0af7651916cd43dd8448eb211c80319c"
 
 
+def test_user_symptom_reaches_the_pod_check_and_investigation(tmp_path, monkeypatch):
+    import run as run_mod
+
+    monkeypatch.setattr(run_mod, "build_chat_model", lambda *a, **k: None)
+    monkeypatch.setattr(run_mod, "score_layers", lambda *a, **k: None)
+    monkeypatch.setattr(run_mod, "read_target", lambda scenario: "agent-a-b")
+    seen = {}
+
+    def hook(stub):
+        check = stub.check
+
+        def spy_check(symptom=None):
+            seen["check"] = symptom
+            return check(symptom)
+
+        def spy_investigate(check_run_id, run_id, symptom):
+            seen["investigate"] = symptom
+            return None, None
+
+        stub.check, stub.investigate = spy_check, spy_investigate
+
+    _, result, _ = _run_in_cluster(tmp_path, monkeypatch, "B1", stub_hook=hook, condition="ai")
+
+    assert seen["check"] == seen["investigate"] == result["user_symptom"]
+    assert seen["check"]
+
+
 def test_one_invalid_round_does_not_invalidate_the_whole_run_result(tmp_path, monkeypatch):
     import run as run_mod
 
