@@ -173,7 +173,9 @@ def report(judgement="confirmed", evidence_ids=("ev-0001",), **kw: Any) -> Repor
         conclusion=kw.pop("conclusion", "llm-gateway 할당량 소진이 원인"),
         confidence="high",
         judgement=judgement,
-        judgement_basis="원인 리소스 설정 인용 · 근거 출처 3종(설정·상태, 로그, 앱 API)",
+        judgement_basis=(
+            "원인 리소스 설정 인용 · 근거 출처 3종(설정·상태, 로그, 앱 API) · 지지 가설 근거 2종"
+        ),
         impact_scope="채팅 전체",
         issues=[
             Issue(

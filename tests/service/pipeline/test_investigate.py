@@ -225,6 +225,83 @@ def test_run_investigation_attaches_judgement_from_stored_evidence(engine):
     )
 
 
+def test_run_investigation_confirms_with_cause_config_and_supported_hypothesis(engine):
+    reader = _reader("s04/localhost")
+    out = run_check(reader, CONFIG, engine, trigger="check", now=NOW)
+    triage = json.dumps(
+        {
+            "issues": [
+                {
+                    "rank": 1,
+                    "title": "gateway 주소 설정 오류",
+                    "impact": "core_path_broken",
+                    "confidence": "high",
+                }
+            ],
+            "runbook": "service-unreachable",
+        }
+    )
+
+    def call(name, args, call_id):
+        return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": call_id}])
+
+    def report():
+        # 도구가 저장한 근거(원인 리소스 설정, 이벤트)를 번호로 인용한다
+        stored = EvidenceStore(engine).list_for_run(out.run_id, limit=50)
+        config_id = next(e.id for e in stored if e.subject.endswith("/Deployment/gateway"))
+        event_id = next(e.id for e in stored if e.kind == "event")
+        return json.dumps(
+            {
+                "conclusion": "gateway 주소 env가 localhost",
+                "confidence": "high",
+                "impact_scope": "전체",
+                "coverage": {
+                    a: {"status": "not_applicable", "summary": "테스트"}
+                    for a in ("run", "config", "wiring", "logs")
+                },
+                "issues": [
+                    {
+                        "rank": 1,
+                        "title": "gateway 주소 설정 오류",
+                        "impact": "core_path_broken",
+                        "confidence": "high",
+                        "cause_resource": {"kind": "Deployment", "name": "gateway"},
+                        "evidence_ids": [config_id],
+                    }
+                ],
+                "hypotheses": [
+                    {
+                        "statement": "gateway 주소 오류",
+                        "status": "supported",
+                        "reason": "설정과 이벤트가 같은 원인을 가리킴",
+                        "evidence_ids": [config_id, event_id],
+                    }
+                ],
+                "evidence_ids": [config_id, event_id],
+            }
+        )
+
+    script = [
+        triage,
+        PLAN,
+        call("get_resource", {"kind": "Deployment", "name": "gateway"}, "c1"),
+        call("get_events", {}, "c2"),
+        AIMessage(content="조사 완료"),
+        report,
+    ]
+    llm = ScriptedLLM(script=script, calls=[])
+
+    result = run_investigation(
+        out, CONFIG, engine, run_id="t-c", llm_factory=lambda m: llm, k8s=reader, http=FakeHttp()
+    )
+
+    assert result.status == "done", result.error
+    assert result.report.judgement == "confirmed"
+    assert result.report.judgement_basis == (
+        "원인 리소스 설정 인용 · 근거 출처 2종(설정·상태, 이벤트) · 지지 가설 근거 2종"
+    )
+
+
 # ── 조사 기록 (#98) ──
 
 
