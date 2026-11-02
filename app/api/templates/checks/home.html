@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}점검 이력 · KubeGuardian{% endblock %}
+{% block body %}
+<section class="detail empty" aria-label="점검 이력">
+  <div>
+    <h1 class="title">점검 이력</h1>
+    {% if latest_run %}
+    <p><a href="/p/{{ p }}/checks/{{ latest_run }}">가장 최근 점검 보기</a></p>
+    {% else %}
+    <p class="muted">아직 점검 기록이 없습니다.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

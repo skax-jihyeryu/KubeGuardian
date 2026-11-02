@@ -1,4 +1,4 @@
-.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix eval eval-batch eval-report kg-build kg-up kg-down kg-cron-suspend kg-cron-resume kg-cron-run
+.PHONY: setup lint format test check run check-run doctor secret ca build up down seed smoke phoenix eval eval-batch eval-report kg-build kg-up kg-down kg-cron-suspend kg-cron-resume kg-cron-run kg-web
 
 # 진단 대상(템플릿 포크) 위치. 포크 6개 + shared-infra가 이 아래에 있어야 한다.
 TARGET_DIR ?= $(HOME)/Cursor/kg-target
@@ -34,7 +34,7 @@ test:  ## 단위 테스트
 check: lint test  ## PR 올리기 전 확인
 
 run:  ## API 서버 로컬 실행
-	cd app && uv run --env-file ../.env python main.py
+	uv run --env-file .env python app/main.py
 
 check-run:  ## 규칙 점검 한 번 실행 (kg check). 예: make check-run ARGS="--config kubeguardian.yaml"
 	uv run python app/cli.py check $(ARGS)
@@ -170,3 +170,6 @@ kg-cron-resume:  ## 주기 점검 CronJob과 작업자 재개
 
 kg-cron-run:  ## 주기 점검을 지금 1회 실행 (CronJob에서 Job 생성)
 	kubectl -n $(KG_NS) create job --from=cronjob/kg-check kg-check-$$(date +%Y%m%d%H%M%S)
+
+kg-web:  ## 보고서 화면을 로컬 8080으로 연다 (kubectl port-forward). 열기: http://localhost:8080
+	kubectl -n $(KG_NS) port-forward service/diagnostic-agent 8080:8080

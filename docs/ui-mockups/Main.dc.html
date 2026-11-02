@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>점검 이력 + 점검 상세 (변경 후)</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./kg.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app" style="min-height: 1900px; width: 100%">
+
+<aside class="rail" aria-label="메뉴">
+  <a class="logo" href="Main.dc.html" aria-label="점검 이력 (홈)">KG</a>
+  <nav class="rnav">
+    <a class="rbtn on" href="Main.dc.html" aria-label="점검 이력" aria-current="page"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></a>
+    <a class="rbtn" href="Issues-v2.dc.html" aria-label="이슈"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg></a>
+    <a class="rbtn" href="Setup-Services-v2.dc.html" aria-label="점검 구성"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg></a>
+  </nav>
+  <div class="rail-foot"><button class="rbtn" aria-label="메뉴 펼치기"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg></button></div>
+</aside>
+
+<div class="main">
+  <header class="gnb">
+    <span class="proj">dev · minikube</span>
+    <span class="sp"></span>
+    <span class="lastchk"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>마지막 점검 <span class="t">14:40</span> · 다음 <span class="t">14:45</span></span>
+    <button class="btn btn-primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>지금 점검</button>
+    <button class="btn btn-ghost"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>질문</button>
+    <span class="avatar" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+  </header>
+  <div class="band"><span>열린 이슈</span>
+    <a class="plain" href="Issues-v2.dc.html"><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급 1</span></a>
+    <span class="zero">주의 0</span>
+    <span class="zero">잠재 위험 0</span></div>
+  
+  <div class="body">
+    <!-- 목록 -->
+    <section class="list" aria-label="점검 목록">
+      <div class="lhead">
+        <h1>점검 이력</h1>
+        
+      </div>
+      <div class="filters">
+        <div class="frow"><label class="search"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>서비스·점검 규칙 ID·이슈 제목·실패한 기능</label></div>
+        <div class="frow">
+          <span class="pill sel">기간: 오늘<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></span>
+          <span class="pill">심각도<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></span>
+          <span class="pill">이슈 관계<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></span>
+          <span class="pill">실행 방식<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></span>
+          <span class="pill">점검 상태<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></span>
+        </div>
+      </div>
+
+      <a class="crow bar c-crit" href="#"><div class="l1"><span class="t">14:40</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>긴급</span><span class="rel">이어짐 #12</span></div><div class="l2"><span class="sum">채팅 실패</span><span class="pillm">주기</span></div></a>
+      <a class="crow bar c-crit" href="#"><div class="l1"><span class="t">14:35</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>긴급</span><span class="rel">이어짐 #12</span></div><div class="l2"><span class="sum">채팅 실패</span><span class="pillm">주기</span></div></a>
+      <a class="crow bar c-crit" href="#"><div class="l1"><span class="t">14:30</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>긴급</span><span class="rel">이어짐 #12</span></div><div class="l2"><span class="sum">채팅 실패</span><span class="pillm">주기</span></div></a>
+      <a class="crow bar c-crit" href="#"><div class="l1"><span class="t">14:25</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>긴급</span><span class="rel">이어짐 #12</span></div><div class="l2"><span class="sum">채팅 실패</span><span class="pillm">주기</span></div></a>
+      <a class="crow bar c-crit" href="#"><div class="l1"><span class="t">14:20</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>긴급</span><span class="rel">이어짐 #12</span></div><div class="l2"><span class="sum">채팅 실패</span><span class="pillm">주기</span></div></a>
+      <a class="crow bar c-crit" href="#"><div class="l1"><span class="t">14:15</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>긴급</span><span class="rel">이어짐 #12</span></div><div class="l2"><span class="sum">채팅 실패</span><span class="pillm">주기</span></div></a>
+      <a class="crow bar c-crit" href="#"><div class="l1"><span class="t">14:10</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>긴급</span><span class="rel">이어짐 #12</span></div><div class="l2"><span class="sum">채팅 실패</span><span class="pillm">주기</span></div></a>
+      <a class="crow bar c-crit sel" href="#" aria-current="true"><div class="l1"><span class="t">14:05</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>긴급</span><span class="rel">이슈 열림 #12</span></div><div class="l2"><span class="sum">채팅 실패 · 기능 점검 chat 2단계</span><span class="pillm">주기</span></div></a>
+
+      <div class="fold"><span class="l"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>이상 없음 2회 · <span class="t">13:55~14:00</span></span><a href="#">펼치기<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></a></div>
+      <div class="gaprow"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg><span>점검 중단 <span class="t">13:25~13:55</span> (점검이 실행되지 않음)</span></div>
+      <div class="fold"><span class="l"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>이상 없음 4회 · <span class="t">13:05~13:20</span></span><a href="#">펼치기<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></a></div>
+      <a class="crow" href="#"><div class="l1"><span class="t">12:05</span><span class="calm"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>이상 없음</span><span class="rel"><svg class="ic ic14 ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>해결 #11</span></div><div class="l2"><span class="sum">권고 2</span><span class="pillm">주기</span></div></a>
+      <a class="crow bar c-warn" href="#"><div class="l1"><span class="t">11:55</span><span class="bdg sm c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>주의</span><span class="rel">이어짐 #11</span></div><div class="l2"><span class="sum">신규 배포가 뜨지 않음</span><span class="pillm">주기</span></div></a>
+      <a class="crow bar c-warn" href="#"><div class="l1"><span class="t">11:50</span><span class="bdg sm c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>주의</span><span class="rel">이어짐 #11</span></div><div class="l2"><span class="sum">신규 배포가 뜨지 않음</span><span class="pillm">주기</span></div></a>
+    </section>
+
+    
+    <section class="detail" aria-label="점검 상세">
+      <div class="doc">
+        <div class="crumb"><a href="#">dev</a>›<a href="#">점검 이력</a>›<span>10/26 14:05</span></div>
+        <h1 class="title">점검 10/26 14:05</h1>
+        <nav class="jump" aria-label="절 바로가기"><a href="#s-judge">판정</a><span>·</span><a href="#s-inv">점검 과정</a><span>·</span><a href="#s-ev">근거</a></nav>
+        <div class="paper">
+          <div class="sec">
+            <div class="hdrow"><span class="bdg lg c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span class="conf"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>확신도 높음</span><a class="mono s14" href="Issues-v2.dc.html">이슈 #12 <svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a><span class="open">OPEN</span></div>
+            <div class="meta">10/26 <span class="t">14:05</span> · 주기 점검 · 점검 완료 48초 · 에이전트 <span class="mono">investigator:v1</span></div>
+            <p class="s14 muted" style="margin-top:8px">이 화면은 이 점검이 <b class="ink">무엇을 봤는지</b>만 보여 줍니다. 결론·권장 조치는 이슈의 보고서에서 봅니다.</p>
+          </div>
+          <div class="sec" id="s-judge">
+            <h2>점검 판정<span class="chg">변경</span></h2>
+            <div class="jr c-crit">
+              <span class="mark"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+              <div><span class="nm">기능 점검 chat</span> 실패 <span class="muted">— login 성공, chat 2단계 실패 (HTTP 200 + 오류 문구)</span><a class="ev" href="#">근거 11</a></div>
+            </div>
+            <div class="pass"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>점검 규칙 통과 11건 (장애 신호 점검 규칙 전부) <a href="#" class="plain" style="display:inline-flex;align-items:center">펼치기<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a></div>
+            <div class="gate">조사 판단 <b class="ink">조사 시작 — 기능 점검 실패</b> · 1차 심각도 긴급 · 새 문제 — 점검 규칙은 모두 통과했지만 기능 점검이 실패해 AI 조사를 시작했습니다.</div>
+          </div>
+          <div class="sec" id="s-inv">
+            <h2 style="display:flex;align-items:center">점검 과정<span class="chg">변경</span><a href="Main-v2-Steps.dc.html" class="s13" style="display:inline-flex;gap:4px;align-items:center;margin-left:auto">모두 펼치기 ▾</a></h2>
+            <div class="cap" style="margin-top:0">점검</div>
+            <div class="steps"><div class="stp"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>점검 규칙 점검</b><span class="sum">적발 0 · 관찰 중 0 · 개선 권고 2</span><span class="tm">14:05:01 · 1s</span></div></div><div class="stp"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>기능 점검</b><span class="sum">chat 2단계 실패<a class="ev" href="#">근거 11</a></span><span class="tm">14:05:02 · 3s</span></div></div><div class="stp"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>조사 판단</b><span class="sum">조사 시작 — 기능 점검 실패 · 1차 심각도 긴급</span><span class="tm">14:05:05 · 0s</span></div></div></div>
+            <div class="cap">조사 <span class="muted" style="font-weight:400">· 조사 판단에서 조사를 시작한 점검에만 붙습니다</span></div>
+            <div class="steps"><div class="stp"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>사전 확인</b><span class="sum">Pod 전체 Ready · 채팅 502<a class="ev" href="#">근거 10, 12</a></span><span class="tm">14:05:08 · 12s</span></div></div><div class="stp"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>가설 검증</b><span class="sum">가설 3건 검증 · 도구 호출 9회<a class="ev" href="#">근거 13~15</a></span><span class="tm">14:05:20 · 28s</span></div></div></div>
+            <div class="ban tipb" style="margin-top:14px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><div>조사 결과(결론·권장 조치·가설 판정)는 <b>이슈 #12의 보고서 R-0412</b>에서 봅니다. <a href="Issues-v2.dc.html" style="margin-left:6px">이슈 #12에서 보고서 보기 →</a></div></div>
+          </div>
+          <div class="sec" id="s-ev">
+            <h2>근거<span class="hint">6건 · 번호를 누르면 오른쪽에 원문이 열립니다</span></h2>
+            <table class="tbl dense"><thead><tr><th>번호</th><th>내용</th><th>단계</th><th>시각</th></tr></thead><tbody><tr><td><a class="ev" href="#">근거 10</a></td><td>Pod·Endpoint 상태</td><td class="muted">사전 확인</td><td class="t">14:05:09</td></tr><tr><td><a class="ev" href="#">근거 11</a></td><td>기능 점검 chat 결과</td><td class="muted">기능 점검</td><td class="t">14:05:02</td></tr><tr><td><a class="ev" href="#">근거 12</a></td><td>채팅 API 호출 (3회)</td><td class="muted">사전 확인</td><td class="t">14:05:10</td></tr><tr><td><a class="ev" href="#">근거 13</a></td><td>agent Pod 상태 확인</td><td class="muted">가설 검증</td><td class="t">14:05:22</td></tr><tr><td><a class="ev" href="#">근거 14</a></td><td>agent 로그 발췌</td><td class="muted">가설 검증</td><td class="t">14:05:31</td></tr><tr><td><a class="ev" href="#">근거 15</a></td><td>llm-gateway 할당량 API</td><td class="muted">가설 검증</td><td class="t">14:05:38</td></tr></tbody></table>
+          </div></div>
+      </div>
+    </section>
+  </div>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

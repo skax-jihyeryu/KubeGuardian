@@ -1,0 +1,28 @@
+/* kg.css(캔버스 원본) 위에 얹는 실제 페이지 보정. 원본은 수정하지 않는다. */
+.app{min-height:100vh}
+.body{min-width:0}
+/* 서랍은 페이지가 길어도 화면 오른쪽에 붙는다 */
+.scrim,.drawer{position:fixed}
+.drawer{max-width:100%;overflow-y:auto}
+.scrim{cursor:default}
+/* 점검 과정: <details>로 접고 펼친다 */
+summary.hd{list-style:none;cursor:pointer}
+summary.hd::-webkit-details-marker{display:none}
+details.stp[open]>summary .chev{transform:rotate(90deg)}
+details.stp>.sbody{padding-left:22px}
+.invhead{display:flex;align-items:center;gap:12px;margin-top:20px;margin-bottom:6px}
+.concl{margin-top:12px}
+#progress-box:empty{display:none}
+.wide{display:inline}
+
+/* 960px 이하: 상세는 전체 화면, GNB는 아이콘만 (Narrow-*) */
+@media (max-width:960px){
+  .gnb{padding:0 12px 0 16px;gap:12px}
+  .gnb .proj,.gnb .wide,.gnb .lbl{display:none}
+  .gnb .btn{width:32px;padding:0;justify-content:center}
+  .band{padding:0 16px}
+  .detail{padding:16px}
+  .list{width:100%;border-right:0}
+  .drawer{width:100%;border-radius:0}
+  .paper{padding:16px}
+}

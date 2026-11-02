@@ -1,0 +1,16 @@
+{% from "_icons.html" import ic %}
+<header class="gnb">
+  <span class="proj">{{ shell.project }} · {{ shell.cluster }}</span>
+  <span class="sp"></span>
+  {% if shell.halted_minutes is not none %}
+  <span class="lastchk halt">{{ ic("triangle-alert") }}점검 {{ shell.halted_minutes }}분째 안 됨<span class="wide"> · 마지막 정상 </span><span class="t">{{ shell.last_time }}</span></span>
+  {% elif shell.last_time %}
+  <span class="lastchk">{{ ic("check-circle", "ok-ic") }}<span class="wide">마지막 점검 </span><span class="t">{{ shell.last_time }}</span>{% if shell.next_time %}<span class="wide"> · 다음 <span class="t">{{ shell.next_time }}</span></span>{% endif %}</span>
+  {% else %}
+  <span class="lastchk">아직 점검 기록이 없습니다</span>
+  {% endif %}
+  {#- 점검 실행(#29)과 질의 채팅(#100)이 붙기 전까지는 누를 수 없게 둔다 -#}
+  <button class="btn btn-dis" disabled aria-label="지금 점검" title="점검 이력 화면(#29)에서 연결됩니다">{{ ic("play") }}<span class="lbl">지금 점검</span></button>
+  <button class="btn btn-dis" disabled aria-label="질문" title="질의 채팅(#100)에서 연결됩니다">{{ ic("help") }}<span class="lbl">질문</span></button>
+  <span class="avatar" aria-hidden="true">{{ ic("user") }}</span>
+</header>

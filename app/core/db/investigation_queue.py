@@ -98,6 +98,14 @@ class InvestigationQueue:
                 return Job(iid, row.check_run_id, dict(row.request), token)
         return None
 
+    def queued_run(self, incident_id: int) -> int | None:
+        """이슈의 조사 요청이 대기열에 있으면 그 요청을 만든 점검 id (화면용)."""
+        stmt = select(InvestigationQueueRow.check_run_id).where(
+            InvestigationQueueRow.incident_id == incident_id
+        )
+        with Session(self._engine) as s:
+            return s.scalar(stmt)
+
     def owns(self, job: Job) -> bool:
         """아직 내 일인가 (새 요청에 밀리지 않았고 남이 가져가지 않았다)."""
         stmt = select(InvestigationQueueRow.incident_id).where(*self._mine(job))

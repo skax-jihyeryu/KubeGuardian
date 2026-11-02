@@ -1,0 +1,32 @@
+{% from "_icons.html" import ic %}
+{#- 근거 서랍. 열린 서랍은 ?ev=N 주소와 같은 화면이다. 닫으면 ?ev가 지워진 같은 화면. -#}
+<div id="drawer-root">
+{%- if drawer %}
+{%- set close = "/p/" ~ p ~ "/checks/" ~ run_id %}
+{%- set here = close ~ "?ev=" ~ drawer.n %}
+<a class="scrim" href="{{ close }}" aria-label="서랍 닫기" hx-get="{{ close }}" hx-target="#drawer-root" hx-select="#drawer-root" hx-swap="outerHTML" hx-push-url="true"></a>
+<aside class="drawer" role="dialog" aria-label="근거 {{ drawer.n }}">
+  <div class="dh">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div style="display:flex;align-items:center;gap:12px"><span class="ev" style="height:28px;font-size:15px;padding:0 10px;margin:0">근거 {{ drawer.n }}</span><span class="kind">{{ drawer.kind }}</span></div>
+      <a id="drawer-close" class="plain" style="color:var(--ink)" href="{{ close }}" aria-label="닫기" hx-get="{{ close }}" hx-target="#drawer-root" hx-select="#drawer-root" hx-swap="outerHTML" hx-push-url="true">{{ ic("x", "ic20") }}</a>
+    </div>
+  </div>
+  <div class="db">
+    <div class="kv">
+      <span class="k">대상</span><span class="v">{{ drawer.subject }}</span>
+      <span class="k">수집 시각</span><span class="v">{{ drawer.collected }}</span>
+      <span class="k">출처</span><span class="v">{{ drawer.source }}</span>
+    </div>
+    <div class="raw">{{ drawer.raw }}</div>
+    {%- if drawer.truncated %}<p class="s13 muted" style="margin-top:8px">원문이 길어 앞부분만 보입니다.</p>{% endif %}
+    <p class="s13 muted" style="margin-top:12px">민감한 값은 <span class="mono">***</span>로 가려지고 키 이름은 그대로 보입니다.</p>
+  </div>
+  <div class="df">
+    <button type="button" class="btn btn-sec" data-copy-path="{{ here }}">{{ ic("copy") }}단독 페이지 링크 복사</button>
+    <span class="s13 muted" id="copied" role="status" aria-live="polite"></span>
+    <p class="s13 muted mono" style="margin-top:8px;word-break:break-all">{{ here }}</p>
+  </div>
+</aside>
+{%- endif %}
+</div>

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>근거 서랍</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./kg.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app" style="min-height: 1000px; width: 100%">
+
+<aside class="rail" aria-label="메뉴">
+  <a class="logo" href="Main.dc.html" aria-label="점검 이력 (홈)">KG</a>
+  <nav class="rnav">
+    <a class="rbtn on" href="Main.dc.html" aria-label="점검 이력" aria-current="page"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></a>
+    <a class="rbtn" href="Issues-v2.dc.html" aria-label="이슈"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg></a>
+    <a class="rbtn" href="Setup-Services-v2.dc.html" aria-label="점검 구성"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg></a>
+  </nav>
+  <div class="rail-foot"><button class="rbtn" aria-label="메뉴 펼치기"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg></button></div>
+</aside>
+
+<div class="main">
+  <header class="gnb">
+    <span class="proj">dev · minikube</span>
+    <span class="sp"></span>
+    <span class="lastchk"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>마지막 점검 <span class="t">14:40</span> · 다음 <span class="t">14:45</span></span>
+    <button class="btn btn-primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>지금 점검</button>
+    <button class="btn btn-ghost"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>질문</button>
+    <span class="avatar" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+  </header>
+
+  <div class="band">
+    <span>열린 이슈</span>
+    <a class="plain" href="#"><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급 1</span></a>
+    <span class="zero">주의 0</span>
+    <span class="zero">잠재 위험 0</span>
+  </div>
+
+  <div class="body">
+    <section class="list" aria-label="점검 목록">
+      <div class="lhead"><h1>점검 이력</h1></div>
+      <div class="filters">
+        <div class="frow"><label class="search"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>서비스·점검 규칙 ID·이슈 제목·실패한 기능</label></div>
+        <div class="frow">
+          <span class="pill sel">기간: 오늘<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="pill">심각도<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="pill">이슈 관계<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+        </div>
+      </div>
+      <a class="crow bar c-crit" href="#"><div class="l1"><span class="t">14:40</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span class="rel">이어짐 #12</span></div><div class="l2"><span class="sum">채팅 실패</span><span class="pillm">주기</span></div></a>
+      <a class="crow bar c-crit sel" href="#" aria-current="true"><div class="l1"><span class="t">14:05</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span class="rel">이슈 열림 #12</span></div><div class="l2"><span class="sum">채팅 실패 · 기능 점검 chat 2단계</span><span class="pillm">주기</span></div></a>
+      <div class="fold"><span class="l"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>이상 없음 2회 · <span class="t">13:55~14:00</span></span><a href="#">펼치기<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a></div>
+    </section>
+
+    <section class="detail" aria-label="점검 상세">
+      <div class="doc">
+        <div class="crumb"><a href="#">dev</a>›<a href="#">점검 이력</a>›<span>10/26 14:05</span></div>
+        <h1 class="title">점검 10/26 14:05</h1>
+        <nav class="jump" aria-label="절 바로가기"><a href="#">조치</a><span>·</span><a href="#">판정</a><span>·</span><a href="#">조사</a><span>·</span><a href="#">근거</a></nav>
+        <div class="paper">
+          <div class="sec">
+            <div class="hdrow">
+              <span class="bdg lg c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span>
+              <span class="conf"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>확신도 높음</span>
+              <a class="mono s14" href="#">이슈 #12</a><span class="open">OPEN</span>
+            </div>
+            <div class="meta">10/26 <span class="t">14:05</span> · 주기 점검 · 점검 완료 48초</div>
+            <p class="concl">front-chat → gateway → agent → llm-gateway 경로에서 llm-gateway가 429(요청 한도 초과)를 반환해 gateway가 502로 응답하고 있습니다.<a class="ev act" href="#">근거 14</a><a class="ev" href="#">근거 15</a></p>
+          </div>
+          <div class="sec">
+            <h2>권장 조치<span class="hint">자동 실행하지 않음</span></h2>
+            <ol class="act">
+              <li><span>llm-gateway 관리 화면 → 할당량 설정에서 한도 상향 또는 일일 사용량 초기화</span></li>
+              <li><span>반복되면 사용량이 급증한 사용자·기능을 llm-gateway 감사 로그에서 확인</span></li>
+            </ol>
+          </div>
+          <div class="sec">
+            <h2>조사</h2>
+            <h3 class="sub" style="margin-top:0">근거 — 가설 검증</h3>
+            <ul class="facts">
+              <li><span>agent 로그: <span class="mono" style="font-size:13.5px">llm-gateway returned 429 Too Many Requests</span><a class="ev act" href="#">근거 14</a></span></li>
+              <li><span>llm-gateway 할당량 API: 오늘 사용량이 한도의 100%<a class="ev" href="#">근거 15</a></span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 서랍 -->
+  <div class="scrim" aria-hidden="true"></div>
+  <aside class="drawer" role="dialog" aria-label="근거 14">
+    <div class="dh">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div style="display:flex;align-items:center;gap:12px"><span class="ev" style="height:28px;font-size:15px;padding:0 10px;margin:0">근거 14</span><span class="kind">log_excerpt</span></div>
+        <button aria-label="닫기" style="color:var(--ink)"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+    </div>
+    <div class="db">
+      <div class="kv">
+        <span class="k">대상</span><span class="v">dev/Pod/agent-7c9f-x2k</span>
+        <span class="k">수집 시각</span><span class="v">14:07:12</span>
+        <span class="k">출처</span><span class="v">GET /api/v1/namespaces/dev/pods/agent-7c9f-x2k/log</span>
+      </div>
+      <div class="raw">14:06:58 WARN llm-gateway returned 429 Too Many Requests (insufficient_quota)
+Authorization: Bearer ****</div>
+      <p class="s13 muted" style="margin-top:12px">민감한 값은 <span class="mono">****</span>로 가려지고 키 이름은 그대로 보입니다.</p>
+    </div>
+    <div class="df">
+      <button class="btn btn-sec"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>단독 페이지 링크 복사</button>
+      <p class="s13 muted mono" style="margin-top:8px;word-break:break-all">/p/dev/checks/{run}?ev=14</p>
+    </div>
+  </aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
