@@ -42,17 +42,31 @@ from service.agent.investigator.v1.state import (
 )
 from service.model import Report
 from service.model.report import Fact
+from service.sensors.topology import service_hierarchy
+from service.tools._common import read
 
 if TYPE_CHECKING:
     from service.agent.investigator.v1.agent import InvestigatorV1
 
 KNOWLEDGE_DIR = Path(__file__).parents[3] / "knowledge"
 EVENTS_MINUTES = 30
+# 경로 B 사전 확인에서 실패 경로 서비스의 오류 줄을 모으는 get_pod_logs 호출 수.
+# 이 호출은 전체 상한(20)에는 들어가지만, start_issue가 문제당 카운터를 0으로 되돌리므로
+# 문제당 상한(8)에는 들어가지 않는다. 사전 확인은 최대 2(토폴로지·이벤트) + 1(시나리오) + 4 = 7회다.
+PRELIMINARY_LOG_CALLS = 4
+_ERROR_GREP = "error|exception|fail|timeout|refused|429|502|503|504"
+_PRELIMINARY_LOG_ARGS = {"tail": 5, "since_seconds": 1800, "grep": _ERROR_GREP}
+_FACT_LINE_MAX = 200  # Fact 문장에 넣는 로그 한 줄의 상한
 NEXT_ISSUE_MIN_SECONDS = 40  # 남은 시간이 이보다 적으면 다음 문제를 조사하지 않는다
 _NOT_INVESTIGATED = "(예산 부족으로 조사하지 못함)"
 _RETRY_NOTE = (
     "결론에 실제 근거 번호(ev-N)가 없습니다. 도구 결과에 있는 근거 번호를 인용해 다시 쓰세요."
 )
+
+
+def _is_ready(pod: dict) -> bool:
+    conditions = (pod.get("status") or {}).get("conditions") or []
+    return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
 
 
 def build_graph(agent: "InvestigatorV1"):
@@ -88,14 +102,53 @@ def build_graph(agent: "InvestigatorV1"):
             )
         return Observation(evidence_id=evidence_id, tool=name, ok=ok)
 
-    def call_tool(name: str, args: dict) -> tuple[Fact, bool] | None:
+    def run_tool(name: str, args: dict):
+        """도구를 불러 결과를 돌려준다. 없는 도구거나 상한으로 호출하지 못했으면 None."""
         if name not in tools:
             return None
         result = tools[name].run(args, tool_ctx)
-        if not result.evidence_id:
+        return result if result.evidence_id else None
+
+    def call_tool(name: str, args: dict) -> tuple[Fact, bool] | None:
+        result = run_tool(name, args)
+        if result is None:
             return None
         fact = Fact(statement=f"{name}: {result.summary}", evidence_ids=[result.evidence_id])
         return fact, result.ok
+
+    def failed_path_pods(state: InvestigationState) -> list[str]:
+        """실패한 시나리오가 지나는 서비스의 Pod. 서비스마다 하나씩 돌고 나서 다음 Pod를 돈다.
+
+        서비스 안에서는 Ready가 아닌 Pod를 앞에 두고, 그다음 이름순이다.
+        """
+        symptoms = state["request"].symptoms
+        services = ctx.scenario_services.get(symptoms[0].scenario, []) if symptoms else []
+        if not services:
+            return []
+        try:
+            snapshot = read(tool_ctx, "Service", "ReplicaSet", "Pod")
+            hierarchy = service_hierarchy(snapshot)
+        except Exception:  # noqa: BLE001 — Pod를 못 읽어도 조사는 계속한다
+            return []
+        ready = {p["metadata"]["name"]: _is_ready(p) for p in snapshot.items("Pod") or []}
+        pods = {
+            s: sorted((p.pod for p in (hierarchy or {}).get(s, [])), key=lambda n: (ready[n], n))
+            for s in services
+        }
+        rounds = max(map(len, pods.values()), default=0)
+        ordered = [pods[s][i] for i in range(rounds) for s in services if i < len(pods[s])]
+        return ordered[:PRELIMINARY_LOG_CALLS]
+
+    def error_log_fact(pod: str, result) -> Fact | None:
+        """일치한 줄이 있으면 요약과 줄을 담은 Fact, 조회에 실패했으면 실패 Fact. 0건이면 없다."""
+        if not result.ok:
+            statement = f"get_pod_logs {pod}: {result.summary}"
+        elif result.data.get("match_count"):
+            lines = [f"  {line[:_FACT_LINE_MAX]}" for line in result.data.get("lines") or []]
+            statement = "\n".join([f"get_pod_logs: {result.summary}", *lines])
+        else:
+            return None
+        return Fact(statement=statement, evidence_ids=[result.evidence_id])
 
     def issue_title(state: InvestigationState, index: int) -> str:
         issues = state["triage"].issues
@@ -136,6 +189,17 @@ def build_graph(agent: "InvestigatorV1"):
                     facts.append(fact)
                     obs.append(observation(fact.evidence_ids[0], name, args, ok))
             s.evidence_ids = [i for f in facts for i in f.evidence_ids]
+            if state["request"].gate_path == "B" and "get_pod_logs" in tools:
+                for pod in failed_path_pods(state):
+                    args = {"pod": pod, **_PRELIMINARY_LOG_ARGS}
+                    if (result := run_tool("get_pod_logs", args)) is None:
+                        continue
+                    s.evidence_ids.append(result.evidence_id)
+                    if fact := error_log_fact(pod, result):
+                        facts.append(fact)
+                    # 일치 줄이 없거나 실패한 조회는 로그를 확인한 것으로 세지 않는다 (커버리지)
+                    if result.ok and result.data.get("match_count"):
+                        obs.append(observation(result.evidence_id, "get_pod_logs", args, True))
         return {
             "facts": facts,
             "seen": state["seen"] + s.evidence_ids,
@@ -301,8 +365,8 @@ def build_graph(agent: "InvestigatorV1"):
         report = out.report.model_copy(update={"conclusion_supported": out.conclusion_supported})
         if not out.conclusion_supported and state["report_attempts"] >= 2:
             report = report.model_copy(update={"confidence": "low"})
-        if not report.preliminary_facts:
-            report = report.model_copy(update={"preliminary_facts": state["facts"]})
+        # 사전 확인은 코드가 모은 값으로 고정한다 (LLM이 <tool_output> 문장을 베껴 쓰지 못하게)
+        report = report.model_copy(update={"preliminary_facts": state["facts"]})
         # 재조사 중 시간이 넘은 것은 이미 끝난 조사를 미완료로 바꾸지 않는다
         limited = state["limited"] or (not state["rechecked"] and ctx.budget.time_over())
         return {"report": report, "status": "incomplete" if limited else "done"}

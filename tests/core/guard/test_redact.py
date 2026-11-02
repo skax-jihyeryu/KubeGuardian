@@ -194,6 +194,53 @@ def test_pem_private_key_body_is_masked():
     assert redact_text(result) == result
 
 
+_B64 = "MIIEpAIBAAKCAQEAzzQ9abcdefgh"  # 16자 이상 base64 줄
+
+
+def test_pem_cut_in_the_middle_masks_trailing_body_and_end_line():
+    text = f"start\n{_B64}\n{_B64}x\n-----END RSA PRIVATE KEY-----\nafter"
+    result = redact_text(text)
+    assert _B64 not in result
+    assert "END RSA PRIVATE KEY" not in result
+    assert result.splitlines()[0] == "start" and result.splitlines()[-1] == "after"
+    assert redact_text(result) == result
+
+
+def test_pem_cut_keeps_ordinary_lines_around_it():
+    text = "info: ready\nthis is an ordinary line\n-----END PRIVATE KEY-----\nnext line"
+    result = redact_text(text)
+    assert "info: ready" in result and "this is an ordinary line" in result
+    assert result.endswith("next line")
+    assert "END PRIVATE KEY" not in result
+
+
+def test_pem_cut_with_short_last_line_masks_whole_body():
+    b = "B" * 64
+    result = redact_text(f"{b}\n{b}\nabc=\n-----END PRIVATE KEY-----")
+    assert "BBBB" not in result and "abc=" not in result
+    assert result == MASK
+
+
+def test_pem_cut_with_short_last_line_keeps_ordinary_lines_above():
+    b = "B" * 64
+    result = redact_text(f"server started\nlistening\n{b}\nabc=\n-----END PRIVATE KEY-----\nnext")
+    assert result == f"server started\nlistening\n{MASK}\nnext"
+
+
+def test_complete_pem_is_unchanged_by_the_cut_rule():
+    text = f"a\n-----BEGIN RSA PRIVATE KEY-----\n{_B64}\n-----END RSA PRIVATE KEY-----\nb"
+    result = redact_text(text)
+    assert result == "a\n-----BEGIN RSA PRIVATE KEY----------END RSA PRIVATE KEY-----\nb".replace(
+        "----------", f"-----{MASK}-----"
+    )
+    assert redact_text(result) == result
+
+
+def test_begin_without_end_still_masks_everything_after():
+    result = redact_text(f"a\n-----BEGIN RSA PRIVATE KEY-----\n{_B64}\nlater line")
+    assert result == f"a\n-----BEGIN RSA PRIVATE KEY-----{MASK}"
+
+
 def test_list_args_and_list_values_are_masked():
     data = {"args": ["--db-password", "pw1", "--port", "80"], "password": ["pw2"]}
     assert redact_mapping(data) == {

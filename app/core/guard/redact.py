@@ -45,6 +45,14 @@ _SENSITIVE_SUFFIXES = ("password", "passwd", "secret", "token")
 _COMPOUND_ONLY_WORDS = {"key", "pwd"}
 _NON_VALUE_SUFFIXES = {"name", "ref", "id", "type", "count", "ttl", "expiry", "url", "path", "file"}
 
+# END만 있는 경우 (로그를 앞에서 잘라 BEGIN이 없다):
+# END 바로 앞에 이어진 base64 줄과 END 줄을 가린다.
+# 본문이 짧은 마지막 줄(16자 미만)은 일반 줄과 구분하지 못해 남는다.
+_PEM_END_LINE = re.compile(r"^-----END [A-Z ]*PRIVATE KEY-----", re.MULTILINE)
+_BASE64_LINE = re.compile(r"[A-Za-z0-9+/=]{16,}\r?")
+_BASE64_LAST_LINE = re.compile(r"[A-Za-z0-9+/=]+\r?")  # PEM의 마지막 줄은 짧을 수 있다
+# BEGIN만 있고 END가 없는 경우(`\Z`)는 뒤를 모두 가린다. 로그가 중간에서 잘렸을 때 본문이
+# 어디까지인지 알 수 없어, 비밀값을 놓치느니 뒤의 일반 줄을 잃는 쪽을 택한다.
 _PEM = re.compile(
     r"(?P<head>-----BEGIN [A-Z ]*PRIVATE KEY-----).*?(?P<tail>-----END [A-Z ]*PRIVATE KEY-----|\Z)",
     re.DOTALL,
@@ -95,12 +103,39 @@ def is_sensitive_name(name: str) -> bool:
 def redact_text(text: str) -> str:
     """문자열 안의 비밀값을 `***`로 바꾼다."""
     text = _PEM.sub(rf"\g<head>{MASK}\g<tail>", text)
+    text = _mask_orphan_pem_end(text)
     text = _URL_USERINFO.sub(rf"\g<head>{MASK}", text)
     text = _KNOWN_TOKEN.sub(MASK, text)
     text = _BEARER.sub(rf"\g<head>{MASK}", text)
     text = _AUTH_HEADER.sub(rf"\g<head>{MASK}", text)
     text = _CLI_FLAG.sub(_mask_cli_flag, text)
     return _redact_key_values(text)
+
+
+def _mask_orphan_pem_end(text: str) -> str:
+    """BEGIN 없는 END 줄과 그 앞의 base64 줄을 가린다.
+
+    END 바로 앞 한 줄은 base64 문자로만 되어 있으면 길이와 상관없이(`abc=`) 가리고,
+    그 위는 16자 이상 base64 줄만 이어서 가린다.
+    위에서 마스킹한 PEM의 END는 줄 앞이 아니라서 걸리지 않는다. END마다 위로만 훑어 선형이다.
+    """
+    out_end = len(text)
+    pieces: list[str] = []
+    matches = list(_PEM_END_LINE.finditer(text))
+    for m in reversed(matches):
+        start = m.start()
+        line_re = _BASE64_LAST_LINE
+        while start > 0:
+            line_start = text.rfind("\n", 0, start - 1) + 1
+            if not line_re.fullmatch(text, line_start, start - 1):
+                break
+            start = line_start
+            line_re = _BASE64_LINE
+        pieces.append(text[m.end() : out_end])
+        pieces.append(MASK)
+        out_end = start
+    pieces.append(text[:out_end])
+    return "".join(reversed(pieces))
 
 
 def _mask_cli_flag(m: re.Match[str]) -> str:

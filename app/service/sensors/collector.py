@@ -9,13 +9,14 @@
 - 로그는 스냅샷에 넣지 않는다. 도구가 `fetch_logs`로 필요할 때 읽는다.
 """
 
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 from core.error.service_exception import ErrorCode, ServiceException
 from core.guard.redact import MASK, redact_mapping, redact_text
-from core.k8s import Items, K8sCallError
+from core.k8s import LOG_LIMIT_BYTES, Items, K8sCallError
 from service.model import ClusterSnapshot, Evidence
 
 # 수집하는 kind (Kubernetes Kind 이름). Node는 Pod가 올라간 노드를 고르므로 Pod 뒤에 둔다
@@ -30,7 +31,9 @@ COLLECTED_KINDS: tuple[str, ...] = (
     "Secret",
     "Event",
 )
-MAX_LOG_TAIL = 200
+MAX_LOG_TAIL = 200  # 한 번에 돌려주는 줄 수 상한
+MAX_LOG_SCAN = 2000  # grep할 때 필터 전에 읽는 줄 수 상한
+_LOG_RETRIES = 3  # 바이트 한도에 닿았을 때 줄 수를 줄여 다시 읽는 최대 횟수
 
 Obj = dict[str, Any]
 
@@ -49,7 +52,15 @@ class KubeReader(Protocol):
         """클러스터 범위 노드 목록."""
         ...
 
-    def read_log(self, pod: str, container: str, *, previous: bool, tail_lines: int) -> str: ...
+    def read_log(
+        self,
+        pod: str,
+        container: str,
+        *,
+        previous: bool,
+        tail_lines: int,
+        since_seconds: int | None = None,
+    ) -> str: ...
 
 
 def collect(
@@ -75,6 +86,45 @@ def collect(
     return snapshot
 
 
+class LogRead(NamedTuple):
+    """`fetch_logs` 결과. lines는 마스킹·필터 뒤 끝 tail줄이다."""
+
+    lines: list[str]
+    scanned: int  # 필터 전에 읽은 줄 수
+    more_before: bool  # 읽은 범위 앞에 줄이 더 있을 수 있음 (잘림)
+    match_count: int | None  # grep이 있을 때 필터에 걸린 전체 줄 수
+    requested_lines: int  # API에 실제로 요청한 줄 수 (바이트 한도로 다시 읽었으면 줄어든 값)
+
+
+def parse_grep(grep: str) -> list[str]:
+    """`|`(`\\|`도)로 나눈 키워드 목록 (앞뒤 공백 제거). 정규식이 아니다.
+
+    하나도 없으면 ValueError.
+    """
+    keywords = [k.strip() for k in re.split(r"\\?\|", grep) if k.strip()]
+    if not keywords:
+        raise ValueError("grep에 키워드가 없음")
+    return keywords
+
+
+def _line_matcher(keyword: str) -> Callable[[str], bool]:
+    """소문자 줄이 키워드를 담는지. 숫자 키워드는 앞뒤 경계를 본다.
+
+    `502`가 타임스탬프 `03.502Z`, `id=7f4290` 같은 다른 숫자에 걸리지 않게 한다.
+    앞이 숫자·16진 문자·`.`·`,`이거나 `숫자:`(시각)이면, 뒤가 숫자이면 일치하지 않는다.
+    `"code":429`처럼 `:` 앞이 숫자가 아니면 일치한다. 정규식은 숫자만 든 키워드로만 만든다.
+    """
+    if not re.fullmatch(r"[0-9]+", keyword):
+        return lambda line: keyword in line
+    pattern = re.compile(rf"(?<![0-9a-f.,])(?<!\d:){keyword}(?!\d)")
+    return lambda line: pattern.search(line) is not None
+
+
+def initial_read_lines(tail: int, grep: str | None) -> int:
+    """첫 읽기에서 요청하는 줄 수. grep이 없으면 tail보다 하나 더 읽어 앞부분이 있는지 본다."""
+    return MAX_LOG_SCAN if grep else tail + 1
+
+
 def fetch_logs(
     reader: KubeReader,
     pod: str,
@@ -83,23 +133,59 @@ def fetch_logs(
     previous: bool = False,
     tail: int = MAX_LOG_TAIL,
     grep: str | None = None,
-) -> list[str]:
-    """컨테이너 로그 끝 `tail`줄을 마스킹해 돌려준다. previous=True면 직전 컨테이너의 로그.
+    since_seconds: int | None = None,
+) -> LogRead:
+    """컨테이너 로그를 마스킹해 끝 `tail`줄을 돌려준다. previous=True면 직전 컨테이너의 로그.
 
-    grep은 마스킹한 뒤의 줄에서 부분 문자열로 찾는다.
-    비밀값으로 grep해 값을 추측할 수 없게 하기 위함이다.
+    grep이 없으면 끝 tail줄만 읽는다. 있으면 최근 `MAX_LOG_SCAN`줄을 읽어 필터한 뒤
+    마지막 tail개를 돌려준다.
+    grep은 `|`로 나눈 키워드 중 하나라도 든 줄을 찾는다 (대소문자 무시, 부분 문자열, 정규식 아님).
+    마스킹한 뒤의 줄에서 찾는다. 비밀값으로 grep해 값을 추측할 수 없게 하기 위함이다.
+
+    응답이 바이트 한도에 닿으면 최신 줄이 잘렸을 수 있다. 읽는 줄 수를 1/4로 줄여 다시 읽고
+    (최대 3번), 그래도 닿으면 COLLECT_FAILED다. 다시 읽었으면 more_before는 True다.
     """
     if not 1 <= tail <= MAX_LOG_TAIL:
         raise ValueError(f"tail은 1~{MAX_LOG_TAIL} 사이여야 한다: {tail}")
-    try:
-        text = reader.read_log(pod, container, previous=previous, tail_lines=tail)
-    except K8sCallError as e:
-        raise ServiceException(ErrorCode.COLLECT_FAILED, redact_text(str(e))) from e
+    keywords = [k.lower() for k in parse_grep(grep)] if grep else None
+    text, retried, requested = _read_within_limit(
+        reader, pod, container, previous, initial_read_lines(tail, grep), since_seconds
+    )
+    # 읽은 줄 수와 잘림은 마스킹 전 원문 기준이다 (PEM은 마스킹하면 한 줄로 줄어든다)
+    raw_count = len(text.splitlines())
     # 줄로 나누기 전에 전체를 마스킹한다 (PEM 개인 키처럼 여러 줄에 걸친 비밀값)
-    lines = redact_text(text).splitlines()
-    if grep:
-        lines = [line for line in lines if grep in line]
-    return lines
+    read = redact_text(text).splitlines()
+    if keywords is None:
+        return LogRead(read[-tail:], raw_count, retried or raw_count > tail, None, requested)
+    matchers = [_line_matcher(k) for k in keywords]
+    matched = [line for line in read if any(m(line.lower()) for m in matchers)]
+    more = retried or raw_count >= MAX_LOG_SCAN or len(matched) > tail
+    return LogRead(matched[-tail:], raw_count, more, len(matched), requested)
+
+
+def _read_within_limit(
+    reader: KubeReader,
+    pod: str,
+    container: str,
+    previous: bool,
+    lines: int,
+    since_seconds: int | None,
+) -> tuple[str, bool, int]:
+    """바이트 한도 밑이 될 때까지 줄 수를 1/4로 줄여 읽는다. (본문, 다시 읽었는지, 요청한 줄 수)."""
+    for attempt in range(_LOG_RETRIES + 1):
+        try:
+            text = reader.read_log(
+                pod, container, previous=previous, tail_lines=lines, since_seconds=since_seconds
+            )
+        except K8sCallError as e:
+            raise ServiceException(ErrorCode.COLLECT_FAILED, redact_text(str(e))) from e
+        if len(text.encode("utf-8", "replace")) < LOG_LIMIT_BYTES:
+            return text, attempt > 0, lines
+        lines = max(1, lines // 4)
+    raise ServiceException(
+        ErrorCode.COLLECT_FAILED,
+        f"로그가 {LOG_LIMIT_BYTES // 1024}KiB 한도를 넘어 줄 수를 줄여도 읽지 못함",
+    )
 
 
 # ── Evidence 변환 ──
@@ -243,7 +329,7 @@ def _container_status(s: Obj) -> Obj:
 
 def _pod(obj: Obj) -> Obj:
     status = obj.get("status") or {}
-    out_status = _pick(status, "phase", "reason", "message", "podIP")
+    out_status = _pick(status, "phase", "reason", "message", "podIP", "startTime")
     out_status["conditions"] = _conditions(status.get("conditions"))
     for key in ("containerStatuses", "initContainerStatuses"):
         if status.get(key):

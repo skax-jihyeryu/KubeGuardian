@@ -1,7 +1,9 @@
 """get_topology·get_resource: Kubernetes 리소스 조회 (상세설계 §3.2 1번).
 
 수집기(sensors/collector)로 필요한 kind만 읽어 정규화·마스킹한 뒤, LLM에 줄 핵심 필드만 고른다.
-ConfigMap은 키 이름만, Secret은 메타데이터와 키 이름만 돌려준다.
+환경변수는 키 이름만, ConfigMap은 키 이름만, Secret은 메타데이터와 키 이름만 돌려준다.
+값은 넣지 않는다.
+시각(Pod 시작·컨테이너 시작·종료, 조건 변경)과 컨테이너 requests·limits는 있을 때만 넣는다.
 """
 
 from typing import Any, Literal
@@ -73,8 +75,10 @@ class GetResource(Tool):
     name = "get_resource"
     description = (
         "Kubernetes 리소스 하나(이름) 또는 여러 개(라벨 셀렉터)의 핵심 필드(셀렉터, 포트, "
-        "이미지, 환경변수 키, replicas, 상태 조건, 재시작 횟수, 마지막 종료 사유)를 본다. "
-        "Service와 Pod 연결, 설정·이미지·재시작 정보를 확인할 때 쓰세요. "
+        "이미지, 환경변수 키, requests·limits, replicas, 상태 조건과 변경 시각, 재시작 횟수, "
+        "마지막 종료 사유, Pod 시작 시각과 컨테이너 시작·종료 시각)를 본다. "
+        "Service와 Pod 연결, 설정·이미지·재시작 정보와 언제 바뀌었는지 확인할 때 쓰세요. "
+        "환경변수는 키 이름만, ConfigMap은 키 이름만, Secret은 메타데이터와 키 이름만 보인다. "
         "이름과 셀렉터를 모두 비우면 그 종류 전체."
     )
 
@@ -145,6 +149,8 @@ def _containers(spec: Obj) -> list[Obj]:
         item["env"] = _env(c)
         if c.get("envFrom"):
             item["envFrom"] = c["envFrom"]
+        if c.get("resources"):
+            item["resources"] = c["resources"]
         for probe in ("readinessProbe", "livenessProbe"):
             if c.get(probe):
                 item[probe] = c[probe]
@@ -152,18 +158,23 @@ def _containers(spec: Obj) -> list[Obj]:
     return out
 
 
+_CONDITION_KEYS = ("type", "status", "reason", "message", "lastTransitionTime")
+
+
 def _conditions(conditions: list[Obj] | None) -> list[Obj]:
     return [
-        {k: clip(c[k]) for k in ("type", "status", "reason", "message") if c.get(k) is not None}
-        for c in conditions or []
+        {k: clip(c[k]) for k in _CONDITION_KEYS if c.get(k) is not None} for c in conditions or []
     ]
+
+
+_STATE_KEYS = ("reason", "exitCode", "startedAt", "finishedAt")
 
 
 def _state(state: Obj | None) -> Obj | None:
     if not state:
         return None
     name, detail = next(iter(state.items()))
-    return {"state": name, **{k: detail[k] for k in ("reason", "exitCode") if k in detail}}
+    return {"state": name, **{k: detail[k] for k in _STATE_KEYS if k in detail}}
 
 
 def _owner(obj: Obj) -> str | None:
@@ -179,9 +190,9 @@ def _pod(o: Obj) -> Obj:
         item["state"] = _state(s.get("state"))
         last = (s.get("lastState") or {}).get("terminated")
         if last:
-            item["lastTerminated"] = {k: last[k] for k in ("reason", "exitCode") if k in last}
+            item["lastTerminated"] = {k: last[k] for k in _STATE_KEYS if k in last}
         statuses.append(item)
-    return {
+    out = {
         "name": o["metadata"]["name"],
         "labels": o["metadata"].get("labels"),
         "owner": _owner(o),
@@ -193,6 +204,9 @@ def _pod(o: Obj) -> Obj:
         "containers": _containers(o["spec"]),
         "statuses": statuses,
     }
+    if status.get("startTime"):
+        out["startTime"] = status["startTime"]
+    return out
 
 
 def _service(o: Obj) -> Obj:

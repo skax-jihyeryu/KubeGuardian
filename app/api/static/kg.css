@@ -161,7 +161,7 @@ ol.act li::before{content:counter(a) ".";font:500 14px/24px var(--mono);color:va
 .code .cp{flex:none}
 .verify{margin-top:12px;font-size:14px;line-height:22px;color:var(--ink)}
 ul.facts{display:flex;flex-direction:column;gap:6px;padding-left:4px}
-ul.facts li{display:flex;gap:10px;font-size:15px;line-height:24px}
+ul.facts li{display:flex;gap:10px;font-size:15px;line-height:24px;white-space:pre-line}
 ul.facts li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--ink);margin-top:10px;flex:none}
 .tbl{width:100%;border-collapse:collapse;font-size:14px;line-height:20px}
 .tbl th{font-weight:600;color:var(--muted);text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap;font-size:13px}

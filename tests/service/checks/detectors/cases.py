@@ -105,7 +105,9 @@ class FixtureReader:
     def list_nodes(self):
         return self.list("Node")
 
-    def read_log(self, pod, container, *, previous, tail_lines):  # pragma: no cover
+    def read_log(
+        self, pod, container, *, previous, tail_lines, since_seconds=None
+    ):  # pragma: no cover
         return ""
 
 
