@@ -114,7 +114,9 @@ def test_new_incident_sends_first_alert_before_investigation(env):
 
     [m1] = sender.posts
     assert m1["channel"] == "C0123456789" and m1["thread"] is None
-    assert "🔴 긴급" in m1["text"] and "dev" in m1["text"] and "원인을 조사하고" in m1["text"]
+    assert (
+        "🔴 *긴급 · dev" in m1["text"] and "dev" in m1["text"] and "원인을 조사하고" in m1["text"]
+    )
     assert "http://localhost:8080/dev/issues/1" in m1["text"]
     assert IncidentStore(engine).get(c.incident_id).slack_ts == "ts-1"
     assert [a.kind for a in AlertStore(engine).for_incident(c.incident_id)] == ["M1"]
@@ -138,13 +140,13 @@ def test_investigation_updates_first_alert_and_replies(env):
 
     [up] = sender.updates
     assert up["ts"] == "ts-1"
-    assert "원인: agent Service selector가 Pod 라벨과 다름" in up["text"]
-    assert "조치: Service agent의 selector" in up["text"] and "(판단 확정)" in up["text"]
+    assert "*원인*\nagent Service selector가 Pod 라벨과 다름" in up["text"]
+    assert "*조치*\n• `Service agent의 selector" in up["text"]
     basis = "원인 리소스 설정 인용 · 근거 출처 2종(로그, 설정·상태) · 지지 가설 근거 2종"
-    assert f"판단: 확정 ({basis})" in up["text"]
+    assert f"*판단:* 확정 ({basis})" in up["text"]
     assert "확신도" not in up["text"]  # LLM 확신도는 알림에 쓰지 않는다
     reply = sender.posts[-1]
-    assert reply["thread"] == "ts-1" and reply["text"].startswith("원인을 확인했습니다")
+    assert reply["thread"] == "ts-1" and reply["text"].startswith("*원인을 확인했습니다*")
 
 
 @pytest.mark.parametrize(
@@ -159,7 +161,10 @@ def test_failed_or_incomplete_investigation_is_marked(env, status, mark):
         c.incident_id, 1, AgentResult(status=status, report=report, error="LLM_CALL_FAILED"), NOW
     )
 
-    assert sender.updates[0]["text"].startswith(mark)
+    assert (
+        sender.updates[0]["text"].startswith(f"{mark} ")
+        or f"— {mark} " in sender.updates[0]["text"].splitlines()[0]
+    )
     assert sender.posts[-1]["thread"] == "ts-1"  # 미완·실패여도 답글로 알린다
 
 
@@ -196,7 +201,7 @@ def test_changed_fingerprint_updates_first_alert(env):
 def test_warning_alerts_and_info_does_not(env):
     _, sender, check = env
     check([_sig(severity="warning")], NOW)
-    assert "🟠 주의" in sender.posts[0]["text"]
+    assert "🟠 *주의 · dev" in sender.posts[0]["text"]
 
 
 def test_info_severity_incident_is_not_alerted(tmp_path):
@@ -353,8 +358,8 @@ def test_reminder_and_recovery_measure_outage_from_incident_open(env):
 @pytest.mark.parametrize(
     ("judgement", "title", "reply"),
     [
-        ("candidate", "(판단 후보)", "원인 후보를 찾았습니다"),
-        ("guess", "(판단 추정)", "조사를 마쳤지만 원인을 확정하지 못했습니다"),
+        ("candidate", "*판단:* 후보", "*원인 후보를 찾았습니다*"),
+        ("guess", "*판단:* 추정", "*원인을 확정하지 못했습니다*"),
     ],
 )
 def test_candidate_and_guess_are_shown_as_such(env, judgement, title, reply):
@@ -378,7 +383,7 @@ def test_unjudged_report_is_not_announced_as_confirmed(env):
     )
 
     assert "판단" not in sender.updates[0]["text"].splitlines()[0]
-    assert sender.posts[-1]["text"].startswith("원인 후보를 찾았습니다")
+    assert sender.posts[-1]["text"].startswith("*원인 후보를 찾았습니다*")
     assert "확정" not in sender.posts[-1]["text"]
 
 
@@ -391,5 +396,5 @@ def test_incomplete_confirmed_does_not_say_act_now(env):
     )
 
     text = sender.updates[0]["text"]
-    assert text.startswith("⚠️ 조사 미완") and "조치를 바로 실행해도 됩니다" not in text
+    assert "— ⚠️ 조사 미완 " in text.splitlines()[0] and "조치를 바로 실행해도 됩니다" not in text
     assert "조사가 끝나지 않았습니다" in text

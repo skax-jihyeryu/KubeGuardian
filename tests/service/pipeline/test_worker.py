@@ -57,7 +57,7 @@ def test_failed_investigation_is_recorded_and_alert_says_so(engine):
 
     assert IncidentStore(engine).get(iid).investigation == "failed"
     update = next(a for a in AlertStore(engine).for_incident(iid) if a.kind == "M1u")
-    assert update.text.startswith("⚠️ 조사 실패")
+    assert "— ⚠️ 조사 실패 " in update.text.splitlines()[0]
 
 
 def test_superseded_job_leaves_no_result(engine):
