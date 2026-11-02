@@ -173,3 +173,54 @@ def test_unknown_without_failed_step_has_no_none():
     text = messages.unknown("dev", ["기능 점검 chat"], 3, URL)
     assert "None" not in text
     assert "• 기능 점검 chat" in text
+
+
+# ── 확인 버튼 (#156) ──
+
+
+def _ack(user_id="U123", at_=NOW):
+    from core.db.incident_acks import IncidentAck
+
+    return IncidentAck(7, user_id, "홍길동", at_)
+
+
+def test_unacked_blocks_have_body_and_ack_button():
+    blocks = messages.ack_blocks("🔴 *긴급*\n본문", 7, None)
+
+    assert blocks[0] == {"type": "section", "text": {"type": "mrkdwn", "text": "🔴 *긴급*\n본문"}}
+    assert blocks[-1] == {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "확인"},
+                "style": "primary",
+                "action_id": "kg_ack",
+                "value": "7",
+            }
+        ],
+    }
+
+
+def test_acked_blocks_show_who_and_when_without_button():
+    blocks = messages.ack_blocks("본문", 7, _ack())
+
+    assert [b["type"] for b in blocks] == ["section", "context"]
+    assert f"✅ 확인: <@U123> {messages.hhmm(NOW)}" == blocks[-1]["elements"][0]["text"]
+
+
+def test_long_body_is_split_by_line_under_section_limit():
+    lines = [f"줄 {n} " + "가" * 200 for n in range(40)]  # 한 줄 200자, 전체 약 8000자
+    blocks = messages.ack_blocks("\n".join(lines), 7, None)
+
+    sections = [b["text"]["text"] for b in blocks if b["type"] == "section"]
+    assert len(sections) >= 3 and all(len(s) <= 3000 for s in sections)
+    assert "\n".join(sections).split("\n") == lines  # 내용은 그대로, 줄 경계에서만 나눈다
+    assert len(blocks) < 50
+
+
+def test_single_line_over_limit_is_cut_and_block_count_stays_under_50():
+    blocks = messages.ack_blocks("가" * 200_000, 7, None)
+
+    assert len(blocks) < 50 and blocks[-1]["type"] == "actions"
+    assert all(len(b["text"]["text"]) <= 3000 for b in blocks if b["type"] == "section")

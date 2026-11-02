@@ -37,17 +37,25 @@ class FakeSender:
     def __init__(self, fail=False):
         self.posts, self.updates, self.fail, self.n = [], [], fail, 0
 
-    def post(self, channel, text, *, thread_ts=None, broadcast=False):
+    def post(self, channel, text, *, thread_ts=None, broadcast=False, blocks=None):
         if self.fail:
             from core.error.service_exception import ErrorCode, ServiceException
 
             raise ServiceException(ErrorCode.NOTIFY_FAILED, "channel_not_found")
         self.n += 1
-        self.posts.append({"channel": channel, "text": text, "thread": thread_ts, "bc": broadcast})
+        self.posts.append(
+            {
+                "channel": channel,
+                "text": text,
+                "thread": thread_ts,
+                "bc": broadcast,
+                "blocks": blocks,
+            }
+        )
         return f"ts-{self.n}"
 
-    def update(self, channel, ts, text):
-        self.updates.append({"channel": channel, "ts": ts, "text": text})
+    def update(self, channel, ts, text, blocks=None):
+        self.updates.append({"channel": channel, "ts": ts, "text": text, "blocks": blocks})
 
 
 def _sig(rule="S01", service="agent", verdict="detected", severity="critical"):
@@ -398,3 +406,78 @@ def test_incomplete_confirmed_does_not_say_act_now(env):
     text = sender.updates[0]["text"]
     assert "— ⚠️ 조사 미완 " in text.splitlines()[0] and "조치를 바로 실행해도 됩니다" not in text
     assert "조사가 끝나지 않았습니다" in text
+
+
+# ── 확인 버튼 (#156) ──
+
+
+def _ack_check(engine, sender, signals, at, run_id, *, ack_enabled=True):
+    gate = decide_gate(signals)
+    changes = track(
+        engine,
+        CONFIG,
+        run_id=run_id,
+        trigger="schedule",
+        now=at,
+        gate=gate,
+        signals=signals,
+        symptoms=[],
+    )
+    notifier = Notifier(engine, CONFIG, sender, ack_enabled=ack_enabled)
+    notifier.after_check(run_id, gate, changes, at)
+    return notifier, changes
+
+
+def _buttons(blocks):
+    return [b for b in blocks or [] if b["type"] == "actions"]
+
+
+def test_critical_first_alert_has_ack_button_and_unchanged_text(env):
+    engine, sender, _ = env
+
+    _ack_check(engine, sender, [_sig()], NOW, 1)
+
+    [m1] = sender.posts
+    assert _buttons(m1["blocks"])[0]["elements"][0]["value"] == "1"
+    assert m1["blocks"][0]["text"]["text"] == m1["text"]  # 알림 이력·미리보기용 text는 그대로
+
+
+def test_warning_has_no_blocks(env):
+    engine, sender, _ = env
+
+    _ack_check(engine, sender, [_sig(severity="warning")], NOW, 1)
+
+    assert [p["blocks"] for p in sender.posts] == [None]
+
+
+def test_disabled_ack_has_no_blocks(env):
+    engine, sender, _ = env
+
+    _ack_check(engine, sender, [_sig()], NOW, 1, ack_enabled=False)
+
+    assert [p["blocks"] for p in sender.posts] == [None]
+
+
+def test_investigation_update_keeps_button_until_acked_then_shows_ack(env):
+    from core.db import IncidentAckStore
+
+    engine, sender, _ = env
+    notifier, [c] = _ack_check(engine, sender, [_sig()], NOW, 1)
+    result = AgentResult(status="done", report=_report())
+
+    notifier.after_investigation(c.incident_id, 1, result, NOW)
+    assert _buttons(sender.updates[-1]["blocks"])  # M1u에서도 버튼이 남는다
+
+    IncidentAckStore(engine).ack(c.incident_id, "U9", "홍길동", NOW + timedelta(minutes=3))
+    notifier.after_investigation(c.incident_id, 1, result, NOW + timedelta(minutes=4))
+    last = sender.updates[-1]["blocks"]
+    assert not _buttons(last) and "<@U9>" in last[-1]["elements"][0]["text"]
+
+
+def test_changed_fingerprint_update_keeps_button(env):
+    engine, sender, _ = env
+    _ack_check(engine, sender, [_sig()], NOW, 1)
+
+    _ack_check(engine, sender, [_sig(), _sig(rule="S02", service="gateway")], NOW, 2)
+
+    assert _buttons(sender.updates[-1]["blocks"])

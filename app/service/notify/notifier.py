@@ -11,6 +11,7 @@
 """
 
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -94,7 +95,7 @@ class Notifier:
         text = messages.cause_update(self._ns, incident, status, report, error, run_id, self._url)
         thread = self._thread(incident)
         if thread is None:  # 1차 알림이 나가지 못했다 → 결과를 담아 새로 보낸다
-            if ts := self._post("M1", incident.id, text, now):
+            if ts := self._post("M1", incident.id, text, now, blocks=self._blocks(incident, text)):
                 self._incidents.set_slack_ts(incident.id, ts)
             return
         self._update("M1u", incident, thread, text, now)
@@ -213,7 +214,7 @@ class Notifier:
         if incident.first_severity not in ALERTED:
             return
         text = messages.first_alert(self._ns, incident, reason, run_id, now, self._url)
-        ts = self._post("M1", incident.id, text, now)
+        ts = self._post("M1", incident.id, text, now, blocks=self._blocks(incident, text))
         if ts:
             self._incidents.set_slack_ts(incident.id, ts)
 
@@ -224,6 +225,12 @@ class Notifier:
             return
         text = messages.changed_alert(self._ns, incident, reason, run_id, now, self._url)
         self._update("M1u", incident, thread, text, now)
+
+    def _blocks(self, incident: Incident, text: str) -> list[dict[str, Any]] | None:
+        """긴급 알림에만 확인 버튼(확인됐으면 확인 표시)을 붙인다. 받을 수 없으면 붙이지 않는다."""
+        if not self._ack_enabled or incident.first_severity != "critical":
+            return None
+        return messages.ack_blocks(text, incident.id, self._acks.get(incident.id))
 
     def _thread(self, incident: Incident) -> str | None:
         """이 발송기로 이어 쓸 수 있는 M1 ID. dry-run ID는 실제 Slack에서 쓰지 않는다."""
@@ -269,10 +276,14 @@ class Notifier:
         *,
         thread: str | None = None,
         broadcast: bool = False,
+        blocks: list[dict[str, Any]] | None = None,
     ) -> str | None:
         ts, error = None, None
+        extra = {"blocks": blocks} if blocks else {}
         try:
-            ts = self._sender.post(self._channel, text, thread_ts=thread, broadcast=broadcast)
+            ts = self._sender.post(
+                self._channel, text, thread_ts=thread, broadcast=broadcast, **extra
+            )
         except ServiceException as e:
             error = e.detail or e.error_code.name
         self._record(kind, incident_id, text, now, ts=ts, thread=thread, error=error)
@@ -280,8 +291,10 @@ class Notifier:
 
     def _update(self, kind: str, incident: Incident, ts: str, text: str, now: datetime) -> None:
         error = None
+        blocks = self._blocks(incident, text)
+        extra = {"blocks": blocks} if blocks else {}
         try:
-            self._sender.update(self._channel, ts, text)
+            self._sender.update(self._channel, ts, text, **extra)
         except ServiceException as e:
             error = e.detail or e.error_code.name
         self._record(kind, incident.id, text, now, ts=ts, thread=None, error=error)

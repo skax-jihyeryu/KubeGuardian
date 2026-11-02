@@ -2,8 +2,10 @@
 
 import re
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
+from core.db.incident_acks import IncidentAck
 from core.db.incidents import Incident
 from core.guard.redact import redact_text
 from service.alerts.fingerprint import OTHER_FEATURE
@@ -198,6 +200,48 @@ def cause_reply(status: str, report: Report | None) -> str:
             "조사를 마쳤지만 원인을 확정하지 못했습니다. 확인한 범위는 보고서에 있습니다.",
         )
     return _reply("조사에 실패했습니다", "위 메시지에 규칙·증상 결과와 점검 링크를 남겼습니다.")
+
+
+ACK_ACTION_ID = "kg_ack"
+_SECTION_LIMIT = 3000  # Slack 섹션 블록 본문 상한
+_MAX_SECTIONS = 45  # 메시지당 블록 50개 미만 (버튼·확인 표시 한 줄을 남긴다)
+
+
+def _sections(text: str) -> list[str]:
+    """본문을 줄 단위로 섹션 상한 안에 나눈다. 한 줄이 상한을 넘으면 그 줄을 자른다."""
+    chunks: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        for part in [line[i : i + _SECTION_LIMIT] for i in range(0, len(line), _SECTION_LIMIT)] or [
+            ""
+        ]:
+            if current and len(current) + 1 + len(part) > _SECTION_LIMIT:
+                chunks.append(current)
+                current = part
+            else:
+                current = f"{current}\n{part}" if current else part
+    chunks.append(current)
+    return chunks[:_MAX_SECTIONS]
+
+
+def ack_blocks(text: str, incident_id: int, ack: IncidentAck | None) -> list[dict[str, Any]]:
+    """긴급 알림의 Block Kit 본문: 본문 섹션 + (미확인이면 확인 버튼, 확인됐으면 확인 표시)."""
+    blocks: list[dict[str, Any]] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": chunk}} for chunk in _sections(text)
+    ]
+    if ack is None:
+        button = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "확인"},
+            "style": "primary",
+            "action_id": ACK_ACTION_ID,
+            "value": str(incident_id),
+        }
+        blocks.append({"type": "actions", "elements": [button]})
+    else:
+        shown = f"✅ 확인: <@{clean(ack.user_id)}> {hhmm(ack.acked_at)}"
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": shown}]})
+    return blocks
 
 
 def reminder(namespace: str, incident: Incident, at: datetime, url: str) -> str:
