@@ -141,13 +141,41 @@ def test_user_symptom_opens_path_b_without_http(engine):
     assert (out.gate.path, out.gate.severity) == ("B", "warning")
 
 
-def test_missing_target_service_opens_path_b_critical(engine):
-    objects, failed = raw_cluster()
-    objects["Service"] = [x for x in objects["Service"] if x["metadata"]["name"] != "gateway"]
-    reader = FixtureReader(objects, failed)
-    out = run_check(reader, _symptom_config(), engine, trigger="check", now=NOW, http=_http(200))
-    assert (out.gate.path, out.gate.severity) == ("B", "critical")
-    assert [(x.scenario, x.status) for x in out.gate.symptoms] == [("chat", "failed")]
+def test_missing_configured_service_is_unknown_without_incident(engine):
+    from core.db import CheckResultStore
+
+    config = _symptom_config()
+    config.api_scenarios[0].steps[0].call.via = "gatewayx"
+    http = _http(200)
+    out = run_check(_reader(), config, engine, trigger="schedule", now=NOW, http=http)
+
+    assert (out.gate.path, out.gate.severity) == ("C", None)
+    assert out.incidents == []
+    assert out.gate.symptoms == []
+    [symptom] = out.symptoms
+    assert (symptom.status, symptom.failed_step, symptom.severity) == ("unknown", None, None)
+    assert "Service gatewayx" in symptom.summary
+    assert http.calls == []
+    [stored] = CheckResultStore(engine).get(out.run_id).symptoms
+    assert stored["status"] == "unknown"
+
+
+def test_missing_configured_service_notifies_only_after_three_checks(engine):
+    from core.db import AlertStore
+    from service.notify.notifier import Notifier
+    from tests.service.notify.test_notifier import FakeSender
+
+    config = _symptom_config()
+    config.api_scenarios[0].steps[0].call.via = "gatewayx"
+    sender = FakeSender()
+    notifier = Notifier(engine, config, sender)
+    for index in range(4):
+        now = NOW + timedelta(minutes=5 * index)
+        out = run_check(_reader(), config, engine, trigger="schedule", now=now, http=_http(200))
+        notifier.after_check(out.run_id, out.gate, out.incidents, now + timedelta(seconds=12))
+        assert len(sender.posts) == (0 if index < 2 else 1)
+
+    assert [alert.kind for alert in AlertStore(engine).list_alerts()] == ["M10"]
 
 
 def test_blank_user_symptom_is_not_a_symptom(engine):
@@ -344,8 +372,10 @@ def test_check_result_has_verdicts_gate_and_phase_times(engine):
 
     got = CheckResultStore(engine).get(out.run_id)
     assert (got.status, got.gate_path, got.first_severity) == ("done", "C", None)
-    assert [p.name for p in got.phases] == ["rules", "symptoms", "gate"]
-    assert got.phases[0].summary == "적발 0 · 관찰 중 0 · 개선 권고 2"
+    assert [p.name for p in got.phases] == ["collect", "rules", "symptoms", "gate"]
+    assert got.phases[0].ended_at == got.phases[1].started_at
+    assert got.phases[0].summary == "수집 성공 9종 · 실패 0종"
+    assert got.phases[1].summary == "적발 0 · 관찰 중 0 · 개선 권고 2"
     assert got.phases[0].started_at >= NOW and got.finished_at >= got.phases[-1].ended_at
     by_rule = {v["rule_id"]: v for v in got.verdicts}
     assert by_rule["S01"]["passed"] > 0 and by_rule["S01"]["items"] == []
@@ -363,7 +393,7 @@ def test_check_result_keeps_symptoms_and_failed_step(engine):
     assert (x["scenario"], x["status"], x["failed_step"]) == ("chat", "failed", 1)
     assert x["evidence_id"].startswith("ev-")
     assert (got.gate_path, got.first_severity) == ("B", "critical")
-    assert got.phases[1].summary == "chat 1단계 실패"
+    assert got.phases[2].summary == "chat 1단계 실패"
 
 
 def test_result_is_running_with_phases_appearing_one_by_one(engine, monkeypatch):
@@ -381,7 +411,7 @@ def test_result_is_running_with_phases_appearing_one_by_one(engine, monkeypatch)
     run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
 
     assert seen[0].status == "running"
-    assert [p.name for p in seen[0].phases] == ["rules", "symptoms"]
+    assert [p.name for p in seen[0].phases] == ["collect", "rules", "symptoms"]
 
 
 def test_exception_in_the_flow_marks_the_result_failed(engine, monkeypatch):
@@ -497,7 +527,7 @@ def test_unknown_rule_is_counted_in_the_rules_summary(engine, monkeypatch):
     out = run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
 
     got = CheckResultStore(engine).get(out.run_id)
-    assert got.phases[0].summary.endswith("확인하지 못함 1")
+    assert got.phases[1].summary.endswith("확인하지 못함 1")
     [v] = [v for v in got.verdicts if v["rule_id"] == "S01"]
     assert "감지기 오류 ValueError" in v["items"][0]["message"]
 
@@ -624,3 +654,19 @@ def test_disabled_rules_have_no_verdict_entry_but_other_rules_do(engine):
 
     got = CheckResultStore(engine).get(out.run_id)
     assert [v["rule_id"] for v in got.verdicts] == [r for r in CATALOG if r != "W02"]
+
+
+def test_collection_is_recorded_before_detectors(engine, monkeypatch):
+    from core.db import CheckResultStore, CheckRunStore
+    from service.pipeline import check as pipeline
+
+    real = pipeline.run_detectors
+
+    def inspect(ctx, excluded):
+        result = CheckResultStore(engine).get(1)
+        assert [p.name for p in result.phases] == ["collect"]
+        assert CheckRunStore(engine).get_snapshot(1) == ctx.snapshot
+        return real(ctx, excluded)
+
+    monkeypatch.setattr(pipeline, "run_detectors", inspect)
+    run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)

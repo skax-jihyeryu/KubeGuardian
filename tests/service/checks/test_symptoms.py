@@ -2,7 +2,7 @@ import pytest
 
 from core.config import KubeGuardianConfig
 from core.guard.budget import Budget, BudgetTracker
-from core.http import HttpResponse, NamespacedHttp
+from core.http import HttpCallError, HttpResponse, NamespacedHttp
 from core.k8s import K8sCallError
 from service.checks.symptoms import detect_symptoms
 from service.tools.base import ToolContext
@@ -83,6 +83,18 @@ def test_failed_scenario_severity_follows_its_feature_not_its_name(make_ctx, evi
     assert evidence.saved[0].subject == "dev/Scenario/chat-flow"
 
 
+@pytest.mark.parametrize(
+    "failure", [HttpCallError("ConnectError: refused"), HttpCallError("ReadTimeout")]
+)
+def test_http_transport_failure_is_failed_not_unknown(make_ctx, failure):
+    http = FakeHttp({("gateway", "/chat"): failure})
+
+    [symptom] = detect_symptoms(_config("chat"), _ctx(make_ctx, http))
+
+    assert (symptom.status, symptom.failed_step, symptom.severity) == ("failed", 1, "critical")
+    assert len(http.calls) == 1
+
+
 def test_runs_every_scenario_in_config_order(make_ctx):
     http = FakeHttp({("gateway", "/a"): 500, ("gateway", "/b"): HttpResponse(200, 1.0, "{}")})
 
@@ -91,18 +103,17 @@ def test_runs_every_scenario_in_config_order(make_ctx):
     assert [(s.scenario, s.failed_step) for s in out] == [("a", 1), ("b", None)]
 
 
-def test_missing_target_service_is_a_failed_step_not_unknown(make_ctx):
-    # Service 목록은 읽었는데 연결할 Service가 없으면 사용자는 실패한다 (05-rules §3)
+def test_missing_target_service_is_unknown(make_ctx):
     http = FakeHttp()
 
     [s] = detect_symptoms(_config("chat"), _ctx(make_ctx, http, FakeK8s({"Service": []})))
 
-    assert (s.status, s.failed_step, s.severity) == ("failed", 1, "critical")
+    assert (s.status, s.failed_step, s.severity) == ("unknown", None, None)
     assert "Service gateway" in s.summary
     assert http.calls == []
 
 
-def test_service_without_ports_is_a_failed_step(make_ctx):
+def test_service_without_ports_is_unknown(make_ctx):
     no_port = service("gateway")
     no_port["spec"]["ports"] = []
 
@@ -110,7 +121,7 @@ def test_service_without_ports_is_a_failed_step(make_ctx):
         _config("chat"), _ctx(make_ctx, FakeHttp(), FakeK8s({"Service": [no_port]}))
     )
 
-    assert (s.status, s.failed_step) == ("failed", 1)
+    assert (s.status, s.failed_step, s.severity) == ("unknown", None, None)
     assert "포트" in s.summary
 
 

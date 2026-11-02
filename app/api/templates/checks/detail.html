@@ -62,9 +62,9 @@
             {%- if it.unknown %} <span class="aux st" style="vertical-align:middle">{{ ic("ban", "ic14") }}확인하지 못함</span>
             <div class="dl" style="margin-top:10px"><span class="k">이유</span><div>{{ it.text }}</div></div>
             {%- else %} {{ it.status }} <span class="muted">— {{ it.text }}</span>{{ evlinks(p, d.run_id, it.evidence) }}
+            {%- endif %}
             {%- if it.values %}
             <div class="sigtbl">{% for k, v in it.values %}<span class="k">{{ k }}</span><span class="mono">{{ v }}</span>{% endfor %}</div>
-            {%- endif %}
             {%- endif %}
           </div>
         </div>

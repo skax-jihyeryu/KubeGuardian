@@ -70,3 +70,20 @@ def test_hygiene_rules_are_advice_and_others_are_signals():
 
     assert [r for r, g in grades.items() if g == "advice"] == ["H01", "H02"]
     assert sum(g == "signal" for g in grades.values()) == 12
+
+
+def test_every_rule_has_documented_input_fields():
+    text = RULES_MD.read_text()
+    for rid, rule in CATALOG.items():
+        assert rule.inputs
+        for kind, fields in rule.inputs:
+            assert kind and fields
+            assert f"| {rid} | {kind} | {fields} |" in text
+
+
+@pytest.mark.parametrize("rid", CATALOG)
+def test_documented_inputs_include_detector_dependencies(rid):
+    from importlib import import_module
+
+    detector = import_module(f"service.checks.detectors.{rid.lower()}")
+    assert set(detector.KINDS) <= {kind for kind, _ in CATALOG[rid].inputs}

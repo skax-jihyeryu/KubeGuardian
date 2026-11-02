@@ -25,7 +25,7 @@
 | 통과 | 조건을 만족하지 않음 | — |
 | 확인하지 못함 | 수집 실패 | 열지 않는다. P4와 보고서의 "확인하지 못함"에 표시 |
 
-증상 시나리오를 실행하지 못하면 확인하지 못함으로 표시한다(게이트를 열지 않음). 대상 Service·포트가 없으면 시나리오 실패(증상)로 본다(§3 '연결할 Service가 없음'과 같은 기준).
+증상 시나리오를 실행하지 못하면 확인하지 못함으로 표시한다(게이트를 열지 않음). 시나리오 설정의 대상 Service·포트가 없으면 점검 설정을 확인할 수 없는 경우이므로 `unknown`으로 남긴다. 실제 HTTP 호출의 연결 오류·타임아웃·실패 응답은 시나리오 실패(증상)로 본다.
 
 ### 0.1.1 등급
 
@@ -374,3 +374,55 @@ mixin 지속 시간을 따르면 상태 규칙은 장애 후 최소 15분이 지
 같은 항목이 연속 3회 `unknown`이면 M10을 1회 보낸다. 전송 실패는 다음 점검에서 재시도하며, 정상 복구로 연속 구간이 끝난 뒤 재발하면 다시 알린다.
 화면은 최근 점검의 확인 불가 수와 판정 절 링크를 표시한다. 저장된 스냅샷과 비교할 수 있는 Service 이름은 유사 후보를 수정 제안으로만 보여 준다.
 후보가 없거나 비교할 수 없으면 이유만 표시하며, OpenAPI 경로·메서드 비교나 설정 자동 수정은 하지 않는다 (#85, #131).
+
+
+## 9. 규칙별 입력 정보
+
+Kind별 주요 필드는 판정 및 서비스별 대상 묶음에 쓰는 저장 스냅샷 입력이다. 이전 스냅샷·관찰 이력과 kubeguardian.yaml 설정도 규칙에 따라 사용한다. 건수는 내용의 정확성 검증이 아니다. Secret 값은 사용하지 않는다.
+
+| 규칙 | Kind | 필드 |
+|---|---|---|
+| N01 | Node | status.conditions (Ready) |
+| P03 | Pod | status.containerStatuses, status.initContainerStatuses, metadata.ownerReferences |
+| P03 | ReplicaSet | metadata.ownerReferences |
+| P03 | Service | spec.selector |
+| P06 | Pod | status.containerStatuses (restartCount), status.initContainerStatuses, metadata.uid, metadata.ownerReferences |
+| P06 | ReplicaSet | metadata.ownerReferences |
+| P06 | Service | spec.selector |
+| P07 | Pod | status.containerStatuses (state, lastState), status.initContainerStatuses, metadata.ownerReferences |
+| P07 | ReplicaSet | metadata.ownerReferences |
+| P07 | Service | spec.selector |
+| W01 | Deployment | spec.replicas, status.availableReplicas, metadata.name |
+| W01 | Service | spec.selector |
+| W02 | Deployment | spec, status.conditions, status.observedGeneration, metadata.generation |
+| W02 | ReplicaSet | metadata.ownerReferences, metadata.annotations, spec.replicas, status |
+| W02 | Service | spec.selector |
+| S01 | Service | spec.selector, spec.type, spec.externalName |
+| S01 | Pod | metadata.labels |
+| S02 | Service | metadata.name, spec.selector, spec.type |
+| S02 | EndpointSlice | metadata.labels, endpoints.conditions, endpoints.targetRef |
+| S02 | Pod | metadata.labels, metadata.ownerReferences, status.conditions |
+| S02 | ReplicaSet | metadata.ownerReferences |
+| S03 | Service | spec.selector, spec.ports, spec.type |
+| S03 | Pod | metadata.labels, spec.containers.ports |
+| S04 | Service | metadata.name, spec.selector, spec.ports |
+| S04 | Deployment | spec.template.spec.containers.env, spec.template.spec.containers.envFrom, spec.template.metadata.labels |
+| S04 | ConfigMap | data |
+| S04 | Secret | keys |
+| C01 | Pod | spec.containers, spec.initContainers, spec.volumes |
+| C01 | ConfigMap | metadata.name, data, binaryDataKeys |
+| C01 | Secret | metadata.name, keys |
+| C01 | ReplicaSet | metadata.ownerReferences |
+| C01 | Service | spec.selector |
+| C05 | Deployment | spec.template.spec.containers.env, spec.template.spec.containers.envFrom |
+| C05 | ConfigMap | metadata.name, data |
+| C05 | Secret | metadata.name, keys |
+| C05 | Service | spec.selector |
+| H01 | Pod | spec.containers.readinessProbe |
+| H01 | Service | spec.selector |
+| H01 | ReplicaSet | metadata.ownerReferences |
+| H02 | Pod | spec.containers.resources, spec.initContainers.resources, metadata.ownerReferences |
+| H02 | ReplicaSet | metadata.ownerReferences |
+| H02 | Service | spec.selector |
+
+S04는 ConfigMap·Secret을 topology에서 간접 참조한다. `KINDS`는 Service·Deployment만 선언하지만 envFrom 수집 실패는 topology.unchecked를 통해 서비스별 확인하지 못함으로 나타난다. 다른 서비스에 unresolved 주소가 있으면 해당 서비스는 적발이 우선한다. 이 표시 작업은 판정 로직을 변경하지 않는다.
