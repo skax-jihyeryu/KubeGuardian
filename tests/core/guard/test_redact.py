@@ -214,6 +214,19 @@ def test_pem_cut_keeps_ordinary_lines_around_it():
     assert "END PRIVATE KEY" not in result
 
 
+def test_pem_cut_with_short_last_line_masks_whole_body():
+    b = "B" * 64
+    result = redact_text(f"{b}\n{b}\nabc=\n-----END PRIVATE KEY-----")
+    assert "BBBB" not in result and "abc=" not in result
+    assert result == MASK
+
+
+def test_pem_cut_with_short_last_line_keeps_ordinary_lines_above():
+    b = "B" * 64
+    result = redact_text(f"server started\nlistening\n{b}\nabc=\n-----END PRIVATE KEY-----\nnext")
+    assert result == f"server started\nlistening\n{MASK}\nnext"
+
+
 def test_complete_pem_is_unchanged_by_the_cut_rule():
     text = f"a\n-----BEGIN RSA PRIVATE KEY-----\n{_B64}\n-----END RSA PRIVATE KEY-----\nb"
     result = redact_text(text)
