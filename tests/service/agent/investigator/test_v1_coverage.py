@@ -235,3 +235,31 @@ def test_find_gaps_unresolved_truncates_statement_to_200_chars():
 
     (gap,) = find_gaps(report, _CAUSE_OBS)
     assert gap.endswith(f"  - {'나' * 200} (r)")
+
+
+def _probe(via, ok=True, ev="ev-5") -> Observation:
+    return Observation(evidence_id=ev, tool="probe", via=via, ok=ok)
+
+
+_POD_GAP = "간헐 실패 지침인데 Pod별 probe(via=pod)를 호출하지 않았습니다"
+_PF = "partial-failure"
+
+
+def test_find_gaps_partial_failure_without_pod_probe():
+    assert find_gaps(_report(), [], runbook=_PF) == [_POD_GAP]
+    assert find_gaps(_report(), [_probe("service")], runbook=_PF) == [_POD_GAP]
+    assert find_gaps(_report(), [_probe(None)], runbook=_PF) == [_POD_GAP]
+
+
+def test_find_gaps_partial_failure_with_pod_probe_has_no_gap():
+    assert find_gaps(_report(), [_probe("pod")], runbook=_PF) == []
+
+
+def test_find_gaps_failed_pod_probe_does_not_count():
+    assert find_gaps(_report(), [_probe("pod", ok=False)], runbook=_PF) == [_POD_GAP]
+
+
+def test_find_gaps_other_runbook_or_none_has_no_pod_probe_gap():
+    assert find_gaps(_report(), [], runbook="service-unreachable") == []
+    assert find_gaps(_report(), [], runbook="") == []
+    assert find_gaps(_report(), []) == []
