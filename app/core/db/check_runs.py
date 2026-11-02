@@ -54,6 +54,12 @@ class CheckRunStore:
             rows = s.execute(stmt.order_by(CheckRunRow.id.desc()).limit(limit))
             return [(r[0], r[1], r[2], bool(r[3])) for r in rows]
 
+    def get_run(self, run_id: int) -> tuple[datetime, str] | None:
+        """점검의 (시작 시각, 트리거). 없으면 None."""
+        with Session(self._engine) as s:
+            row = s.get(CheckRunRow, run_id)
+            return (row.started_at, row.trigger) if row else None
+
     def exists(self, run_id: int) -> bool:
         with Session(self._engine) as s:
             return s.get(CheckRunRow, run_id) is not None

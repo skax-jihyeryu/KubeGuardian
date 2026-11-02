@@ -1,0 +1,19 @@
+{% from "checks/_parts.html" import step, progress_box %}
+<div id="steps"{% if steps.live %} hx-get="/p/{{ p }}/checks/{{ steps.run_id }}/steps?live=1" hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"{% endif %}>
+  {%- if steps.check_steps %}
+  <div class="cap" style="margin-top:0">점검</div>
+  <div class="steps">{% for s in steps.check_steps %}{{ step(s, p, steps.run_id, steps.live) }}{% endfor %}</div>
+  {%- endif %}
+  {%- if steps.investigation_title %}
+  <div class="invhead"><b>{{ steps.investigation_title }}</b></div>
+  <div class="pillm" style="display:inline-block;padding:3px 12px;font-size:12.5px">{{ steps.investigation_meta }}</div>
+  <div class="cap">조사 <span class="muted" style="font-weight:400">· 조사 판단에서 조사를 시작한 점검에만 붙습니다</span></div>
+  <div class="steps">{% for s in steps.investigation_steps %}{{ step(s, p, steps.run_id, steps.live) }}{% endfor %}</div>
+  {%- elif steps.investigation_na %}
+  <div class="cap">조사</div>
+  <div class="steps"><div class="stp todo"><span class="pt"></span><div class="hd"><b>조사</b><span class="sum">{{ steps.investigation_na }}</span></div></div></div>
+  {%- endif %}
+</div>
+{%- if oob %}
+{{ progress_box(steps, true) }}
+{%- endif %}

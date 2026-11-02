@@ -1,0 +1,50 @@
+{% from "_icons.html" import ic, evlink %}
+
+{% macro evlinks(p, run, numbers) -%}
+{%- for n in numbers %}{{ evlink(p, run, n) }}{% endfor -%}
+{%- endmacro %}
+
+{#- 조사 중 진행 표시. 폴링 응답이 같은 id로 바꿔 끼운다(hx-swap-oob). -#}
+{% macro progress_box(steps, oob=false) -%}
+<div id="progress-box"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {%- if steps.progress %}
+  {%- set calls, budget = steps.progress %}
+  <div class="aux run" style="font-size:15px;font-weight:500">{{ ic("spin") }}조사 중: 도구 호출 <span class="mono">{{ calls }}/{{ budget }}</span></div>
+  <div class="pbar" style="--p:{{ [calls * 100 // budget, 100]|min }}%"><i></i></div>
+  {%- endif %}
+</div>
+{%- endmacro %}
+
+{% macro call_list(s, p, run) -%}
+{%- for c in s.calls %}
+<div class="tcall"><span class="fn">{{ c.tool }}<span>({{ c.args }})</span></span>{% if c.evidence %}<span class="arr">→</span>{{ evlinks(p, run, c.evidence) }}{% endif %}</div>
+{%- endfor %}
+{%- endmacro %}
+
+{% macro step(s, p, run, open) -%}
+{%- if s.state == "cur" -%}
+<div class="stp cur" data-k="{{ s.title }}"><span class="pt"></span>
+  <div class="curcard">
+    <div class="hd"><b>{{ s.title }}</b><span class="sum"><span class="aux run">{{ ic("spin", "ic14") }}{{ s.summary }}</span></span>{% if s.progress %}<span class="mono s13" style="font-weight:600">{{ s.progress[0] }}/{{ s.progress[1] }}</span>{% endif %}</div>
+    {% if s.progress %}<div class="pbar" style="--p:{{ [s.progress[0] * 100 // s.progress[1], 100]|min }}%"><i></i></div>{% endif %}
+    <div style="margin-top:8px">{{ call_list(s, p, run) }}</div>
+  </div>
+</div>
+{%- elif s.state == "todo" -%}
+<div class="stp todo"><span class="pt"></span><div class="hd"><b>{{ s.title }}</b><span class="sum">{{ s.summary }}</span></div></div>
+{%- else -%}
+<details class="stp" data-k="{{ s.title }}"{% if open %} open{% endif %}>
+  <summary class="hd"><span class="pt"></span>{{ ic("chevron-right", "ic14 chev") }}<b>{{ s.title }}</b><span class="sum">{{ s.summary }}{{ evlinks(p, run, s.evidence) }}</span><span class="tm">{{ s.time }}</span></summary>
+  <div class="sbody">
+    {%- for line in s.lines %}<div class="s13">{{ line }}</div>{% endfor %}
+    {%- for line in s.mono_lines %}<div class="mono s13">{{ line }}</div>{% endfor %}
+    {%- if s.table %}
+    <div class="sigtbl">
+      {%- for name, text, ev in s.table %}<span class="k">{{ name }}</span><span>{{ text }}{{ evlinks(p, run, ev) }}</span>{% endfor %}
+    </div>
+    {%- endif %}
+    {{ call_list(s, p, run) }}
+  </div>
+</details>
+{%- endif %}
+{%- endmacro %}

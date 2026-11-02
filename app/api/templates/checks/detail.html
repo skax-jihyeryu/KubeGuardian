@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% from "_icons.html" import ic, badge %}
+{% from "checks/_parts.html" import progress_box, evlinks %}
+{% set h = d.header %}
+{% set run_id = d.run_id %}
+{% block title %}{{ d.title }} · KubeGuardian{% endblock %}
+{% block body %}
+<section class="detail" aria-label="점검 상세">
+  <div class="doc">
+    <div class="crumb"><a href="/p/{{ p }}/checks">{{ p }}</a>›<a href="/p/{{ p }}/checks">점검 이력</a>›<span>{{ d.short_time }}</span></div>
+    <h1 class="title">{{ d.title }}
+      {%- if d.state == "running" %}<span class="aux run" style="font-weight:400">{{ ic("spin") }}점검 중</span>
+      {%- elif d.steps.progress %}<span class="aux run" style="font-weight:400">{{ ic("spin") }}조사 중</span>{% endif %}</h1>
+    <nav class="jump" aria-label="절 바로가기"><a href="#s-judge">판정</a><span>·</span><a href="#s-inv">점검 과정</a><span>·</span><a href="#s-ev">근거</a></nav>
+
+    <div class="paper">
+      <div class="sec">
+        <div class="hdrow">
+          {%- if h.kind == "sev" %}
+          {{ badge(h.sev, "lg") }}
+          {%- if h.stage %}<span class="stage">{{ h.stage }}</span>{% endif %}
+          {%- if h.judgement %}
+          {%- set label, dots = h.judgement %}
+          <span class="conf"><span class="dots" aria-hidden="true">{% for i in range(3) %}<i{% if i >= dots %} class="e"{% endif %}></i>{% endfor %}</span>판단: {{ label }}</span>
+          {%- endif %}
+          {%- elif h.kind == "calm" %}
+          <span class="calm" style="font-size:16px;font-weight:700">{{ ic("check-circle", "ok-ic") }}이상 없음</span>
+          {%- endif %}
+          {%- for i in h.issues %}
+          <a class="mono s14" href="/p/{{ p }}/issues/{{ i.id }}">이슈 #{{ i.id }} {{ i.label }} {{ ic("arrow-right", "ic14") }}</a>
+          {%- endfor %}
+          {%- if h.open %}<span class="open">OPEN</span>{% endif %}
+          {%- if h.unknown %}<span class="aux st">{{ ic("ban", "ic14") }}확인하지 못함 {{ h.unknown }}</span>{% endif %}
+        </div>
+        <div class="meta">{{ h.meta }}</div>
+        <div class="concl" style="max-width:520px">
+          {{ progress_box(d.steps) }}
+          {%- if d.steps.progress and h.issues %}
+          <div class="s13 muted" style="font-weight:400;margin-top:6px">조사가 끝나면 결론과 권장 조치는 <a href="/p/{{ p }}/issues/{{ h.issues[0].id }}">이슈 #{{ h.issues[0].id }}의 보고서</a>에 나타납니다. (분모는 문제당 도구 호출 예산)</div>
+          {%- endif %}
+          {%- if h.note %}<div class="s14" style="margin-top:6px">{{ h.note }}</div>{% endif %}
+          {%- if h.conclusion_issue %}
+          <div style="margin-top:6px"><a class="mono s14" href="/p/{{ p }}/issues/{{ h.conclusion_issue }}">이슈 #{{ h.conclusion_issue }}에서 결론 보기</a></div>
+          {%- endif %}
+          {%- if d.error %}<div class="s13 muted" style="margin-top:6px">오류 종류: <span class="mono">{{ d.error }}</span></div>{% endif %}
+        </div>
+      </div>
+
+      <div class="sec" id="s-judge">
+        <h2>점검 판정{% if h.unknown %}<span class="hint">상단 띠의 “확인하지 못함”을 누르면 이곳으로 옵니다</span>{% endif %}</h2>
+        {%- if d.state == "none" %}
+        <p class="s14 muted">이 점검은 판정이 기록되지 않았습니다. 기록 없음 — 결과 기록이 생기기 전에 실행된 점검입니다.</p>
+        {%- elif d.state in ("running", "halted") %}
+        <p class="s14 muted">판정은 점검이 끝나면 이곳에 나타납니다.</p>
+        {%- else %}
+        {%- for it in d.items %}
+        <div class="jr {{ it.css }}">
+          <span class="mark">{{ ic("ban" if it.unknown else "x", "ic14" if it.unknown else "") }}</span>
+          <div style="flex:1">
+            <span class="nm">{{ it.name }}</span>
+            {%- if it.unknown %} <span class="aux st" style="vertical-align:middle">{{ ic("ban", "ic14") }}확인하지 못함</span>
+            <div class="dl" style="margin-top:10px"><span class="k">이유</span><div>{{ it.text }}</div></div>
+            {%- else %} {{ it.status }} <span class="muted">— {{ it.text }}</span>{{ evlinks(p, d.run_id, it.evidence) }}
+            {%- if it.values %}
+            <div class="sigtbl">{% for k, v in it.values %}<span class="k">{{ k }}</span><span class="mono">{{ v }}</span>{% endfor %}</div>
+            {%- endif %}
+            {%- endif %}
+          </div>
+        </div>
+        {%- endfor %}
+        {%- if d.passed_text %}
+        <div class="pass">{{ ic("check-circle", "ok-ic") }}{{ d.passed_text }}</div>
+        {%- endif %}
+        {%- if d.advice_text %}<div class="pass">{{ d.advice_text }}</div>{% endif %}
+        {%- if d.gate %}
+        <div class="gate">조사 판단 <b class="ink">{{ d.gate.label }}</b>{% if d.gate.detail %} · {{ d.gate.detail }}{% endif %}</div>
+        {%- endif %}
+        {%- endif %}
+      </div>
+
+      {%- if d.state != "none" %}
+      <div class="sec" id="s-inv">
+        <h2>점검 과정{% if d.live %}<span class="hint">진행 중에는 단계 목록이 수 초마다 갱신됩니다</span>{% endif %}</h2>
+        {% with steps = d.steps, oob = false %}{% include "checks/_steps.html" %}{% endwith %}
+        <p class="s13 muted" style="margin-top:8px">프롬프트·LLM 응답 원문은 이 화면에 없습니다.</p>
+      </div>
+      {%- endif %}
+
+      <div class="sec" id="s-ev">
+        <h2>근거{% if d.evidence %}<span class="hint">{{ d.evidence|length }}건 · 번호를 누르면 오른쪽에 원문이 열립니다</span>{% endif %}</h2>
+        {%- if d.evidence %}
+        <table class="tbl dense"><thead><tr><th>번호</th><th>내용</th><th>단계</th><th>시각</th></tr></thead><tbody>
+          {%- for e in d.evidence %}
+          <tr><td>{{ evlinks(p, d.run_id, [e.n]) }}</td><td>{{ e.content }} <span class="kind">{{ e.kind }}</span></td><td class="muted">{{ e.stage }}</td><td class="t">{{ e.time }}</td></tr>
+          {%- endfor %}
+        </tbody></table>
+        {%- else %}
+        <p class="s14 muted">이 점검에 묶인 근거가 없습니다.</p>
+        {%- endif %}
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
