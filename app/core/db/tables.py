@@ -1,4 +1,7 @@
-"""SQLite 테이블. W1: 점검 이력·Evidence·관측 기록. W3: 점검 잠금·건너뜀, 이후 보고서·알림 이력."""
+"""SQLite 테이블. W1: 점검 이력·Evidence·관측 기록. W3: 점검 잠금·건너뜀, 이슈·알림 이력.
+
+W4: 조사·단계·보고서 (#98).
+"""
 
 from datetime import UTC, datetime
 from typing import Any
@@ -170,7 +173,7 @@ class InvestigationQueueRow(Base):
 
 
 class InvestigationRow(Base):
-    """AI 조사 한 번 (보고서 화면의 조사·보고서, 상세설계 §2.2). 끝나면 보고서가 붙는다."""
+    """AI 조사 한 번 (보고서 화면의 조사·보고서, 상세설계 §2.2, #98). 끝나면 보고서가 붙는다."""
 
     __tablename__ = "investigation"
     __table_args__ = {"sqlite_autoincrement": True}
@@ -187,6 +190,10 @@ class InvestigationRow(Base):
     report: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     usage: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(String(1024))
+    trace_id: Mapped[str | None] = mapped_column(String(32))  # Phoenix 추적 (추적을 켰을 때만)
+    gate_path: Mapped[str | None] = mapped_column(String(1))  # A / B
+    gate_reason: Mapped[str | None] = mapped_column(String(512))
+    user_symptom: Mapped[str | None] = mapped_column(String(512))  # 마스킹된 값
 
 
 class AgentStepRow(Base):
