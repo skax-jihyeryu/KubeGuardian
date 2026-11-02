@@ -42,3 +42,21 @@ def test_description_says_when_to_use(tool):
 @pytest.mark.parametrize("tool", TOOLS, ids=lambda t: t.name)
 def test_input_rejects_unknown_arguments(tool):
     assert tool.Input.model_config.get("extra") == "forbid"
+
+
+def test_query_app_api_receives_auth_config_without_extra_llm_arguments():
+    config = KubeGuardianConfig(
+        target={"namespace": "dev"},
+        app_apis={"gateway": ["/org/${org_id}"]},
+        app_api_auth={
+            "gateway": {
+                "via": "gateway",
+                "path": "/login",
+                "account_secret": "kg-test-user",
+                "extract": {"org_id": "user.role.organizations.0.org_id"},
+            }
+        },
+    )
+    tool = next(tool for tool in build_tools(config) if tool.name == "query_app_api")
+    assert tool._auth == config.app_api_auth
+    assert set(tool.Input.model_fields) == {"app", "path"}

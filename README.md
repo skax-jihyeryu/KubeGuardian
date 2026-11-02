@@ -47,3 +47,10 @@ docs/       # 기획·계획·규칙 명세·산출물·ADR·학습 노트
 ## 기여
 
 브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](.github/CONTRIBUTING.md). 기본 브랜치는 `develop`이다.
+
+앱 상태 API는 `app_apis`의 GET 허용 목록으로 등록하고, 인증이 필요하면 같은 Service 키의
+`app_api_auth`에 로그인 경로·계정 Secret 참조를 설정한다. 현재 예시는 gateway 로그인 후
+계정의 자기 조직 모델 할당을 조회한다. `${org_id}`는 로그인 응답에서 얻은 양의 정수로만 바인딩한다.
+OpenAPI·관리자 권한은 필요하지 않으며, 계정과 토큰은 LLM·근거·로그로 전달하지 않는다.
+이 조회는 조사 에이전트의 `query_app_api` 도구이며, 주기/직접 점검의 `api_scenarios`와 별개다.
+할당량 API는 관리자 권한이 필요하고 used/remaining이 null이라 연결·소진 판단 범위에서 제외한다.

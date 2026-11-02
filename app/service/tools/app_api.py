@@ -18,7 +18,7 @@ import json
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
 from core.config import (
     SCENARIO_NAME_PATTERN,
@@ -46,6 +46,42 @@ MAX_KEYS, MAX_LIST, MAX_DEPTH = 30, 20, 4
 MAX_BODY_TEXT = 500
 MAX_ERROR_TEXT = 200
 _TOKEN_FIELDS = ("access_token", "accessToken", "token")
+_PATH_VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_HTTP_PATH = TypeAdapter(HttpPath)
+
+
+def _bound_path(path: str, variables: dict[str, Any]) -> str:
+    """로그인에서 꺼낸 양의 정수 ID만 경로에 넣는다. 임의 문자열 치환은 허용하지 않는다."""
+
+    def bind(match):
+        value = variables.get(match[1])
+        if isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
+            value = int(value)
+        if type(value) is not int or value <= 0:
+            raise ValueError("로그인 응답의 경로 ID가 양의 정수가 아님")
+        return str(value)
+
+    return _HTTP_PATH.validate_python(_PATH_VARIABLE.sub(bind, path))
+
+
+def _without_token(resp: HttpResponse, token: str) -> HttpResponse:
+    # 응답이 인증 헤더를 그대로 반사해도, JSON에서 토큰을 이스케이프해도 저장하지 않는다.
+    def hide(value):
+        if isinstance(value, str):
+            return value.replace(token, "****")
+        if isinstance(value, list):
+            return [hide(item) for item in value]
+        if isinstance(value, dict):
+            return {hide(key): hide(item) for key, item in value.items()}
+        return value
+
+    payload = resp.json()
+    if payload is not None:
+        text = json.dumps(hide(payload), ensure_ascii=False)
+    else:
+        escaped = json.dumps(token, ensure_ascii=True)[1:-1]
+        text = resp.text.replace(escaped, "****").replace(token, "****")
+    return HttpResponse(resp.status, resp.elapsed_ms, text, resp.truncated)
 
 
 def _port(ctx: ToolContext, service: str, port: int | None = None) -> int:
@@ -71,10 +107,19 @@ class QueryAppApi(Tool):
 
     class Input(BaseModel):
         app: K8sName = Field(description="대상 네임스페이스의 Service 이름 (허용 목록의 키)")
-        path: HttpPath = Field(description="허용 목록의 경로")
+        path: str = Field(
+            description="허용 목록의 경로 (변수도 설정에 적힌 그대로)", max_length=512
+        )
 
-    def __init__(self, app_apis: dict[str, list[str]]):
+        @field_validator("path")
+        @classmethod
+        def _allow_id_placeholders(cls, value: str) -> str:
+            _HTTP_PATH.validate_python(_PATH_VARIABLE.sub("1", value))
+            return value
+
+    def __init__(self, app_apis: dict[str, list[str]], auth: dict[str, LoginStep] | None = None):
         self._allow = app_apis
+        self._auth = auth or {}
         allowed = "; ".join(f"{app}: {', '.join(paths)}" for app, paths in app_apis.items())
         self.description = f"{type(self).description} 허용 경로 — {allowed or '없음'}"
 
@@ -84,13 +129,45 @@ class QueryAppApi(Tool):
                 ErrorCode.VALIDATION_ERROR, f"허용 목록에 없는 앱·경로: {args.app} {args.path}"
             )
         port = _port(ctx, args.app)
-        resp = ctx.http.get(service=args.app, port=port, path=args.path)
-        body, truncated = _body(resp)
+        login = self._auth.get(args.app)
+        token = None
+        path = args.path
+        if login is not None:
+            variables: dict[str, Any] = {}
+            try:
+                result, token = _run_step(ctx, ApiScenarioStep(login=login), {}, variables)
+                if (
+                    not result["ok"]
+                    or not token
+                    or not token.strip()
+                    or "\r" in token
+                    or "\n" in token
+                ):
+                    raise ValueError("로그인 실패 또는 토큰 없음")
+                path = _bound_path(path, variables)
+            except Exception:
+                # 로그인 응답·계정·원래 예외 문자열은 결과나 근거에 전달하지 않는다.
+                raise ServiceException(ErrorCode.VALIDATION_ERROR, "앱 API 로그인 실패") from None
+        elif _PATH_VARIABLE.search(path):
+            raise ServiceException(ErrorCode.VALIDATION_ERROR, "경로 ID를 제공할 로그인 설정 없음")
+        try:
+            headers = {"Authorization": f"Bearer {token}"} if token else None
+            resp = ctx.http.get(service=args.app, port=port, path=path, headers=headers)
+            if token:
+                resp = _without_token(resp, token)
+            body, truncated = _body(resp)
+        except Exception:
+            if not token:
+                raise
+            # 전송 오류가 토큰을 포함하더라도 Tool.run의 공통 오류 처리로 흘리지 않는다.
+            raise ServiceException(ErrorCode.COLLECT_FAILED, "인증된 앱 API 호출 실패") from None
+        source = f"GET http://{args.app}:{port}{path}"
+        summary = f"{args.app} GET {path} → {resp.status} ({round(resp.elapsed_ms)}ms)"
         return ToolObservation(
             kind="app_api",
             subject=f"{ctx.namespace}/Service/{args.app}",
-            source=f"GET http://{args.app}:{port}{args.path}",
-            summary=f"{args.app} GET {args.path} → {resp.status} ({round(resp.elapsed_ms)}ms)",
+            source=source.replace(token, "****") if token else source,
+            summary=summary.replace(token, "****") if token else summary,
             data={"status": resp.status, "latency_ms": resp.elapsed_ms, "body": body},
             truncated=truncated or resp.truncated,
         )

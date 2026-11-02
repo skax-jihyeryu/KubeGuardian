@@ -173,3 +173,27 @@ def test_recent_detected_link_survives_many_newer_calm_runs(setup_client, engine
             )
     text = setup_client.get("/dev/setup/rules?rule=W02").text
     assert f'href="/dev/checks/{run}"' in text
+
+
+def test_service_shows_authenticated_api_reference_without_credentials(setup_client):
+    setup_client.app.dependency_overrides[get_config] = lambda: KubeGuardianConfig(
+        project={"id": "dev"},
+        target={"namespace": "dev"},
+        app_apis={"gateway": ["/models/${org_id}"]},
+        app_api_auth={
+            "gateway": {
+                "via": "gateway",
+                "path": "/api/v1/auth/login",
+                "account_secret": "kg-test-user",
+                "token": "access_token",
+                "extract": {"org_id": "user.role.organizations.0.org_id"},
+            }
+        },
+    )
+    response = setup_client.get("/dev/setup/services?service=gateway")
+    assert response.status_code == 200
+    assert "로그인 인증" in response.text
+    assert "kg-test-user" in response.text
+    assert "/api/v1/auth/login" in response.text
+    assert "/models/${org_id}" in response.text
+    assert "Authorization" not in response.text

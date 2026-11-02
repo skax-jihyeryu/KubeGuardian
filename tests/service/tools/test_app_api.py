@@ -405,3 +405,154 @@ def test_call_failure_removes_detail_input_but_keeps_message(make_ctx, evidence)
     assert "Field required" in error and "email" in error
     dumped = result.model_dump_json() + evidence.saved[0].model_dump_json()
     assert "s3cretvalue" not in dumped
+
+
+ORG_PATH = "/api/v1/llm-gateway/deployments/assignments/org/${org_id}"
+AUTH_TOKEN = "opaque-session-value-do-not-persist"
+
+
+def _query_auth():
+    from core.config import LoginStep
+
+    return {
+        "gateway": LoginStep(
+            **LOGIN, token="access_token", extract={"org_id": "user.role.organizations.0.org_id"}
+        )
+    }
+
+
+def _auth_http(org_id=7, token=AUTH_TOKEN):
+    login = {"access_token": token, "user": {"role": {"organizations": [{"org_id": org_id}]}}}
+    return FakeHttp(
+        {
+            ("gateway", "/api/v1/auth/login"): HttpResponse(200, 1, json.dumps(login)),
+            ("gateway", ORG_PATH.replace("${org_id}", str(org_id))): HttpResponse(
+                200, 2, json.dumps({"assignments": ["model-a"], "reflected": token})
+            ),
+        },
+        accounts=ACCOUNTS,
+    )
+
+
+def test_query_auth_uses_mounted_account_and_own_org_with_token_redaction(make_ctx, evidence):
+    http = _auth_http()
+    result = QueryAppApi({"gateway": [ORG_PATH]}, auth=_query_auth()).run(
+        {"app": "gateway", "path": ORG_PATH}, make_ctx(_k8s(), http)
+    )
+    assert result.ok
+    assert http.calls[0][:5] == (
+        "POST",
+        "gateway",
+        80,
+        "/api/v1/auth/login",
+        ACCOUNTS["kg-test-user"],
+    )
+    assert http.calls[1] == ("GET", "gateway", 80, ORG_PATH.replace("${org_id}", "7"))
+    assert http.headers == [{"Authorization": f"Bearer {AUTH_TOKEN}"}]
+    dumped = result.model_dump_json() + evidence.saved[-1].model_dump_json()
+    assert AUTH_TOKEN not in dumped and "hunter2" not in dumped
+    assert result.data["body"]["assignments"] == ["model-a"]
+
+
+@pytest.mark.parametrize("path", [ORG_PATH.replace("${org_id}", "99"), "/admin/quota"])
+def test_query_auth_rejects_unallowlisted_before_login(make_ctx, path):
+    http = _auth_http()
+    result = QueryAppApi({"gateway": [ORG_PATH]}, auth=_query_auth()).run(
+        {"app": "gateway", "path": path}, make_ctx(_k8s(), http)
+    )
+    assert not result.ok
+    assert http.calls == []
+
+
+@pytest.mark.parametrize("org_id", [None, True, 0, -1, "../99", "99/x", 1.5])
+def test_query_auth_refuses_invalid_org_binding_without_get(make_ctx, org_id):
+    http = _auth_http(org_id=org_id)
+    result = QueryAppApi({"gateway": [ORG_PATH]}, auth=_query_auth()).run(
+        {"app": "gateway", "path": ORG_PATH}, make_ctx(_k8s(), http)
+    )
+    assert not result.ok
+    assert all(call[0] == "POST" for call in http.calls)
+
+
+@pytest.mark.parametrize(
+    "failure", ["missing_secret", "missing_token", "empty_token", "login_failed", "login_error"]
+)
+def test_query_auth_login_failure_prevents_get_without_sensitive_values(
+    make_ctx, evidence, failure
+):
+    http = _auth_http()
+    if failure == "missing_secret":
+        http.accounts = {}
+    else:
+        responses = {
+            "missing_token": HttpResponse(200, 1, "{}"),
+            "empty_token": HttpResponse(200, 1, '{"access_token":""}'),
+            "login_failed": HttpResponse(401, 1, "hunter2 " + AUTH_TOKEN),
+            "login_error": HttpCallError("hunter2 " + AUTH_TOKEN),
+        }
+        http.responses[("gateway", "/api/v1/auth/login")] = responses[failure]
+    result = QueryAppApi({"gateway": [ORG_PATH]}, auth=_query_auth()).run(
+        {"app": "gateway", "path": ORG_PATH}, make_ctx(_k8s(), http)
+    )
+    assert not result.ok
+    assert all(call[0] == "POST" for call in http.calls)
+    dumped = result.model_dump_json() + evidence.saved[-1].model_dump_json()
+    assert AUTH_TOKEN not in dumped and "hunter2" not in dumped
+
+
+def test_query_auth_get_error_does_not_reflect_token(make_ctx, evidence):
+    http = _auth_http()
+    http.responses[("gateway", ORG_PATH.replace("${org_id}", "7"))] = HttpCallError(AUTH_TOKEN)
+    result = QueryAppApi({"gateway": [ORG_PATH]}, auth=_query_auth()).run(
+        {"app": "gateway", "path": ORG_PATH}, make_ctx(_k8s(), http)
+    )
+    assert not result.ok
+    assert AUTH_TOKEN not in result.model_dump_json() + evidence.saved[-1].model_dump_json()
+
+
+def test_query_auth_uses_fresh_login_and_accepts_decimal_org_id(make_ctx):
+    http = _auth_http(org_id="7")
+    query = QueryAppApi({"gateway": [ORG_PATH]}, auth=_query_auth())
+    for _ in range(2):
+        assert query.run({"app": "gateway", "path": ORG_PATH}, make_ctx(_k8s(), http)).ok
+    assert [call[0] for call in http.calls] == ["POST", "GET", "POST", "GET"]
+
+
+def test_query_auth_token_is_scrubbed_before_body_truncation_and_json_unescaping(
+    make_ctx, evidence
+):
+    token = "반사한비밀토큰"
+    http = _auth_http(token=token)
+    result = QueryAppApi({"gateway": [ORG_PATH]}, auth=_query_auth()).run(
+        {"app": "gateway", "path": ORG_PATH}, make_ctx(_k8s(), http)
+    )
+    assert result.ok
+    assert token not in result.model_dump_json() + evidence.saved[-1].model_dump_json()
+    assert result.data["body"]["reflected"] == "****"
+
+
+def test_query_auth_scrubs_token_before_plaintext_clip(make_ctx, evidence):
+    http = _auth_http()
+    http.responses[("gateway", ORG_PATH.replace("${org_id}", "7"))] = HttpResponse(
+        200, 2, "x" * 490 + AUTH_TOKEN + "tail" * 30
+    )
+    result = QueryAppApi({"gateway": [ORG_PATH]}, auth=_query_auth()).run(
+        {"app": "gateway", "path": ORG_PATH}, make_ctx(_k8s(), http)
+    )
+    assert result.ok and result.truncated
+    dumped = result.model_dump_json() + evidence.saved[-1].model_dump_json()
+    assert AUTH_TOKEN[:10] not in dumped
+
+
+def test_query_auth_scrubs_json_escaped_ascii_token(make_ctx, evidence):
+    http = _auth_http()
+    escaped_token = "".join(f"\\u{ord(char):04x}" for char in AUTH_TOKEN)
+    http.responses[("gateway", ORG_PATH.replace("${org_id}", "7"))] = HttpResponse(
+        200, 2, '{"reflected":"' + escaped_token + '"}'
+    )
+    result = QueryAppApi({"gateway": [ORG_PATH]}, auth=_query_auth()).run(
+        {"app": "gateway", "path": ORG_PATH}, make_ctx(_k8s(), http)
+    )
+    assert result.ok
+    assert result.data["body"]["reflected"] == "****"
+    assert AUTH_TOKEN not in result.model_dump_json() + evidence.saved[-1].model_dump_json()

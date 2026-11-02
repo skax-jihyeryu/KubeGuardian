@@ -228,11 +228,19 @@ def recent_links(engine: Engine, *, rule: str | None = None, feature: str | None
 
 def service_details(config: KubeGuardianConfig, name: str):
     paths = [feature for feature, path in config.core_paths.items() if name in path]
+    login = config.app_api_auth.get(name)
     return redact_mapping(
         {
             "features": paths,
             "required": config.required_config.get(name, []),
             "apis": config.app_apis.get(name, []),
+            "auth": {
+                "via": login.via,
+                "path": login.path,
+                "account_ref": login.account_secret,
+            }
+            if login
+            else None,
             "yaml": yaml_text(
                 {
                     "core_paths": {k: v for k, v in config.core_paths.items() if name in v},
