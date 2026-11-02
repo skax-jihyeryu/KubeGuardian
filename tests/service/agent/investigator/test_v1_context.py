@@ -51,7 +51,7 @@ def test_render_board_says_when_empty():
 def test_render_facts_cites_evidence():
     text = render_facts([Fact(statement="엔드포인트 0개", evidence_ids=["ev-3"])])
 
-    assert text == "- 엔드포인트 0개 [ev-3]"
+    assert text == "- <tool_output>엔드포인트 0개</tool_output> [ev-3]"
 
 
 def test_prompts_render_without_missing_variables():
