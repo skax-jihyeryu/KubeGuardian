@@ -13,7 +13,6 @@ from service.sensors.collector import (
     MAX_LOG_SCAN,
     MAX_LOG_TAIL,
     fetch_logs,
-    initial_read_lines,
     parse_grep,
 )
 from service.tools._common import K8sName, read, require
@@ -31,8 +30,9 @@ class GetPodLogs(Tool):
         f"기본은 로그 끝부분이다. grep은 최근 {MAX_LOG_SCAN}줄에서 키워드가 든 줄을 찾아 "
         "끝 tail줄을 돌려준다. "
         "'|'는 OR(error|timeout)이고 정규식이 아니며 대소문자를 구분하지 않는다. "
-        "since_seconds(초)로 최근 기간만 볼 수 있다. 결과에 앞부분 더 있음이 표시되면 "
-        "grep이나 since_seconds를 좁혀 다시 부르세요."
+        "since_seconds(초)로 최근 기간만 볼 수 있다. previous=true와 since_seconds를 함께 쓰면 "
+        "직전 컨테이너가 종료된 지 오래됐을 때 빈 결과가 나올 수 있다. "
+        "결과에 앞부분 더 있음이 표시되면 grep이나 since_seconds를 좁혀 다시 부르세요."
     )
     failure_kind = "log_excerpt"
 
@@ -90,7 +90,7 @@ class GetPodLogs(Tool):
         }
         if args.grep:
             data["match_count"] = read_result.match_count
-        query = f"container={container}&tailLines={initial_read_lines(args.tail, args.grep)}"
+        query = f"container={container}&tailLines={read_result.requested_lines}"
         query += f"&sinceSeconds={args.since_seconds}" if args.since_seconds else ""
         query += "&previous=true" if args.previous else ""
         return ToolObservation(
