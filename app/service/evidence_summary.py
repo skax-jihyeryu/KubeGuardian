@@ -1,6 +1,7 @@
 """근거의 관측 결과만 설명한다. 생성 실패는 원문 열람이나 조사에 영향을 주지 않는다."""
 
 import json
+from collections.abc import Callable
 from datetime import datetime
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -28,6 +29,7 @@ def summarize_evidence(
     llm_factory: LlmFactory,
     now: datetime,
     retry: bool = False,
+    on_usage: Callable[[dict | None], None] | None = None,
 ) -> EvidenceSummary:
     evidence = EvidenceStore(engine).get(ev_id)
     if evidence is None:
@@ -50,6 +52,9 @@ def summarize_evidence(
         truncated = len(payload) > INPUT_LIMIT
         payload = payload[:INPUT_LIMIT] + ("\n[입력 일부 생략]" if truncated else "")
         response = llm_factory(model).invoke([SystemMessage(SYSTEM), HumanMessage(payload)])
+        if on_usage is not None:
+            usage = getattr(response, "usage_metadata", None)
+            on_usage(usage if isinstance(usage, dict) else None)
         content = response.content
         if isinstance(content, list):
             content = "\n".join(

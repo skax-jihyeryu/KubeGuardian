@@ -4,12 +4,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import Engine, update
+from sqlalchemy import Engine, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
-from core.db.evidence import _parse_id
-from core.db.tables import EvidenceSummaryRow, require_aware
+from core.db.evidence import _parse_id, format_evidence_id
+from core.db.tables import EvidenceRow, EvidenceSummaryRow, require_aware
 
 PENDING_TTL = timedelta(seconds=90)  # LLM 단일 요청 제한(30초)보다 길다
 
@@ -35,6 +35,22 @@ class EvidenceSummaryStore:
             return EvidenceSummary(
                 "failed" if expired else row.status, row.text, row.model, row.truncated
             )
+
+    def pending_evidence_ids(
+        self, since: datetime, limit: int, before_id: int | None = None
+    ) -> list[str]:
+        """요약 행이 없는 근거를 최신순으로. before_id보다 작은 번호만 본다 (쪽 넘김)."""
+        stmt = (
+            select(EvidenceRow.id)
+            .outerjoin(EvidenceSummaryRow, EvidenceSummaryRow.evidence_id == EvidenceRow.id)
+            .where(EvidenceSummaryRow.evidence_id.is_(None), EvidenceRow.collected_at >= since)
+            .order_by(EvidenceRow.id.desc())
+            .limit(limit)
+        )
+        if before_id is not None:
+            stmt = stmt.where(EvidenceRow.id < before_id)
+        with Session(self._engine) as s:
+            return [format_evidence_id(pk) for pk in s.scalars(stmt)]
 
     def claim(self, ev_id: str, model: str, now: datetime, *, retry: bool = False) -> str | None:
         """미생성 또는 명시적 재시도만 허용한다. 조건부 upsert로 프로세스 간 중복을 막는다."""

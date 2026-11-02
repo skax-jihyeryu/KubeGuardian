@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -821,3 +822,35 @@ def test_investigate_storage_error_is_mapped(tmp_path, capsys, monkeypatch):
 
     err = capsys.readouterr().err
     assert code == 1 and "96001" in err and "locked" not in err
+
+
+# ── 근거 요약 미리 생성 (#176) ──
+
+
+class _StopWorker(Exception):
+    pass
+
+
+def _worker_with_summary_spy(tmp_path, monkeypatch, *extra):
+    started = []
+    monkeypatch.setattr(cli, "start_summary_thread", lambda *a, **k: started.append((a, k)))
+
+    def stop(_seconds):
+        raise _StopWorker
+
+    monkeypatch.setattr(cli, "time", SimpleNamespace(sleep=stop))
+    args = ["worker", *extra, "--config", _config(tmp_path), "--db", str(tmp_path / "kg.db")]
+    return args, started
+
+
+def test_worker_loop_starts_summary_thread(tmp_path, monkeypatch):
+    args, started = _worker_with_summary_spy(tmp_path, monkeypatch)
+    with pytest.raises(_StopWorker):
+        cli.main(args, make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")))
+    assert len(started) == 1
+
+
+def test_worker_once_does_not_start_summary_thread(tmp_path, monkeypatch):
+    args, started = _worker_with_summary_spy(tmp_path, monkeypatch, "--once")
+    cli.main(args, make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")))
+    assert started == []

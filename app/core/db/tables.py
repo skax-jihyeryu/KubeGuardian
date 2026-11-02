@@ -258,7 +258,10 @@ class RuleSelectionRow(Base):
 
 
 class EvidenceSummaryRow(Base):
-    """기존 evidence를 바꾸지 않고 최초 열람 시 만든 AI 설명을 보관한다."""
+    """기존 evidence를 바꾸지 않고 AI 설명을 보관한다.
+
+    중요한 근거는 작업자가 미리, 나머지는 최초 열람 시 만든다.
+    """
 
     __tablename__ = "evidence_summary"
 
