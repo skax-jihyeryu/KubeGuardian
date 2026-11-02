@@ -146,7 +146,9 @@ class FakeK8s:
         value = self.logs[(pod, container, previous)]
         if isinstance(value, Exception):
             raise value
-        return "\n".join(value.split("\n")[-tail_lines:])  # 실제 API처럼 끝 tail줄만
+        if callable(value):  # 줄 수에 따라 본문이 달라지는 테스트용
+            return value(tail_lines)
+        return "".join(value.splitlines(keepends=True)[-tail_lines:])  # 실제 API처럼 끝 tail줄만
 
 
 class FakeHttp:

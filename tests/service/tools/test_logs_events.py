@@ -227,3 +227,20 @@ def test_events_without_reason_are_named_in_summary(make_ctx):
     result = GetEvents().run({}, make_ctx(FakeK8s({"Event": [e]})))
 
     assert "사유 없음 1" in result.summary
+
+
+def test_pod_logs_source_reflects_retried_tail_lines(make_ctx, evidence):
+    from core.k8s import LOG_LIMIT_BYTES
+
+    big = "x" * LOG_LIMIT_BYTES
+    text = "\n".join(f"l{i}" for i in range(25))
+    k8s = _k8s({("gateway-1", "gateway", False): lambda n: big if n > 100 else text})
+
+    result = GetPodLogs().run({"pod": "gateway-1", "tail": 100}, make_ctx(k8s))
+
+    assert result.ok
+    assert evidence.saved[0].source.endswith("?container=gateway&tailLines=25")
+
+
+def test_pod_logs_description_warns_previous_with_since_seconds():
+    assert "previous=true와 since_seconds를 함께" in GetPodLogs.description

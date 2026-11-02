@@ -10,6 +10,7 @@ from service.sensors.collector import (
     collect,
     fetch_logs,
     log_evidence,
+    parse_grep,
     resource_evidence,
 )
 
@@ -135,7 +136,7 @@ class FakeReader:
             raise value
         if callable(value):  # 줄 수에 따라 본문이 달라지는 테스트용
             return value(tail_lines)
-        return "\n".join(value.split("\n")[-tail_lines:])  # 실제 API처럼 끝 tail줄만
+        return "".join(value.splitlines(keepends=True)[-tail_lines:])  # 실제 API처럼 끝 tail줄만
 
 
 def test_all_kinds_are_collected_with_kubernetes_kind_names():
@@ -675,3 +676,108 @@ def test_replica_set_keeps_template_image_and_env_names():
     assert c["image"] == "agent:v1"
     assert [e["name"] for e in c["env"]] == ["DB_PASSWORD", "X"]
     assert c["env"][0]["value"] == "***"
+
+
+# ── 숫자 키워드 경계 ──
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "2026-10-20T00:01:03.502Z INFO ok",  # 타임스탬프의 소수부
+        "2026-10-20T00:01:03,502 INFO ok",
+        "request id=7f4290 done",  # 더 긴 숫자의 일부
+        "request id=7f502 done",  # 16진 id의 일부
+        "took 1502ms",
+        "at 12:502 sec",
+    ],
+)
+def test_fetch_logs_numeric_grep_ignores_digits_inside_other_numbers(line):
+    reader = FakeReader(logs={("p", "c", False): line})
+
+    assert fetch_logs(reader, "p", "c", grep="502|429").lines == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["upstream returned HTTP 502", "status=429 retry", '{"code":429,"msg":"x"}', "502", "(502)"],
+)
+def test_fetch_logs_numeric_grep_matches_status_codes(line):
+    reader = FakeReader(logs={("p", "c", False): line})
+
+    assert fetch_logs(reader, "p", "c", grep="502|429").lines == [line]
+
+
+def test_fetch_logs_mixed_keywords_still_use_substring_for_words():
+    reader = FakeReader(logs={("p", "c", False): "Timeout after 5s\n03.502Z\nHTTP 502"})
+
+    result = fetch_logs(reader, "p", "c", grep="timeout|502")
+
+    assert result.lines == ["Timeout after 5s", "HTTP 502"]
+
+
+def test_parse_grep_splits_on_escaped_pipe_too():
+    assert parse_grep(r"error\|timeout | refused") == ["error", "timeout", "refused"]
+
+
+# ── 마스킹 전 원문 줄 수 기준 ──
+
+_PEM_BODY = "\n".join(
+    ["-----BEGIN RSA PRIVATE KEY-----", "A" * 20, "B" * 20, "-----END RSA PRIVATE KEY-----"]
+)
+
+
+def test_fetch_logs_more_before_counts_raw_lines_when_pem_collapses():
+    text = "\n".join(["l0", _PEM_BODY, "l5"])  # 원문 6줄, 마스킹하면 3줄
+    reader = FakeReader(logs={("p", "c", False): text})
+
+    result = fetch_logs(reader, "p", "c", tail=5)
+
+    assert result.scanned == 6 and result.more_before is True
+    assert "A" * 20 not in str(result.lines)
+
+
+def test_fetch_logs_grep_scan_limit_counts_raw_lines_when_pem_collapses():
+    body = ["l"] * (MAX_LOG_SCAN - 4) + _PEM_BODY.split("\n")  # 원문 2000줄
+    reader = FakeReader(logs={("p", "c", False): "\n".join(body)})
+
+    result = fetch_logs(reader, "p", "c", grep="zzz")
+
+    assert result.scanned == MAX_LOG_SCAN and result.more_before is True
+
+
+# ── 끝 개행과 다중 바이트 ──
+
+
+def test_fetch_logs_exact_tail_lines_with_trailing_newline_is_not_truncated():
+    reader = FakeReader(logs={("p", "c", False): _numbered(10) + "\n"})
+
+    exact = fetch_logs(reader, "p", "c", tail=10)
+    more = fetch_logs(reader, "p", "c", tail=9)
+
+    assert (exact.more_before, len(exact.lines), exact.scanned) == (False, 10, 10)
+    assert (more.more_before, len(more.lines), more.scanned) == (True, 9, 10)
+
+
+def test_fetch_logs_detects_byte_limit_when_cut_inside_multibyte_char():
+    cut = ("가" * LOG_LIMIT_BYTES).encode()[: LOG_LIMIT_BYTES - 1].decode("utf-8", "replace")
+    assert len(cut) < LOG_LIMIT_BYTES  # 글자 수로는 한도 밑이다
+
+    reader = FakeReader(logs={("p", "c", False): lambda n: cut if n > 100 else _numbered(n)})
+
+    result = fetch_logs(reader, "p", "c", tail=100)
+
+    assert [c[3] for c in reader.log_calls] == [101, 25]
+    assert result.more_before is True
+
+
+def test_fetch_logs_reports_requested_lines_after_retry():
+    reader = FakeReader(
+        logs={("p", "c", False): lambda n: "x" * LOG_LIMIT_BYTES if n > 100 else _numbered(n)}
+    )
+
+    assert fetch_logs(reader, "p", "c", tail=100).requested_lines == 25
+    assert (
+        fetch_logs(FakeReader(logs={("p", "c", False): "a"}), "p", "c", tail=100).requested_lines
+        == 101
+    )
