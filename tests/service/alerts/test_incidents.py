@@ -151,16 +151,32 @@ def test_incomplete_check_does_not_resolve(engine, signals, symptoms):
     assert len(IncidentStore(engine).open_incidents()) == 1
 
 
-def test_direct_check_resolves_but_never_opens(engine):
+@pytest.mark.parametrize("trigger", ["ui", "check"])
+def test_direct_check_opens_continues_changes_and_resolves(engine, trigger):
     checks = Checks(engine)
-    assert checks.run([_sig()], trigger="check") == []  # 직접 점검은 이슈를 열지 않는다
+    [opened] = checks.run([_sig()], trigger=trigger)
+    [continued] = checks.run([_sig()], trigger="schedule")
+    [changed] = checks.run([_sig(), _sig("S02")], trigger=trigger)
+    [resolved] = checks.run(
+        [_sig(verdict="passed"), _sig("S02", verdict="passed")], trigger=trigger
+    )
+    assert [c.action for c in [opened, continued, changed, resolved]] == [
+        "opened",
+        "continued",
+        "changed",
+        "resolved",
+    ]
+    assert len({c.incident_id for c in [opened, continued, changed, resolved]}) == 1
+    assert opened.needs_investigation and changed.needs_investigation
+    assert not continued.needs_investigation
 
+
+def test_explicit_investigate_keeps_its_existing_seen_only_tracking(engine):
+    checks = Checks(engine)
+    assert checks.run([_sig()], trigger="investigate") == []
     [opened] = checks.run([_sig()])
-    [seen] = checks.run([_sig()], trigger="ui")
-    [resolved] = checks.run([_sig(verdict="passed")], trigger="check")
-
-    assert (seen.action, seen.needs_investigation) == ("seen", False)
-    assert (resolved.action, resolved.incident_id) == ("resolved", opened.incident_id)
+    [seen] = checks.run([_sig()], trigger="investigate")
+    assert seen.incident_id == opened.incident_id and seen.action == "seen"
 
 
 def test_new_incident_elsewhere_and_old_resolution_in_one_check(engine):

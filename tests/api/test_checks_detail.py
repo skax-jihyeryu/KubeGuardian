@@ -259,10 +259,11 @@ def test_unknown_items_show_reason_and_gate_stays_not_investigating(client, engi
 # ── 조사 시작 표기는 gate_path만으로 정하지 않는다 ───────────────
 
 
-def test_direct_check_does_not_start_investigation_even_with_gate_path_b(client, engine):
+def test_missing_queue_is_not_misreported_as_direct_check_exclusion(client, engine):
     run, _ = _chat_failed(engine, trigger="ui")
     text = detail(client, run).text
-    assert "조사 안 함" in text and "직접 점검" in text
+    assert "조사 요청이 기록되지 않음" in text
+    assert "직접 점검은 이슈를 열지 않음" not in text
     assert "조사 시작" not in text
     assert "조사 중" not in text
     assert POLL not in text
