@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import Engine
 
-from core.config import DEFAULT_REPORT_URL, KubeGuardianConfig
+from core.config import KubeGuardianConfig
 from core.db import AlertStore, CheckRunStore, IncidentStore
 from core.db.incidents import Incident
 from core.error.service_exception import ServiceException
@@ -44,7 +44,7 @@ class Notifier:
         self._sender = sender
         slack = config.slack
         self._channel = slack.alert_target if slack else _DRY_CHANNEL
-        self._url = (slack.report_url if slack else DEFAULT_REPORT_URL).rstrip("/")
+        self._url = config.web.base_url.rstrip("/") + f"/{config.project.id}"
         self._ns = config.target.namespace
         self.dry_run = sender.dry_run
         self.sent: list[str] = []  # 이번에 보낸(또는 기록한) 메시지 종류, 출력용

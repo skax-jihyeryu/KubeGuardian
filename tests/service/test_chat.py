@@ -20,7 +20,7 @@ from service.chat import (
 from service.model.chat import AnswerSentence, ChatAnswer
 from tests.service.agent.history_qa.fakes import ScriptedLLM
 
-CONFIG = KubeGuardianConfig(target={"namespace": "dev"})
+CONFIG = KubeGuardianConfig(project={"id": "dev"}, target={"namespace": "dev"})
 NOW = datetime(2026, 10, 20, 1, 0, tzinfo=UTC)
 
 
@@ -77,20 +77,20 @@ def test_current_state_guide_with_last_run(engine):
     texts = [s.text for s in reply.answer.sentences]
     assert texts[0] == CURRENT_STATE_GUIDE
     assert reply.answer.sentences[0].kind == "guide"
-    assert texts[1] == "마지막 점검: 10/20 10:00 /p/dev/checks/1"
+    assert texts[1] == "마지막 점검: 10/20 10:00 /dev/checks/1"
     assert reply.answer.sentences[1].run_ids == [1]
 
 
 def test_last_run_line_shows_date_when_old(engine):
     CheckRunStore(engine).create("schedule", NOW - timedelta(days=3))
     reply, _ = _ask(engine, ["끝", _answer(current_state=True)], now=lambda: NOW)
-    assert reply.answer.sentences[1].text == "마지막 점검: 10/17 10:00 /p/dev/checks/1"
+    assert reply.answer.sentences[1].text == "마지막 점검: 10/17 10:00 /dev/checks/1"
 
 
 def test_current_state_guide_empty_db(engine):
     reply, _ = _ask(engine, ["끝", _answer([], current_state=True)])
     assert [s.text for s in reply.answer.sentences] == [CURRENT_STATE_GUIDE]
-    assert "/p/" not in reply.text
+    assert "/" not in reply.text
 
 
 def test_investigate_guide_appended(engine):

@@ -7,7 +7,7 @@
 {% block body %}
 <section class="detail" aria-label="점검 상세">
   <div class="doc">
-    <div class="crumb"><a href="/p/{{ p }}/checks">{{ p }}</a>›<a href="/p/{{ p }}/checks">점검 이력</a>›<span>{{ d.short_time }}</span></div>
+    <div class="crumb"><a href="/{{ p }}/checks">{{ p }}</a>›<a href="/{{ p }}/checks">점검 이력</a>›<span>{{ d.short_time }}</span></div>
     <h1 class="title">{{ d.title }}
       {%- if d.state == "running" %}<span class="aux run" style="font-weight:400">{{ ic("spin") }}점검 중</span>
       {%- elif d.steps.progress %}<span class="aux run" style="font-weight:400">{{ ic("spin") }}조사 중</span>{% endif %}</h1>
@@ -27,7 +27,7 @@
           <span class="calm" style="font-size:16px;font-weight:700">{{ ic("check-circle", "ok-ic") }}이상 없음</span>
           {%- endif %}
           {%- for i in h.issues %}
-          <a class="mono s14" href="/p/{{ p }}/issues/{{ i.id }}">이슈 #{{ i.id }} {{ i.label }} {{ ic("arrow-right", "ic14") }}</a>
+          <a class="mono s14" href="/{{ p }}/issues/{{ i.id }}">이슈 #{{ i.id }} {{ i.label }} {{ ic("arrow-right", "ic14") }}</a>
           {%- endfor %}
           {%- if h.open %}<span class="open">OPEN</span>{% endif %}
           {%- if h.unknown %}<span class="aux st">{{ ic("ban", "ic14") }}확인하지 못함 {{ h.unknown }}</span>{% endif %}
@@ -36,11 +36,11 @@
         <div class="concl" style="max-width:520px">
           {{ progress_box(d.steps) }}
           {%- if d.steps.progress and h.issues %}
-          <div class="s13 muted" style="font-weight:400;margin-top:6px">조사가 끝나면 결론과 권장 조치는 <a href="/p/{{ p }}/issues/{{ h.issues[0].id }}">이슈 #{{ h.issues[0].id }}의 보고서</a>에 나타납니다. (분모는 문제당 도구 호출 예산)</div>
+          <div class="s13 muted" style="font-weight:400;margin-top:6px">조사가 끝나면 결론과 권장 조치는 <a href="/{{ p }}/issues/{{ h.issues[0].id }}">이슈 #{{ h.issues[0].id }}의 보고서</a>에 나타납니다. (분모는 문제당 도구 호출 예산)</div>
           {%- endif %}
           {%- if h.note %}<div class="s14" style="margin-top:6px">{{ h.note }}</div>{% endif %}
           {%- if h.conclusion_issue %}
-          <div style="margin-top:6px"><a class="mono s14" href="/p/{{ p }}/issues/{{ h.conclusion_issue }}">이슈 #{{ h.conclusion_issue }}에서 결론 보기</a></div>
+          <div style="margin-top:6px"><a class="mono s14" href="/{{ p }}/issues/{{ h.conclusion_issue }}">이슈 #{{ h.conclusion_issue }}에서 결론 보기</a></div>
           {%- endif %}
           {%- if d.error %}<div class="s13 muted" style="margin-top:6px">오류 종류: <span class="mono">{{ d.error }}</span></div>{% endif %}
         </div>

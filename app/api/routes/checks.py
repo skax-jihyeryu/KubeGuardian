@@ -10,7 +10,7 @@ from api.web import ConfigDep, EngineDep, NowDep, ProjectDep, parse_id, render, 
 router = APIRouter(include_in_schema=False)
 
 
-@router.get("/p/{p}/checks/{run}", response_class=HTMLResponse)
+@router.get("/{p}/checks/{run}", response_class=HTMLResponse)
 def check_detail(
     request: Request,
     run: str,
@@ -34,7 +34,7 @@ def check_detail(
     )
 
 
-@router.get("/p/{p}/checks/{run}/steps", response_class=HTMLResponse)
+@router.get("/{p}/checks/{run}/steps", response_class=HTMLResponse)
 def check_steps(
     request: Request,
     run: str,

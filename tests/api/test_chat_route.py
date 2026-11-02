@@ -25,7 +25,9 @@ def _client(engine, script):
     app = create_app()
     llm = ScriptedLLM(script=script, calls=[], bound=[])
     app.dependency_overrides[get_engine] = lambda: engine
-    app.dependency_overrides[get_config] = lambda: KubeGuardianConfig(target={"namespace": "dev"})
+    app.dependency_overrides[get_config] = lambda: KubeGuardianConfig(
+        project={"id": "dev"}, target={"namespace": "dev"}
+    )
     app.dependency_overrides[get_llm_factory] = lambda: lambda _m: llm
     return TestClient(app)
 

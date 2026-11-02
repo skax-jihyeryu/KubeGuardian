@@ -6,7 +6,7 @@
   <span>열린 이슈</span>
   {% for key, label in [("crit", "긴급"), ("warn", "주의"), ("risk", "잠재 위험")] %}
     {% if counts[key] %}
-    <a class="plain" href="/p/{{ p }}/issues">{{ badge({"key": key, "label": label ~ " " ~ counts[key]}) }}</a>
+    <a class="plain" href="/{{ p }}/issues">{{ badge({"key": key, "label": label ~ " " ~ counts[key]}) }}</a>
     {% else %}
     <span class="zero">{{ label }} 0</span>
     {% endif %}
@@ -16,6 +16,6 @@
   {% endif %}
   <span class="sp"></span>
   {% if shell.unknown_count %}
-  <a class="cfgchip" href="/p/{{ p }}/checks/{{ shell.unknown_run }}#s-judge">{{ ic("ban") }}확인하지 못함 {{ shell.unknown_count }}</a>
+  <a class="cfgchip" href="/{{ p }}/checks/{{ shell.unknown_run }}#s-judge">{{ ic("ban") }}확인하지 못함 {{ shell.unknown_count }}</a>
   {% endif %}
 </div>
