@@ -24,6 +24,7 @@
 <div class="paper">
 {% if not selected.available %}<div class="sec"><h2>준비 중</h2><p>아직 실행할 수 없는 규칙입니다. 구현 전까지 점검에 포함되지 않습니다.</p></div>{% else %}
 <div class="sec"><h2>무엇을 보나</h2><p>{{ selected.name }} — {{ selected.nature }}를 확인합니다.</p></div>
+<div class="sec"><h2>입력 정보</h2>{% for kind, fields in selected.inputs %}<p><b>{{ kind }}</b> · {{ fields }}</p>{% endfor %}<p class="s13 muted">저장된 스냅샷의 필드 · 설정과 관찰 이력도 규칙에 따라 사용합니다.</p></div>
 <div class="sec"><h2>판정 기준</h2><div class="dl"><span class="k">조건</span><div>{{ selected.predicate }}</div><span class="k">대상</span><div>{{ p }} 네임스페이스의 {{ selected.kind }}</div><span class="k">지속 시간</span><div>{{ selected.hold }}</div><span class="k">구분</span><div>{{ selected.grade }}</div><span class="k">1차 심각도</span><div>{{ selected.severities }}</div></div></div>
 <div class="sec"><h2>출처</h2><p>{% if selected.source_url %}<a href="{{ selected.source_url }}" target="_blank" rel="noopener noreferrer">{{ selected.source }}</a>{% else %}{{ selected.source }}{% endif %}</p><p class="s13 muted">규칙 점검 명세 §4 기준 · 외부 출처를 확인하지 못한 항목은 위에 명시합니다.</p></div>
 <div class="sec"><h2>최근 적발 점검</h2>{% for run, time in recent %}<p><a href="/{{ p }}/checks/{{ run }}">{{ time|md_hm }} · 점검 #{{ run }}</a></p>{% else %}<p class="muted">최근 기록에서 적발된 점검이 없습니다.</p>{% endfor %}</div>
