@@ -144,7 +144,7 @@ def test_action_preserves_shell_backticks_and_multiline_commands():
 
 
 def test_action_preserves_whitespace_in_quoted_arguments():
-    cmd = "kubectl patch cm example -p '{\"data\": {\"value\": \"a  b\"}}'"
+    cmd = 'kubectl patch cm example -p \'{"data": {"value": "a  b"}}\''
     assert messages.code(cmd) == f"`{cmd}`"
 
 
