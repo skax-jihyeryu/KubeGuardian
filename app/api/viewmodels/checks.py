@@ -17,6 +17,7 @@ from api.timefmt import hms, md_hm, seconds_text
 from api.viewmodels.shell import IMPACT, SEVERITY
 from core.config import KubeGuardianConfig
 from core.db import (
+    CheckLockStore,
     CheckResultStore,
     CheckRunStore,
     EvidenceStore,
@@ -242,10 +243,12 @@ def _load(engine: Engine, run_id: int, now: datetime) -> _Loaded | None:
     queued = False
     if inv is None:
         queue = InvestigationQueue(engine)
+        lock = CheckLockStore(engine).current(now) if trigger == "ui" else None
+        dispatching = lock is not None and lock.run_id == run_id
         queued = any(
             inc.status == "open"
             and action in ("opened", "changed")
-            and queue.queued_run(inc.id) == run_id
+            and (queue.queued_run(inc.id) == run_id or dispatching)
             for inc, action in links
         )
     live = state == "running" or inv_state == "running" or queued

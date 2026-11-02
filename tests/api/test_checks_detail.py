@@ -588,3 +588,13 @@ def test_rule_result_rows_show_input_fields(client, engine):
     assert "입력 정보" in html
     for kind, fields in CATALOG["S01"].inputs:
         assert f"{kind} ({fields})" in html
+
+
+def test_completed_check_refreshes_header_while_investigation_keeps_polling(client, investigating):
+    run, *_ = investigating
+    transition = client.get(f"/dev/checks/{run}/steps?live=1&check_state=running")
+    assert POLL in transition.text
+    assert transition.headers.get("HX-Refresh") == "true"
+    settled = client.get(f"/dev/checks/{run}/steps?live=1&check_state=done")
+    assert POLL in settled.text and "HX-Refresh" not in settled.headers
+    assert "check_state=done" in detail(client, run).text

@@ -276,3 +276,20 @@ def test_manual_fingerprint_change_replaces_pending_request(engine):
     assert job.check_run_id == latest and job.incident_id == incident.id
     assert job.request["trigger"] == "ui"
     assert sum(a.kind == "M1" for a in AlertStore(engine).for_incident(incident.id)) == 1
+
+
+def test_manual_page_keeps_polling_while_notification_precedes_queue(engine):
+    from api.viewmodels.checks import build_check_detail, build_steps
+    from service.notify.sender import DryRunSender
+    from tests.service.checks.detectors.cases import NOW
+
+    observed = []
+
+    def sender_factory(_):
+        run = CheckLockStore(engine).current(NOW).run_id
+        page = build_check_detail(engine, "dev", run, NOW)
+        observed.append((page.state, build_steps(engine, run, NOW)[1]))
+        return DryRunSender()
+
+    _manual(engine, NOW, sender_factory=sender_factory)
+    assert observed == [("done", True)]

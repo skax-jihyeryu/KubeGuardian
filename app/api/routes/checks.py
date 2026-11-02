@@ -66,6 +66,7 @@ def check_steps(
     engine: EngineDep,
     now: NowDep,
     live: str | None = None,
+    check_state: str | None = None,
 ):
     """점검 과정 조각. 진행 중일 때만 스스로 다시 부르고, 끝났으면 폴링 속성이 없다.
 
@@ -74,11 +75,15 @@ def check_steps(
     built = build_steps(engine, parse_id(run), now)
     if built is None:
         raise HTTPException(404)
-    steps, keep_polling, _state = built
+    steps, keep_polling, state = built
     response = templates.TemplateResponse(
-        request, "checks/_steps.html", {"p": project, "steps": steps, "oob": live is not None}
+        request,
+        "checks/_steps.html",
+        {"p": project, "steps": steps, "oob": live is not None, "check_state": state},
     )
-    if live is not None and not keep_polling:
+    if live is not None and (
+        not keep_polling or (check_state is not None and check_state != state)
+    ):
         response.headers["HX-Refresh"] = "true"
     return response
 
