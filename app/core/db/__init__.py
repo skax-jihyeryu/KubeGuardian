@@ -7,6 +7,7 @@ from core.db.check_results import CheckResultStore
 from core.db.check_runs import CheckRunStore
 from core.db.engine import create_db_engine
 from core.db.evidence import EvidenceStore
+from core.db.incident_acks import IncidentAckStore
 from core.db.incidents import IncidentStore
 from core.db.investigation_queue import InvestigationQueue
 from core.db.investigations import InvestigationStore
@@ -20,6 +21,7 @@ __all__ = [
     "CheckResultStore",
     "CheckRunStore",
     "EvidenceStore",
+    "IncidentAckStore",
     "IncidentStore",
     "InvestigationQueue",
     "InvestigationStore",

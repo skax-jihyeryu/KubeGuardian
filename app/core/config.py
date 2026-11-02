@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     # Slack 봇 토큰. 클러스터에서는 make kg-up이 .env의 선택 키를 kubeguardian-env Secret에 넣는다.
     # 비어 있으면 알림은 dry-run(알림 이력에만 기록)
     SLACK_BOT_TOKEN: str = ""
+    # Slack 앱 토큰(xapp-, connections:write). 확인 버튼 수신(Socket Mode)용. 비면 버튼이 없다
+    SLACK_APP_TOKEN: str = ""
 
     # 실행 추적 (Phoenix, OpenTelemetry)
     OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
@@ -132,7 +134,8 @@ _DURATION = r"^\d+[mh]$"  # 30m, 2h
 class ReminderPolicy(_Strict):
     first_after: str = Field(pattern=_DURATION)
     then_every: str | None = Field(default=None, pattern=_DURATION)
-    max: int = Field(ge=1)  # 리마인더 총 횟수
+    max: int | None = Field(default=None, ge=1)  # 리마인더 총 횟수. 없으면 상한 없음
+    require_ack: bool = False  # 확인(ack)되면 멈춘다. 확인 수단이 없으면 3회로 제한한다
 
 
 DEFAULT_REPORT_URL = "http://localhost:8000/default"
