@@ -64,6 +64,11 @@ _RETRY_NOTE = (
 )
 
 
+def _is_ready(pod: dict) -> bool:
+    conditions = (pod.get("status") or {}).get("conditions") or []
+    return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+
+
 def build_graph(agent: "InvestigatorV1"):
     ctx = agent.ctx
     spec = agent.spec
@@ -112,26 +117,37 @@ def build_graph(agent: "InvestigatorV1"):
         return fact, result.ok
 
     def failed_path_pods(state: InvestigationState) -> list[str]:
-        """실패한 시나리오가 지나는 서비스의 Pod. 서비스마다 하나씩 돌고 나서 다음 Pod를 돈다."""
+        """실패한 시나리오가 지나는 서비스의 Pod. 서비스마다 하나씩 돌고 나서 다음 Pod를 돈다.
+
+        서비스 안에서는 Ready가 아닌 Pod를 앞에 두고, 그다음 이름순이다.
+        """
         symptoms = state["request"].symptoms
         services = ctx.scenario_services.get(symptoms[0].scenario, []) if symptoms else []
         if not services:
             return []
         try:
-            hierarchy = service_hierarchy(read(tool_ctx, "Service", "ReplicaSet", "Pod"))
+            snapshot = read(tool_ctx, "Service", "ReplicaSet", "Pod")
+            hierarchy = service_hierarchy(snapshot)
         except Exception:  # noqa: BLE001 — Pod를 못 읽어도 조사는 계속한다
             return []
-        pods = {s: [p.pod for p in (hierarchy or {}).get(s, [])] for s in services}
+        ready = {p["metadata"]["name"]: _is_ready(p) for p in snapshot.items("Pod") or []}
+        pods = {
+            s: sorted((p.pod for p in (hierarchy or {}).get(s, [])), key=lambda n: (ready[n], n))
+            for s in services
+        }
         rounds = max(map(len, pods.values()), default=0)
         ordered = [pods[s][i] for i in range(rounds) for s in services if i < len(pods[s])]
         return ordered[:PRELIMINARY_LOG_CALLS]
 
-    def error_log_fact(result) -> Fact | None:
-        """일치한 줄이 있으면 요약과 줄을 담은 Fact. 0건이면 만들지 않는다 (토큰 절약)."""
-        if result.ok and not result.data.get("match_count"):
+    def error_log_fact(pod: str, result) -> Fact | None:
+        """일치한 줄이 있으면 요약과 줄을 담은 Fact, 조회에 실패했으면 실패 Fact. 0건이면 없다."""
+        if not result.ok:
+            statement = f"get_pod_logs {pod}: {result.summary}"
+        elif result.data.get("match_count"):
+            lines = [f"  {line[:_FACT_LINE_MAX]}" for line in result.data.get("lines") or []]
+            statement = "\n".join([f"get_pod_logs: {result.summary}", *lines])
+        else:
             return None
-        lines = [f"  {line[:_FACT_LINE_MAX]}" for line in result.data.get("lines") or []]
-        statement = "\n".join([f"get_pod_logs: {result.summary}", *lines])
         return Fact(statement=statement, evidence_ids=[result.evidence_id])
 
     def issue_title(state: InvestigationState, index: int) -> str:
@@ -179,9 +195,11 @@ def build_graph(agent: "InvestigatorV1"):
                     if (result := run_tool("get_pod_logs", args)) is None:
                         continue
                     s.evidence_ids.append(result.evidence_id)
-                    obs.append(observation(result.evidence_id, "get_pod_logs", args, result.ok))
-                    if fact := error_log_fact(result):
+                    if fact := error_log_fact(pod, result):
                         facts.append(fact)
+                    # 일치 줄이 없거나 실패한 조회는 로그를 확인한 것으로 세지 않는다 (커버리지)
+                    if result.ok and result.data.get("match_count"):
+                        obs.append(observation(result.evidence_id, "get_pod_logs", args, True))
         return {
             "facts": facts,
             "seen": state["seen"] + s.evidence_ids,
