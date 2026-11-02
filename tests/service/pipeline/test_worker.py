@@ -2,7 +2,7 @@ from datetime import timedelta
 
 import pytest
 
-from core.db import AlertStore, IncidentStore, InvestigationQueue, create_db_engine
+from core.db import AlertStore, CheckRunStore, IncidentStore, InvestigationQueue, create_db_engine
 from service.notify.notifier import Notifier
 from service.notify.sender import DryRunSender
 from service.pipeline.check import run_check
@@ -119,3 +119,42 @@ def test_worker_investigation_is_stored_with_its_incident(engine):
 
     [inv] = InvestigationStore(engine).for_incident(iid)
     assert inv.status == "done" and inv.report is not None and inv.trigger == "schedule"
+
+
+# ── 리뷰 지적: 끊긴 조사 정리 (#98 / PR #112) ──
+
+
+def _running_row(engine, started, *, incident_id=None, run_key="kg-worker-1-1", trigger="schedule"):
+    from core.db import CheckRunStore, InvestigationStore
+
+    run = CheckRunStore(engine).create("schedule", started)
+    store = InvestigationStore(engine)
+    return store, store.start(
+        check_run_id=run,
+        incident_id=incident_id,
+        run_key=run_key,
+        agent="investigator:v1",
+        trigger=trigger,
+        now=started,
+    )
+
+
+def test_run_once_marks_stale_running_investigation_interrupted(engine):
+    store, iid = _running_row(engine, NOW)
+
+    _worker(engine, lambda m: None, at=NOW + timedelta(minutes=11)).run_once()
+
+    inv = store.get(iid)
+    assert (inv.status, inv.error) == ("failed", "INTERRUPTED")
+
+
+def test_sweep_covers_manual_cli_row_and_resolved_incident(engine):
+    iid = _opened(engine)  # 이슈 1, 조사 대기 중
+    CheckRunStore(engine).create("schedule", NOW)  # 해결을 기록한 점검 2
+    _, manual = _running_row(engine, NOW, run_key="kg-investigate-1", trigger="investigate")
+    store, linked = _running_row(engine, NOW, incident_id=iid)
+    IncidentStore(engine).resolve(iid, 2, NOW + timedelta(minutes=1))  # 재집힘 전에 해결됨
+
+    _worker(engine, lambda m: None, at=NOW + timedelta(minutes=11)).run_once()
+
+    assert store.get(manual).status == "failed" and store.get(linked).status == "failed"

@@ -14,7 +14,7 @@ from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine
 
 from core.config import KubeGuardianConfig
-from core.db import InvestigationQueue
+from core.db import InvestigationQueue, InvestigationStore
 from core.db.investigation_queue import Job
 from core.log.logging import get_logging
 from service.agent.base import AgentResult
@@ -80,6 +80,10 @@ class Worker:
             self._notifier.check_stalled(self._clock())
         except Exception as e:  # noqa: BLE001 — 감시 실패가 조사를 막지 않게
             logger.warning(f"점검 중단 감시 실패: {type(e).__name__}")
+        try:  # 끝을 못 쓰고 끊긴 조사(SIGKILL·OOM)를 닫는다. kg investigate 행도 여기서 닫힌다
+            InvestigationStore(self._engine).sweep_stale(self._clock(), STALE_CLAIM)
+        except Exception as e:  # noqa: BLE001 — 정리 실패가 조사를 막지 않게
+            logger.warning(f"끊긴 조사 정리 실패: {type(e).__name__}")
         job = self._queue.claim(self._clock(), STALE_CLAIM)
         if job is None:
             return None

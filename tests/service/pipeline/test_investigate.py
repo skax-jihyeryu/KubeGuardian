@@ -251,3 +251,116 @@ def test_investigation_and_steps_are_stored_for_the_check(engine):
     steps = store.steps(inv.id)
     assert [s.node for s in steps] == [s.node for s in result.steps]  # 결과에도 그대로 남는다
     assert steps[0].node == "preliminary"
+
+
+# ── 리뷰 지적: 실패 경로·저장 실패·추적 (#98 / PR #112) ──
+
+
+def _run(engine, **kw):
+    reader = _reader("s04/localhost")
+    out = run_check(reader, CONFIG, engine, trigger="check", now=NOW)
+    from tests.test_cli import _scripted
+
+    llm = _scripted()
+    return out, run_investigation(
+        out,
+        CONFIG,
+        engine,
+        run_id="t-x",
+        llm_factory=lambda m: llm,
+        k8s=reader,
+        http=FakeHttp(),
+        **kw,
+    )
+
+
+def test_exception_after_start_marks_row_failed_and_reraises(engine, monkeypatch):
+    from core.db import InvestigationStore
+    from service.pipeline import investigate
+
+    def boom(*a, **k):
+        raise RuntimeError("judge broke")
+
+    monkeypatch.setattr(investigate, "judge", boom)
+
+    with pytest.raises(RuntimeError):
+        _run(engine)
+
+    [inv] = InvestigationStore(engine).for_check(1)
+    assert (inv.status, inv.error, inv.ended_at is not None) == ("failed", "RuntimeError", True)
+
+
+def test_base_exception_marks_row_failed_and_reraises(engine, monkeypatch):
+    from core.db import InvestigationStore
+    from service.pipeline import investigate
+
+    def term(*a, **k):
+        raise SystemExit(143)
+
+    monkeypatch.setattr(investigate, "judge", term)
+
+    with pytest.raises(SystemExit):
+        _run(engine)
+
+    [inv] = InvestigationStore(engine).for_check(1)
+    assert (inv.status, inv.error) == ("failed", "SystemExit")
+
+
+def test_finish_storage_error_still_returns_the_result(engine, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    from core.db import InvestigationStore
+
+    def locked(*a, **k):
+        raise OperationalError("update", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(InvestigationStore, "finish", locked)
+
+    _, result = _run(engine)
+
+    assert result.status == "done" and result.report is not None
+
+
+def test_start_storage_error_runs_without_a_row(engine, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    from core.db import InvestigationStore
+
+    def locked(*a, **k):
+        raise OperationalError("insert", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(InvestigationStore, "start", locked)
+
+    out, result = _run(engine)
+
+    assert result.status == "done" and result.steps
+    assert InvestigationStore(engine).for_check(out.run_id) == []
+
+
+def test_gate_and_symptom_are_stored_and_trace_is_none_without_tracing(engine):
+    from core.db import InvestigationStore
+
+    out, _ = _run(engine, symptom="채팅이 안 돼요")
+
+    [inv] = InvestigationStore(engine).for_check(out.run_id)
+    assert (inv.gate_path, inv.gate_reason, inv.user_symptom) == (
+        "A",
+        out.gate.reason,
+        "채팅이 안 돼요",
+    )
+    assert inv.trace_id is None
+
+
+def test_trace_id_of_the_investigation_span_is_stored(engine, monkeypatch):
+    from opentelemetry.sdk.trace import TracerProvider
+
+    from core.db import InvestigationStore
+    from service.pipeline import investigate
+
+    provider = TracerProvider()
+    monkeypatch.setattr(investigate.trace, "get_tracer", provider.get_tracer)
+
+    out, _ = _run(engine)
+
+    [inv] = InvestigationStore(engine).for_check(out.run_id)
+    assert inv.trace_id is not None and len(inv.trace_id) == 32
