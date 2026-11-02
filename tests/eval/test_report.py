@@ -269,3 +269,51 @@ def test_kpi_excludes_skip_and_not_run_but_keeps_gate_fail(tmp_path):
     assert k["seconds"] == 20.0 and k["tokens"] == 200
     s = summary["scenarios"]["A1"]
     assert s["tokens"] == 200 and s["seconds"] == 20.0
+
+
+def test_overconfirm_and_underconfirm_counts(tmp_path):
+    runs = [make_run(judgement="confirmed") for _ in range(3)]
+    runs += [make_run("F2", judgement="confirmed"), make_run("F3", judgement="confirmed")]
+    runs += [make_run(judgement="candidate"), make_run("F2", judgement="candidate")]
+    results, scen = build(tmp_path, {"A1": runs})
+    summary = summarize(results, {}, scen)
+    k = summary["kpi"]
+    assert (k["overconfirmed"], k["confirmed"], k["overconfirm_rate"]) == (2, 5, 0.4)
+    assert k["underconfirmed"] == 1  # candidate pass만. candidate F2는 어느 쪽에도 안 센다
+    assert "40% (2/5)" in render(summary, None)
+
+
+def test_underconfirm_ignores_runs_without_judgement(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run(), make_run(judgement="guess")]})
+    k = summarize(results, {}, scen)["kpi"]
+    assert k["underconfirmed"] == 1
+
+
+def test_overconfirm_excludes_invalid_and_skipped_runs(tmp_path):
+    skip = {"status": "skipped", "passed": True, "judgement": "confirmed"}
+    runs = [
+        make_run(judgement="confirmed"),
+        make_run("F0", invalid="x", judgement="confirmed"),
+        skip,
+    ]
+    results, scen = build(tmp_path, {"A1": runs})
+    k = summarize(results, {}, scen)["kpi"]
+    assert (k["overconfirmed"], k["confirmed"]) == (0, 1)
+
+
+def test_overconfirm_renders_dash_without_confirmed(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run(judgement="candidate")]})
+    summary = summarize(results, {}, scen)
+    assert summary["kpi"]["overconfirm_rate"] is None
+    assert "| 오확정률 (confirmed 중 pass 아님) | - |" in render(summary, None)
+
+
+def test_label_reclassified_confirmed_run_counts_as_overconfirmed(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run(judgement="confirmed")]})
+    label = {
+        "index": 0,
+        "top1_match": False,
+        "claims": [{"source": "conclusion", "verdict": "supported"}],
+    }
+    k = summarize(results, {("t0-A1", 0): label}, scen)["kpi"]
+    assert (k["overconfirmed"], k["confirmed"]) == (1, 1)

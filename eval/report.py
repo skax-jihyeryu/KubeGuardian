@@ -227,6 +227,14 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
             g[str(s[attr])][1] += s["valid"]
         return dict(sorted(g.items()))
 
+    # 오확정: confirmed라 했는데 pass가 아님. 과소 확정: pass인데 confirmed가 아님
+    # (judgement 없는 옛 회차는 뺀다)
+    confirmed = [r for r in all_runs if r.get("judgement") == "confirmed"]
+    overconfirmed = sum(_outcome(r) != "pass" for r in confirmed)
+    underconfirmed = sum(
+        _outcome(r) == "pass" and bool(r.get("judgement")) and r["judgement"] != "confirmed"
+        for r in all_runs
+    )
     judged = [s for s in scen.values() if s["consistent"] is not None]
     n_conc, n_claims = len(agree_conc), len(agree_claims)
     conc = _rate(sum(agree_conc), n_conc)
@@ -250,6 +258,10 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
                 ]
             ),
             "tokens": _median([_tokens(r) for r in all_runs]),
+            "overconfirmed": overconfirmed,
+            "confirmed": len(confirmed),
+            "overconfirm_rate": _rate(overconfirmed, len(confirmed)),
+            "underconfirmed": underconfirmed,
         },
         "judge_agreement": {
             "conclusion": conc,
@@ -362,6 +374,14 @@ def render(summary: dict, baseline: dict | None) -> str:
         f"| 근거 일치율 | {_num(k['support_rate'], '{:.2f}')} |",
         f"| 조사 시간 중앙값(s) | {_num(k['seconds'])} |",
         f"| 토큰 중앙값 | {_num(k['tokens'])} |",
+        "| 오확정률 (confirmed 중 pass 아님) | "
+        + (
+            f"{_pct(k['overconfirm_rate'])} ({k['overconfirmed']}/{k['confirmed']})"
+            if k["confirmed"]
+            else "-"
+        )
+        + " |",
+        f"| 과소 확정 (pass인데 confirmed 아님) | {k['underconfirmed']} |",
         "",
     ]
     a = summary["judge_agreement"]
