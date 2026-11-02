@@ -386,6 +386,11 @@ def run(
         result["checks"] = []
         check_started = True
 
+        # 사용자 증상(정답 파일 user_symptom): kg investigate 증상과 같은 입력. 경로 B를 연다 (B1)
+        user_symptom = expected.get("user_symptom")
+        if user_symptom:
+            result["user_symptom"] = user_symptom
+
         def on_check(c: dict) -> None:
             # 바로 쌓아 둔다. 반복 중 예외가 나도 그때까지의 점검이 result.json에 남는다
             result["checks"].append(c)
@@ -396,7 +401,7 @@ def run(
             )
 
         outcome, checks, first = check_repeatedly(
-            remote.check
+            (lambda: remote.check(user_symptom))
             if remote
             else lambda: run_check(
                 reader,
@@ -404,6 +409,7 @@ def run(
                 engine,
                 trigger="check",
                 http=target_http(config),
+                user_symptom=user_symptom,
             ),
             expected,
             interval_s=interval_s,
@@ -455,7 +461,9 @@ def run(
                 remote_trace: dict = {}
 
                 def investigate_remote() -> AgentResult | None:
-                    res, remote_trace["id"] = remote.investigate(outcome.run_id, run_id)
+                    res, remote_trace["id"] = remote.investigate(
+                        outcome.run_id, run_id, user_symptom
+                    )
                     return res
 
                 ai, report, steps = investigate_and_judge(
@@ -469,6 +477,7 @@ def run(
                         run_id=run_id,
                         k8s=reader,
                         http=target_http(config),
+                        symptom=user_symptom,
                     ),
                     judge=lambda conclusion: judge_top1(
                         conclusion, resolved, build_chat_model(JUDGE_MODEL)

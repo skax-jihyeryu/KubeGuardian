@@ -24,7 +24,8 @@ Chaos Mesh HTTPChaos(`mode: one`, `target: Response`, `port: 8006`, `path: "*"`,
 - agent Pod를 Pod IP로 직접 부르면 1개만 500, 나머지 2개는 200이다. agent Pod 3개는 모두 Ready다 (readinessProbe가 tcpSocket).
 - front-chat 경유 agent 요청의 **일부**가 5xx로 실패한다 (verify_symptom은 5xx만 센다). 기획서의 "약 1/3"과 달리 비율이 실행마다 크게 다르다 (36번 중 1~16번). gateway가 keep-alive 연결을 재사용하고 kube-proxy는 연결 단위로 Pod를 고르기 때문이다. 순차 요청은 한 연결에 몰려 전부 성공하거나 전부 실패했고(각각 확인), 동시 요청이어야 연결이 여러 개 열려 Pod가 나뉜다. 그래서 verify_symptom은 동시 요청으로 확인한다.
 - 같은 이유로 H0 스모크(순차 요청)는 B1 주입 중에도 통과하거나 실패할 수 있다.
-- 규칙 점검: 장애 신호 없음, 경로 C. 기대 경로 B는 사용자 입력(증상 신고)이 연결된 뒤에 나온다.
+- 규칙 점검: 장애 신호 없음. 경로 B는 사용자 입력(증상 신고)으로 연다. 러너가 `expected.yaml`의 `user_symptom`을 `kg investigate 증상`과 같은 입력으로 점검·조사에 넘긴다.
+- `chat` API 시나리오는 요청 하나라 건강한 Pod에 닿으면 통과하고 나쁜 Pod에 닿으면 실패한다. 어느 쪽이든 경로는 B이고, 심각도만 달라진다 (API 시나리오 실패가 함께 있으면 긴급, 사용자 증상만 있으면 주의).
 
 ## 확인 상태
 
@@ -35,3 +36,5 @@ Chaos Mesh HTTPChaos(`mode: one`, `target: Response`, `port: 8006`, `path: "*"`,
 - 리뷰 반영 후 재확인: inject → verify 통과(Pod별 `500 200 200`, 36번 중 12번 실패) → reset(HTTPChaos·PodHttpChaos 삭제, `kubectl get` 결과 없음) → verify 실패(`200 200 200`) → H0 스모크. **reset 직후 첫 스모크는 채팅이 한 번 500으로 실패했고, 바로 다시 돌리자 3회 연속 성공했다.** agent 로그에는 오류가 없어, gateway가 재사용한 연결이 주입이 걷히는 동안 Chaos Mesh 프록시를 거친 것으로 보인다 (추정). 러너의 복구 확인은 180초 동안 다시 시도하므로 영향이 없다.
 - `make eval S=B1`: 실패(경로 C, 기대 B). 사용자 입력 경로가 아직 없어 예상된 결과다. 원복·H0 복구는 성공, 전체 15초. (원복에 재시작을 넣기 전 결과)
 - 2026-10-20 원복에 재시작을 넣은 뒤: 이전 방식으로 원복된 agent Pod에 주입하자 AllInjected=False로 실패했고(위 tproxy 문제), 재시작 + finalizer 제거로 복구했다. 그 뒤 inject → verify 통과(Pod별 `200 200 500`, 36번 중 14번 실패 / `200 500 200`, 18번 실패) → reset(약 40초) → verify 실패(`200 200 200`)를 **2회 연속** 확인했다.
+- 2026-11-01 사용자 증상 연결(#111) 뒤 `make eval S=B1 ARGS="--in-cluster --condition ai"` **3회 모두 경로 B로 조사에 들어갔다** (규칙 채점 통과). `chat` 시나리오는 1회 실패, 2회 통과로 갈렸고 어느 쪽이든 경로는 B였다. 3회 모두 분류 F2(핵심 근거 누락)다. 에이전트가 `probe`를 `via=pod`로 부르지 않았다 (2회는 `probe` 없음, 1회는 `via=service`로 10번 모두 200).
+- 같은 날 주입 중 runner Pod에서 `probe`(`target=agent`, `via=pod`)를 직접 실행해 `target-pod-500` 패턴이 실제 출력과 맞음을 확인했다. 500을 돌려준 Pod가 `containerRecords`로 읽은 `${injected_target}`과 같았다 (`key_found: [target-pod-500]`).

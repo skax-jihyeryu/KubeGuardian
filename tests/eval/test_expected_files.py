@@ -16,6 +16,7 @@ ALLOWED_KEYS = {
     "level",
     "k8s_visible",
     "gate_path",
+    "user_symptom",
     "must_signals",
     "allowed_signals",
     "forbidden_signals",
@@ -36,11 +37,19 @@ def test_expected_files_are_found():
     assert FILES
 
 
+def test_b1_reaches_path_b_by_user_symptom():
+    expected = yaml.safe_load((ROOT / "scenarios/B1/expected.yaml").read_text(encoding="utf-8"))
+
+    assert expected["gate_path"] == "B"
+    assert expected["user_symptom"]
+
+
 @pytest.mark.parametrize("path", FILES, ids=lambda p: p.parent.name)
 def test_expected_file_uses_known_keys_and_signals(path):
     expected = yaml.safe_load(path.read_text(encoding="utf-8"))
 
     assert set(expected) <= ALLOWED_KEYS
+    assert len(expected.get("user_symptom") or "") <= 500  # InvestigationRequest.user_symptom 상한
     assert expected["id"] == path.parent.name or path.parent.name == "_template"
     for key in ("must_signals", "allowed_signals", "forbidden_signals"):
         for rule_id in expected.get(key) or []:

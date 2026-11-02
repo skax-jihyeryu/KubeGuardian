@@ -59,6 +59,37 @@ def test_no_unknown_symptom_is_scored_normally(monkeypatch, tmp_path):
     assert "invalid" not in result and result["score"]["passed"]
 
 
+def test_user_symptom_in_expected_reaches_check_and_is_recorded(monkeypatch, tmp_path):
+    _patch_environment(monkeypatch, tmp_path, _outcome([]))
+    seen = {}
+
+    def fake_check(*args, **kwargs):
+        seen.update(kwargs)
+        return _outcome([])
+
+    investigated = {}
+
+    def fake_investigation(*args, **kwargs):
+        investigated.update(kwargs)
+
+    monkeypatch.setattr(eval_run, "run_check", fake_check)
+    monkeypatch.setattr(eval_run, "run_investigation", fake_investigation)
+    monkeypatch.setattr(eval_run, "score_layers", lambda *a, **k: None)
+    scenario = tmp_path / "scenarios" / "X1"
+    scenario.mkdir(parents=True)
+    (scenario / "expected.yaml").write_text(
+        "id: X1\ngate_path: B\nuser_symptom: 채팅이 가끔 실패\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(eval_run, "SCENARIOS", tmp_path / "scenarios")
+
+    eval_run.run("X1", "unused.yaml", 1, 1, 1, "ai")
+
+    [path] = (tmp_path / "history").glob("*-X1/result.json")
+    assert seen["user_symptom"] == "채팅이 가끔 실패"
+    assert investigated["symptom"] == "채팅이 가끔 실패"
+    assert json.loads(path.read_text(encoding="utf-8"))["user_symptom"] == "채팅이 가끔 실패"
+
+
 def test_sh_survives_non_utf8_script_output(tmp_path, monkeypatch):
     scenario = tmp_path / "X1"
     scenario.mkdir()
