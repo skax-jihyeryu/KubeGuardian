@@ -227,3 +227,22 @@ def test_stored_turn_context_is_masked_and_bounded(engine):
     assert rows[0].answer["_context"] == rows[1].answer["_context"]
     assert "sentences" not in rows[0].answer
     assert "sentences" in rows[1].answer
+
+
+def test_screen_context_reaches_llm_as_block_not_in_stored_question(engine):
+    screen = {"화면": "이슈 #1", "필터": {"period": "7d"}}
+    _, llm = _ask(
+        engine,
+        ["끝", _answer()],
+        question="이 기간은?",
+        conversation_id="screen-test",
+        context="이슈 #1 · 필터: period=7d",
+        screen=screen,
+    )
+    sent = str(llm.calls[0][-1].content)
+    assert sent.startswith("<screen_context>") and "period" in sent and sent.endswith("이 기간은?")
+    assert "[화면 맥락" not in sent
+    with Session(engine) as session:
+        rows = list(session.scalars(select(ChatMessageRow)))
+    assert all("screen_context" not in row.text for row in rows)
+    assert {row.answer["_context"] for row in rows} == {"이슈 #1 · 필터: period=7d"}

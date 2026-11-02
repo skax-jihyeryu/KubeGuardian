@@ -60,6 +60,7 @@ def answer_question(
     conversation_id: str | None = None,
     project: str | None = None,
     context: str = "전체 이력",
+    screen: dict | None = None,
     knowledge_dir: Path = KNOWLEDGE_DIR,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> ChatReply:
@@ -83,8 +84,9 @@ def answer_question(
     agent = HistoryQaV1(llm_factory, build_history_tools(engine, knowledge_dir), ctx)
     result = agent.run(
         ChatRequest(
-            question=f"[화면 맥락: {context}]\n{masked}" if context != "전체 이력" else masked,
+            question=masked,
             history=history,
+            screen=screen or ({"화면": context} if context != "전체 이력" else None),
         )
     )
     if result.status == "failed":

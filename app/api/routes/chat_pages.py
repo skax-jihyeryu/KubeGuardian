@@ -41,16 +41,39 @@ def context_label(engine, issue: str = "", run: str = "") -> str:
     return "전체 이력"
 
 
-FILTER_KEYS = {"period", "severity", "relation", "trigger", "status", "q", "days"}
+# 값이 정해진 필터는 화면(checks, issues)이 쓰는 값만 받는다. 벗어난 값은 버린다.
+FILTER_CHOICES = {
+    "period": {"all", "today", "1d", "7d", "30d"},
+    "severity": {"critical", "warning", "info", "tip", "calm", "crit", "warn", "risk"},
+    "relation": {"opened", "continued", "changed", "seen", "resolved", "none"},
+    "trigger": {"schedule", "ui", "check", "investigate"},
+    "status": {"open", "resolved", "running", "done", "unknown", "halted", "failed"},
+}
+MAX_FILTER_Q = 100
+MAX_FILTER_CONTEXT = 300
+
+
+def filter_values(value: str) -> dict[str, str]:
+    """필터 쿼리를 허용 키·값만 남긴 딕셔너리로 정리한다. 자유 문자열 q는 마스킹 뒤 자른다."""
+    pairs = parse_qs(value[:2000])
+    result: dict[str, str] = {}
+    for key, values in sorted(pairs.items()):
+        raw = values[0].strip()
+        if key in FILTER_CHOICES:
+            if raw in FILTER_CHOICES[key]:
+                result[key] = raw
+        elif key == "days":
+            if raw.isascii() and raw.isdecimal() and 0 < int(raw) <= 365:
+                result[key] = str(int(raw))
+        elif key == "q":
+            text = re.sub(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\s]+", " ", redact_text(raw)).strip()
+            if text:
+                result[key] = text[:MAX_FILTER_Q]
+    return result
 
 
 def filter_context(value: str) -> str:
-    pairs = parse_qs(value[:2000])
-    return ", ".join(
-        f"{key}={redact_text(values[0][:200])}"
-        for key, values in sorted(pairs.items())
-        if key in FILTER_KEYS and values[0]
-    )
+    return ", ".join(f"{k}={v}" for k, v in filter_values(value).items())[:MAX_FILTER_CONTEXT]
 
 
 @router.get("/{p}/chat")
@@ -72,9 +95,9 @@ def chat_panel(
                 .limit(20)
             )
         )
+    filter_text = filter_context(filters)
     label = chat_context(
-        context_label(engine, issue, run)
-        + (" · 필터: " + filter_context(filters) if filter_context(filters) else "")
+        context_label(engine, issue, run) + (" · 필터: " + filter_text if filter_text else "")
     )
     turns = []
     previous_context = "전체 이력"
@@ -124,11 +147,11 @@ async def chat_message(
     form = parse_qs(body.decode("utf-8", errors="replace"))
     question = form.get("question", [""])[0].strip()
     issue, run = form.get("issue", [""])[0], form.get("run", [""])[0]
-    label = context_label(engine, issue, run)
+    scope = context_label(engine, issue, run)
+    filter_dict = filter_values(form.get("filters", [""])[0])
     filters = filter_context(form.get("filters", [""])[0])
-    if filters:
-        label += " · 필터: " + filters
-    label = chat_context(label)
+    label = chat_context(scope + (" · 필터: " + filters if filters else ""))
+    screen = {"화면": scope, "필터": filter_dict} if scope != "전체 이력" or filter_dict else None
     cid = conversation(request)
     with Session(engine) as session:
         previous = session.scalar(
@@ -152,6 +175,7 @@ async def chat_message(
                 conversation_id=cid,
                 project=project,
                 context=label,
+                screen=screen,
             )
         except ServiceException:
             error = "답변을 만들지 못했습니다. 잠시 후 다시 질문해 주세요."
