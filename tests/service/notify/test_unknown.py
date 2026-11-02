@@ -86,3 +86,24 @@ def test_unknown_symptom_without_failed_step_has_no_none(tmp_path):
     assert len(sender.posts) == 1
     assert "None" not in sender.posts[0]["text"]
     assert "• 기능 점검 chat\n" in sender.posts[0]["text"]
+
+
+def test_unknown_dedup_matches_cleaned_items(tmp_path):
+    engine = create_db_engine(tmp_path / "kg.db")
+    sender = FakeSender()
+    config = KubeGuardianConfig(project={"id": "dev"}, target={"namespace": "dev"})
+    gate = GateResult(path="C", reason="unknown")
+    for index in range(5):
+        run = make_run(engine, start=at(index * 300))
+        signals = [
+            Signal(
+                rule_id="S01",
+                verdict="unknown",
+                subject="dev/Pod/* <a> & b",
+                message="수집 실패",
+            )
+        ]
+        finish_check(engine, run, path="C", signals=signals, start=at(index * 300))
+        Notifier(engine, config, sender).after_check(run, gate, [], at(index * 300 + 12))
+    assert len(sender.posts) == 1
+    assert "• S01 · dev/Pod/* &lt;a&gt; &amp; b" in sender.posts[0]["text"]

@@ -5,6 +5,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from core.db.incidents import Incident
+from core.guard.redact import redact_text
 from service.alerts.fingerprint import OTHER_FEATURE
 from service.model import Report
 from service.model.report import JUDGEMENT_LABEL, severity_for
@@ -33,28 +34,42 @@ def minutes(start: datetime, end: datetime) -> int:
 
 
 def escape_mrkdwn(text: str) -> str:
-    """Slack mrkdwn이 서식·링크로 읽는 문자를 막는다. `_`는 단어 사이에서 서식이 아니라 둔다."""
-    return (
-        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("*", "\u2217")
-    )
+    """Slack이 링크·멘션으로 읽는 `&`, `<`, `>`를 막는다. `*`와 `_`는 본문에서 그대로 둔다."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-_EVIDENCE_REF = re.compile(r"\s*\[(?:근거\s+)?ev-\d+(?:,\s*ev-\d+)*\]")
+_EVIDENCE_ITEM = r"(?:근거\s*:?\s*)?ev-\d+"
+_EVIDENCE_REF = re.compile(
+    rf"[ \t]*\[\s*{_EVIDENCE_ITEM}(?:\s*[,~]\s*{_EVIDENCE_ITEM})*\s*\]", re.IGNORECASE
+)
 
 
 def strip_evidence_refs(text: str) -> str:
     """`[ev-0109]` 같은 근거 표기는 Slack에서 읽을 수 없어 지운다. 다른 대괄호는 둔다."""
-    return _EVIDENCE_REF.sub("", text)
+    stripped = _EVIDENCE_REF.sub("", text)
+    return re.sub(r"(?m)^[ \t]+", "", stripped) if stripped != text else stripped
 
 
 def clean(text: str) -> str:
-    return escape_mrkdwn(strip_evidence_refs(text))
+    """본문 값: 마스킹 → 근거 표기 제거 → 이스케이프. 마스킹이 먼저여야 비밀값이 깨지지 않는다."""
+    return escape_mrkdwn(strip_evidence_refs(redact_text(text)))
+
+
+def bold(text: str) -> str:
+    """굵은 글씨 안에 넣는 값: 본문 처리에 더해 `*`를 바꾸고 줄바꿈·공백을 한 칸으로 합친다."""
+    return " ".join(clean(text).replace("*", "\u2217").split())
+
+
+def code(text: str) -> str:
+    """조치 명령은 인라인 코드로 감싼다. 코드 안에서는 `*`가 서식이 아니고 백틱만 코드를 끝낸다."""
+    one_line = " ".join(clean(text).replace("`", "'").split())
+    return f"`{one_line}`"
 
 
 def _head(namespace: str, severity: str | None, title: str, mark: str = "") -> str:
     emoji, label = _SEVERITY.get(severity or "", ("", ""))
     lead = f"{label} · " if label else ""
-    return f"{emoji} *{lead}{namespace} — {mark}{title}*".strip()
+    return f"{emoji} *{lead}{namespace} — {mark}{bold(title)}*".strip()
 
 
 def subject(incident: Incident) -> str:
@@ -129,7 +144,7 @@ def cause_update(
             ]
         )
     label = JUDGEMENT_LABEL.get(report.judgement or "")
-    lines = [_head(namespace, severity_for(top.impact), clean(top.title), mark)]
+    lines = [_head(namespace, severity_for(top.impact), top.title, mark)]
     if label:
         basis = f" ({clean(report.judgement_basis)})" if report.judgement_basis else ""
         hint = _JUDGEMENT_HINT[report.judgement]
@@ -140,7 +155,7 @@ def cause_update(
         lines += [f"*판단:* {label}{basis}", f"→ {hint}"]
     lines += ["*원인*", clean(report.conclusion), "*영향*", clean(report.impact_scope)]
     if report.actions:
-        lines += ["*조치*", f"• {clean(report.actions[0])}"]
+        lines += ["*조치*", f"• {code(report.actions[0])}"]
     others = sorted((i for i in report.issues if i is not top), key=lambda i: i.rank)[:2]
     if others:
         lines.append("*그 밖의 중요 문제*")

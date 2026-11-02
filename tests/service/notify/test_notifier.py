@@ -141,7 +141,7 @@ def test_investigation_updates_first_alert_and_replies(env):
     [up] = sender.updates
     assert up["ts"] == "ts-1"
     assert "*원인*\nagent Service selector가 Pod 라벨과 다름" in up["text"]
-    assert "*조치*\n• Service agent의 selector" in up["text"]
+    assert "*조치*\n• `Service agent의 selector" in up["text"]
     basis = "원인 리소스 설정 인용 · 근거 출처 2종(로그, 설정·상태) · 지지 가설 근거 2종"
     assert f"*판단:* 확정 ({basis})" in up["text"]
     assert "확신도" not in up["text"]  # LLM 확신도는 알림에 쓰지 않는다

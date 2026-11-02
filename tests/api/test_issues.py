@@ -1,5 +1,7 @@
 """이슈 화면은 저장된 보고서만 읽고 다른 이슈의 보고서를 섞지 않는다."""
 
+import pytest
+
 from core.db import AlertStore, IncidentStore
 from tests.api.seed import (
     add_evidence,
@@ -335,3 +337,30 @@ def test_timeline_shows_message_name_not_number(client, engine, clock):
     assert "Slack · 원인 갱신" in labels
     assert "Slack · M99" in labels
     assert "Slack M1" not in labels
+
+
+def _timeline_text(engine, clock, stored):
+    from api.viewmodels.issues import build_issue_detail
+
+    inc = open_incident(engine, make_run(engine))
+    AlertStore(engine).add(kind="M1", channel="C", text=stored, sent_at=at(10), incident_id=inc)
+    return [e.text for e in build_issue_detail(engine, inc, None, clock.now).timeline][-1]
+
+
+def test_timeline_restores_slack_escapes_and_html_still_escapes(client, engine):
+    inc = open_incident(engine, make_run(engine))
+    stored = "a &amp;&amp; b &lt;c&gt; &lt;script&gt;alert(1)&lt;/script&gt; &quot;"
+    AlertStore(engine).add(kind="M1", channel="C", text=stored, sent_at=at(10), incident_id=inc)
+    html = client.get(f"/dev/issues/{inc}").text
+    assert "a &amp;&amp; b &lt;c&gt;" in html  # 화면에는 a && b <c> 로 보인다
+    assert "<script>alert(1)" not in html and "&lt;script&gt;alert(1)" in html
+    assert "&amp;amp;" not in html
+    assert "&amp;quot;" in html  # 다른 엔티티는 되돌리지 않는다
+
+
+@pytest.mark.parametrize(
+    "stored",
+    ["password=ab&lt;cdSECRET", "api_key=abc&lt;SECRET", "Authorization: ab&amp;cdSECRET"],
+)
+def test_timeline_redacts_after_restoring_escapes(engine, clock, stored):
+    assert "SECRET" not in _timeline_text(engine, clock, stored)

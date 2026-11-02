@@ -83,9 +83,9 @@ def test_cause_update_line_order_and_bold_headings():
     assert lines[0] == "🔴 *긴급 · dev — 채팅 실패*"
     assert lines[1].startswith("*판단:* 확정 (근거 3종)")
     assert lines[2].startswith("→ ")
-    assert lines[3:5] == ["*원인*", "dev/Pod/∗ 가 실패합니다."]
+    assert lines[3:5] == ["*원인*", "dev/Pod/* 가 실패합니다."]
     assert lines[5:7] == ["*영향*", "채팅 전체"]
-    assert lines[7:9] == ["*조치*", "• selector 수정 &lt;a&gt; [Service]"]
+    assert lines[7:9] == ["*조치*", "• `selector 수정 &lt;a&gt; [Service]`"]
     assert lines[9:11] == ["*그 밖의 중요 문제*", "• 🟠 주의 보조 문제"]
     assert lines[-1] == "🔗 보고서: http://kg.local/dev/issues/7"
 
@@ -111,15 +111,62 @@ def test_cause_reply_bold_first_line():
 
 
 def test_strip_evidence_refs():
-    assert messages.strip_evidence_refs("실패합니다. [ev-0073, ev-0074]") == "실패합니다."
-    assert messages.strip_evidence_refs("실패합니다 [근거 ev-0109]") == "실패합니다"
-    assert messages.strip_evidence_refs("[Service] 실패") == "[Service] 실패"
+    strip = messages.strip_evidence_refs
+    assert strip("실패합니다. [ev-0073, ev-0074]") == "실패합니다."
+    assert strip("실패합니다 [근거 ev-0109]") == "실패합니다"
+    assert strip("실패 [근거: ev-0109] [EV-2] [ev-1, 근거 ev-2]") == "실패"
+    assert strip("실패 [ev-1 , ev-2] [ev-1~ev-3]") == "실패"
+    assert strip("앞\n [ev-1] 뒤") == "앞\n뒤"
+    assert strip("앞 [ev-1]\n뒤") == "앞\n뒤"
+    for keep in ("[Service] 실패", "items[0]", "[ev-abc]"):
+        assert strip(keep) == keep
 
 
-def test_escape_mrkdwn():
-    escaped = messages.escape_mrkdwn("dev/Pod/* <a> & a_b")
-    assert "*" not in escaped and "<" not in escaped and ">" not in escaped
-    assert escaped == "dev/Pod/∗ &lt;a&gt; &amp; a_b"
+def test_escape_mrkdwn_keeps_asterisk():
+    assert messages.escape_mrkdwn("dev/Pod/* <a> & a_b") == "dev/Pod/* &lt;a&gt; &amp; a_b"
+
+
+def test_action_is_inline_code_and_keeps_command():
+    cmd = "kubectl get po -o jsonpath='{.items[*].metadata.name}' `x` <a> & b"
+    text = messages.cause_update("dev", incident(), "done", report(actions=[cmd]), None, 1, URL)
+    assert (
+        "• `kubectl get po -o jsonpath='{.items[*].metadata.name}' 'x' &lt;a&gt; &amp; b`"
+        in text.splitlines()
+    )
+
+
+def test_bold_values_replace_asterisk_and_collapse_whitespace():
+    title = "  dev/Pod/*  \n 실패 "
+    issue = Issue(rank=1, title=title, impact="core_path_broken", confidence="high")
+    text = messages.cause_update("dev", incident(), "done", report(issues=[issue]), None, 1, URL)
+    assert text.splitlines()[0] == "🔴 *긴급 · dev — dev/Pod/∗ 실패*"
+
+
+SECRETS = [
+    ("password=ab<cdSECRET", "api_key=abc<SECRET", "Authorization: ab&cdSECRET"),
+]
+
+
+def test_secrets_with_escaped_chars_are_masked_everywhere():
+    pw, key, auth = SECRETS[0]
+    issue = Issue(rank=1, title=pw, impact="core_path_broken", confidence="high")
+    text = "\n".join(
+        [
+            messages.cause_update(
+                "dev",
+                incident(),
+                "done",
+                report(issues=[issue], conclusion=auth, actions=[key], judgement_basis=pw),
+                None,
+                1,
+                URL,
+            ),
+            messages.first_alert("dev", incident(), key, 1, NOW, URL),
+            messages.cause_update("dev", incident(), "failed", None, auth, 1, URL),
+            messages.unknown("dev", [pw], 3, URL),
+        ]
+    )
+    assert "SECRET" not in text
 
 
 def test_unknown_without_failed_step_has_no_none():

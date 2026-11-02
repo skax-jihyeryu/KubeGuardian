@@ -1,5 +1,6 @@
 """이슈 목록·보고서·알림 타임라인의 저장된 화면 값."""
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -37,6 +38,15 @@ ALERT_LABEL = {
     "M10": "점검 일부 확인 못 함",
     "TEST": "연결 확인",
 }
+
+
+_SLACK_ENTITY = re.compile(r"&(amp|lt|gt);")
+_SLACK_CHAR = {"amp": "&", "lt": "<", "gt": ">"}
+
+
+def _unescape_slack(text: str) -> str:
+    """Slack용 `&amp;` `&lt;` `&gt;`만 되돌린다. HTML 이스케이프는 템플릿이 한다."""
+    return _SLACK_ENTITY.sub(lambda m: _SLACK_CHAR[m.group(1)], text)
 
 
 @dataclass(frozen=True)
@@ -178,7 +188,7 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
             Event(
                 alert.sent_at,
                 f"Slack · {ALERT_LABEL.get(alert.kind, alert.kind)}",
-                redact_text(alert.text),
+                redact_text(_unescape_slack(alert.text)),
                 dry_run=alert.dry_run,
             )
         )
