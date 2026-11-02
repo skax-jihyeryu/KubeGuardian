@@ -20,6 +20,10 @@ from service.model import Trigger
 
 _LOCK_ID = 1
 
+# 점검 잠금 만료. CronJob activeDeadlineSeconds(270)와 같게 둬서
+# 잘린 점검의 잠금이 다음 회차(300초) 전에 풀린다
+CHECK_LOCK_TTL = timedelta(seconds=270)
+
 
 @dataclass(frozen=True)
 class CheckLock:

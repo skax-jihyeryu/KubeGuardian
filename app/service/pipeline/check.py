@@ -10,7 +10,7 @@ http가 있고 설정에 API 시나리오가 있으면 규칙 점검 뒤에 증�
 
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Engine
@@ -18,7 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from core.config import KubeGuardianConfig
 from core.db import CheckLockStore, CheckRunStore, EvidenceStore, SqliteObservationStore
-from core.db.check_lock import CheckLock
+from core.db.check_lock import CHECK_LOCK_TTL, CheckLock
 from core.error.service_exception import ErrorCode, ServiceException
 from service.alerts.incidents import IncidentChange, track
 from service.checks.detectors.base import DetectorContext
@@ -37,10 +37,6 @@ from service.model import (
 )
 from service.sensors.collector import KubeReader, collect
 from service.tools.base import ToolContext
-
-# 점검 잠금 만료. CronJob activeDeadlineSeconds(270)와 같게 둬서
-# 잘린 점검의 잠금이 다음 회차(300초) 전에 풀린다
-CHECK_LOCK_TTL = timedelta(seconds=270)
 
 
 def _wall_now() -> datetime:
