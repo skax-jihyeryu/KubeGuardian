@@ -6,7 +6,7 @@
 <div class="doc"><div class="crumb"><a href="/{{ p }}/issues?{{ filter_query }}">이슈 목록</a> › #{{ inc.id }}</div>
 <h1 class="title">이슈 #{{ inc.id }}</h1>
 <nav class="jump" aria-label="절 바로가기"><a href="#s-report">보고서</a> · <a href="#s-timeline">타임라인</a></nav>
-<div class="paper"><div class="sec"><div class="hdrow">{{ badge(d.row.severity, "lg") }}{% if inc.status == "open" %}<span class="open">OPEN</span>{% else %}<span class="calm">{{ ic("check-circle", "ok-ic") }}해결 {{ inc.resolved_at|hm }}</span>{% endif %}</div>
+<div class="paper"><div class="sec"><div class="hdrow">{{ badge(d.row.severity, "lg") }}{% if inc.status == "open" %}<span class="open">OPEN</span>{% else %}<span class="calm">{{ ic("check-circle", "ok-ic") }}해결 {{ inc.resolved_at|hm }}</span>{% endif %}{% if d.ack_state %}<span class="calm">{{ d.ack_state }}</span>{% endif %}</div>
 <div class="meta">{{ inc.opened_at|md_hm }} 시작 · 마지막 확인 {{ inc.last_seen_at|hm }}</div></div>
 <div class="sec" id="s-report"><h2>보고서</h2>{% include "issues/_report.html" %}</div>
 <div class="sec" id="s-timeline"><h2>타임라인</h2>{% include "issues/_timeline.html" %}</div>

@@ -124,3 +124,20 @@ def test_rate_limit_is_retried_once():
 
     assert SlackSender(client, sleep=lambda s: None).post("#ops", "본문")
     assert len(client.calls) == 2
+
+
+def test_blocks_are_sent_with_post_and_update():
+    client = FakeWebClient()
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "본문"}}]
+
+    SlackSender(client).post("#ops", "본문", blocks=blocks)
+    SlackSender(client).update("#ops", "1.1", "본문", blocks=blocks)
+
+    assert [kw["blocks"] for _, kw in client.calls] == [blocks, blocks]
+
+
+def test_dry_run_ignores_blocks():
+    sender = DryRunSender()
+
+    assert sender.post("#ops", "a", blocks=[{"type": "divider"}])
+    assert sender.update("#ops", "1.1", "a", blocks=[{"type": "divider"}]) is None

@@ -625,6 +625,24 @@ read -s "KEY?템플릿용 Azure 키: "; echo; curl -s localhost:18000/api/v1/llm
 - 스모크 `LLM Gateway error: 403` → 조직에 그 모델이 할당되지 않았다. 배포를 등록한 뒤 `make seed`
 - 스모크 `로그인 실패: kg-tester` → `.env.test-user`를 새로 만들었는데 사용자는 DB에 이전 비밀번호로 남아 있다. `make down` → `make up`부터 다시 하거나, 파일을 지우지 않는다
 
+## 11. Slack 확인 버튼 (Socket Mode, #156)
+
+### 왜 필요한가
+
+긴급 알림에 `확인` 버튼을 넣고, 누르면 30분 리마인드를 멈춘다. 버튼 클릭은 공개 URL 없이 Socket Mode(앱이 Slack에 먼저 연결)로 받는다. 앱 토큰이 없으면 버튼 없이 리마인드를 3회로 제한한다.
+
+### 실행
+
+1. Slack 앱 설정에서 **Socket Mode**를 켜고 **Interactivity & Shortcuts**를 켠다 (Request URL은 필요 없다).
+2. **Basic Information → App-Level Tokens**에서 `connections:write` 범위의 토큰(`xapp-`)을 만든다.
+3. `.env`의 `SLACK_APP_TOKEN=`에 넣는다. 채팅·로그에 붙여 넣지 않는다.
+4. `make kg-up`. 값이 있는 `SLACK_APP_TOKEN`만 Secret `kubeguardian-env`에 들어가고, diagnostic-agent의 `listener` 컨테이너가 연결한다.
+
+### 확인
+
+- `kubectl -n kubeguardian logs deploy/diagnostic-agent -c listener`에 `확인 버튼 수신 시작`이 보인다. 토큰이 없으면 `SLACK_APP_TOKEN이 비어 있습니다 (대기)`가 보인다.
+- 긴급 알림의 `확인`을 누르면 메시지에 `✅ 확인`이 보이고 스레드에 답글이 달린다. 이슈 상세 머리 줄에도 `확인 HH:MM · 이름`이 보인다.
+
 ## 운영 메모
 
 | 상황 | 명령 |

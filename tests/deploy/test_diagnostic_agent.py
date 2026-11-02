@@ -20,8 +20,8 @@ def test_single_replica_replaced_without_overlap():
     assert spec["strategy"] == {"type": "Recreate"}
 
 
-def test_pod_runs_worker_and_web_containers():
-    assert list(_containers()) == ["worker", "web"]
+def test_pod_runs_worker_web_and_listener_containers():
+    assert list(_containers()) == ["worker", "web", "listener"]
 
 
 def test_runs_worker_on_the_same_db_as_the_cronjob():
@@ -67,6 +67,29 @@ def test_web_is_ready_only_when_healthz_answers():
     web = _containers()["web"]
     assert web["readinessProbe"]["httpGet"] == {"path": "/healthz", "port": 8080}
     assert web["livenessProbe"]["httpGet"] == {"path": "/healthz", "port": 8080}
+
+
+# ── listener 컨테이너 (Slack 확인 버튼, #156) ──
+
+
+def test_listener_runs_slack_listen_on_the_same_db():
+    listener, worker = _containers()["listener"], _containers()["worker"]
+    assert listener["image"] == worker["image"]
+    assert listener["command"][2:] == ["slack-listen", "--db", "/data/kubeguardian.db"]
+
+
+def test_listener_has_the_same_env_secrets_mounts_and_hardening_as_the_worker():
+    listener, worker = _containers()["listener"], _containers()["worker"]
+    for key in ("envFrom", "env", "securityContext", "volumeMounts"):
+        assert listener[key] == worker[key], key
+
+
+def test_listener_is_small():
+    resources = _containers()["listener"]["resources"]
+    assert resources == {
+        "requests": {"cpu": "50m", "memory": "128Mi"},
+        "limits": {"cpu": "500m", "memory": "256Mi"},
+    }
 
 
 def test_service_is_cluster_ip_without_ingress():

@@ -159,6 +159,27 @@ def test_default_http_gets_accounts_from_accounts_dir(tmp_path, monkeypatch):
         get_setting.cache_clear()
 
 
+@pytest.mark.parametrize(
+    ("token", "dry_run", "enabled"),
+    [("xapp-1", False, True), ("", False, False), ("xapp-1", True, False)],
+)
+def test_ack_is_enabled_only_with_app_token_and_real_sender(
+    tmp_path, monkeypatch, token, dry_run, enabled
+):
+    class Sender:
+        pass
+
+    Sender.dry_run = dry_run
+    monkeypatch.setenv("SLACK_APP_TOKEN", token)
+    get_setting.cache_clear()
+    try:
+        config = KubeGuardianConfig.model_validate({"target": {"namespace": "dev"}})
+        notifier = cli._notifier(cli._open_db(str(tmp_path / "kg.db")), config, Sender())
+        assert notifier._ack_enabled is enabled
+    finally:
+        get_setting.cache_clear()
+
+
 # ── kg investigate ──
 
 
@@ -643,6 +664,56 @@ def _slack_test(tmp_path, sender):
         ["slack-test", "--config", _slack_config(tmp_path), "--db", str(tmp_path / "kg.db")],
         make_sender=lambda cfg: sender,
     )
+
+
+def _slack_listen(tmp_path, monkeypatch, token, listen, wait=lambda: None):
+    monkeypatch.setenv("SLACK_APP_TOKEN", token)
+    get_setting.cache_clear()
+    try:
+        return cli.main(
+            ["slack-listen", "--config", _slack_config(tmp_path), "--db", str(tmp_path / "kg.db")],
+            make_sender=lambda cfg: RecordingSender(),
+            listen=listen,
+            wait=wait,
+        )
+    finally:
+        get_setting.cache_clear()
+
+
+def test_slack_listen_without_app_token_logs_once_and_waits(tmp_path, monkeypatch, capsys):
+    calls = []
+
+    code = _slack_listen(
+        tmp_path, monkeypatch, "", lambda *a, **k: calls.append(a), lambda: calls.append("wait")
+    )
+
+    assert code == 0 and calls == ["wait"]  # 연결하지 않고 대기만 한다 (재시작 반복 금지)
+    assert "SLACK_APP_TOKEN" in capsys.readouterr().out
+
+
+def test_slack_listen_connects_with_app_token_and_handles_clicks(tmp_path, monkeypatch):
+    from core.db import AlertStore, IncidentStore, create_db_engine
+
+    engine = create_db_engine(str(tmp_path / "kg.db"))
+    iid = IncidentStore(engine).open("fp", {}, "critical", 1, cli._now())
+    IncidentStore(engine).set_slack_ts(iid, "9.9")
+    seen = {}
+
+    def listen(token, handle, **kw):
+        seen["token"] = token
+        handle(
+            {
+                "type": "block_actions",
+                "user": {"id": "U1", "name": "홍"},
+                "channel": {"id": "C0123456789"},
+                "actions": [{"action_id": "kg_ack", "value": str(iid)}],
+            }
+        )
+
+    assert _slack_listen(tmp_path, monkeypatch, "xapp-test", listen) == 0
+
+    assert seen["token"] == "xapp-test"
+    assert [a.kind for a in AlertStore(engine).for_incident(iid)] == ["ACK"]
 
 
 def test_slack_test_posts_replies_and_updates_like_real_alerts(tmp_path, capsys):

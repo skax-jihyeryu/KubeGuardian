@@ -1,6 +1,6 @@
 """SQLite 테이블. W1: 점검 이력·Evidence·관측 기록. W3: 점검 잠금·건너뜀, 이슈·알림 이력.
 
-W4: 조사·단계·보고서 (#98), 점검 결과·규칙 선택 (#116).
+W4: 조사·단계·보고서 (#98), 점검 결과·규칙 선택 (#116), 이슈 확인 (#156).
 """
 
 from datetime import UTC, datetime
@@ -140,6 +140,17 @@ class AlertRow(Base):
     sent_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     dry_run: Mapped[bool] = mapped_column(default=False)
     error: Mapped[str | None] = mapped_column(String(512))
+
+
+class IncidentAckRow(Base):
+    """긴급 이슈의 Slack 확인 기록. incident에 열을 더하지 않는다 (기존 DB에 열이 추가되지 않음)."""
+
+    __tablename__ = "incident_ack"
+
+    incident_id: Mapped[int] = mapped_column(ForeignKey("incident.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(32))
+    user_name: Mapped[str] = mapped_column(String(128))
+    acked_at: Mapped[datetime] = mapped_column(UTCDateTime)
 
 
 class ChatMessageRow(Base):

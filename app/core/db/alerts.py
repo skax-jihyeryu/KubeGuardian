@@ -96,6 +96,22 @@ class AlertStore:
             row = s.scalar(stmt)
             return _to_alert(row) if row else None
 
+    def last_sent_for(self, incident_id: int, kind: str) -> Alert | None:
+        """그 이슈에 가장 최근에 보낸(실패하지 않은) kind 메시지. 다음 리마인더 시각의 기준."""
+        stmt = (
+            select(AlertRow)
+            .where(
+                AlertRow.incident_id == incident_id,
+                AlertRow.kind == kind,
+                AlertRow.error.is_(None),
+            )
+            .order_by(AlertRow.id.desc())
+            .limit(1)
+        )
+        with Session(self._engine) as s:
+            row = s.scalar(stmt)
+            return _to_alert(row) if row else None
+
     def last_sent(self, kind: str) -> Alert | None:
         """가장 최근에 보낸(실패하지 않은) kind 메시지."""
         stmt = (

@@ -364,3 +364,56 @@ def test_timeline_restores_slack_escapes_and_html_still_escapes(client, engine):
 )
 def test_timeline_redacts_after_restoring_escapes(engine, clock, stored):
     assert "SECRET" not in _timeline_text(engine, clock, stored)
+
+
+# ── 확인(ack) 표시 (#156) ──
+
+
+def test_timeline_labels_ack_message(engine, clock):
+    from api.viewmodels.issues import ALERT_LABEL, build_issue_detail
+
+    inc = open_incident(engine, make_run(engine))
+    AlertStore(engine).add(
+        kind="ACK", channel="C", text="✅ <@U1> 님이 확인했습니다", sent_at=at(10), incident_id=inc
+    )
+
+    labels = [e.label for e in build_issue_detail(engine, inc, None, clock.now).timeline]
+
+    assert ALERT_LABEL["ACK"] == "확인" and "Slack · 확인" in labels
+
+
+def test_critical_open_issue_shows_unacked(client, engine):
+    inc = open_incident(engine, make_run(engine))
+
+    html = client.get(f"/dev/issues/{inc}").text
+
+    assert "미확인" in html
+
+
+def test_acked_issue_shows_time_and_masked_name(client, engine):
+    from datetime import UTC, datetime
+
+    from core.db import IncidentAckStore
+
+    inc = open_incident(engine, make_run(engine))
+    IncidentAckStore(engine).ack(
+        inc,
+        "U1",
+        "홍길동 sk-abcdefghijklmnopqrstuvwxyz123456",
+        datetime(2026, 11, 2, 0, 3, tzinfo=UTC),
+    )
+
+    html = client.get(f"/dev/issues/{inc}").text
+
+    assert "확인 09:03 · 홍길동" in html and "미확인" not in html
+    assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in html
+
+
+def test_warning_and_resolved_issues_show_no_ack_state(client, engine):
+    run = make_run(engine)
+    warning = open_incident(engine, run, severity="warning")
+    resolved = open_incident(engine, run)
+    IncidentStore(engine).resolve(resolved, make_run(engine, start=at(60)), at(60))
+
+    assert "미확인" not in client.get(f"/dev/issues/{warning}").text
+    assert "미확인" not in client.get(f"/dev/issues/{resolved}").text

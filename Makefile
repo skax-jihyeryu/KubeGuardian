@@ -127,7 +127,7 @@ KG_NS := kubeguardian
 KG_ENV_KEYS := LLM_PROVIDER|AZURE_OPENAI_ENDPOINT|AZURE_OPENAI_API_KEY|AZURE_OPENAI_API_VERSION
 KG_ENV_COUNT := 4
 # 선택 키: 없으면 알림은 dry-run (#27)
-KG_ENV_OPTIONAL := SLACK_BOT_TOKEN
+KG_ENV_OPTIONAL := SLACK_BOT_TOKEN|SLACK_APP_TOKEN
 
 kg-up: kg-build ca  ## runner Pod, 주기 점검 CronJob, 조사 작업자(diagnostic-agent) 기동 (kubeguardian 네임스페이스, 이미지·Secret·ConfigMap·CA 포함)
 	@kubectl get ns $(KG_NS) >/dev/null 2>&1 || kubectl create ns $(KG_NS)

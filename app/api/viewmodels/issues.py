@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from api.timefmt import hm
 from api.viewmodels.checks import (
     ACTION_LABEL,
     STALE_INVESTIGATION_MINUTES,
@@ -18,6 +19,7 @@ from core.db import (
     AlertStore,
     CheckRunStore,
     EvidenceStore,
+    IncidentAckStore,
     IncidentStore,
     InvestigationQueue,
     InvestigationStore,
@@ -36,6 +38,7 @@ ALERT_LABEL = {
     "M7": "점검 중단 알림",
     "M9": "원인 확인 답글",
     "M10": "점검 일부 확인 못 함",
+    "ACK": "확인",
     "TEST": "연결 확인",
 }
 
@@ -77,6 +80,7 @@ class IssueDetail:
     evidence: dict[str, tuple[int, int]]
     live: bool
     investigation_state: str
+    ack_state: str = ""  # 머리 줄에 보이는 확인 상태. 긴급 열림이 아니면 비어 있다
 
 
 def issue_row(engine: Engine, incident: Incident) -> IssueRow:
@@ -212,6 +216,12 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
     if selected and selected.report:
         for e in EvidenceStore(engine).list_for_run(selected.check_run_id, limit=10000):
             evidence[e.id] = (selected.check_run_id, int(e.id.split("-")[1]))
+    ack = IncidentAckStore(engine).get(incident_id)
+    ack_state = ""
+    if ack:
+        ack_state = f"확인 {hm(ack.acked_at)} · {redact_text(ack.user_name)}"
+    elif incident.status == "open" and incident.first_severity == "critical":
+        ack_state = "미확인"
     return IssueDetail(
         issue_row(engine, incident),
         selected,
@@ -219,4 +229,5 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
         evidence,
         state in {"queued", "running"},
         state,
+        ack_state,
     )

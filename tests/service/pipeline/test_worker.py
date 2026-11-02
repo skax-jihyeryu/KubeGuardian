@@ -2,6 +2,7 @@ from datetime import timedelta
 
 import pytest
 
+from core.config import ReminderPolicy, SlackConfig
 from core.db import AlertStore, CheckRunStore, IncidentStore, InvestigationQueue, create_db_engine
 from service.notify.notifier import Notifier
 from service.notify.sender import DryRunSender
@@ -78,6 +79,44 @@ def test_worker_watches_for_stalled_checks(engine):
     _worker(engine, lambda m: None, at=NOW + timedelta(minutes=181)).run_once()
 
     assert AlertStore(engine).last_sent("M7") is not None
+
+
+def test_worker_sends_reminders_for_open_incidents(engine):
+    iid = _opened(engine)
+    InvestigationQueue(engine).claim(NOW, timedelta(hours=4))  # 조사할 것은 없게
+    config = CONFIG.model_copy(
+        update={
+            "slack": SlackConfig(
+                alert_target="C0123456789",
+                reminders={"critical": ReminderPolicy(first_after="30m", max=1)},
+            )
+        }
+    )
+    at = NOW + timedelta(minutes=31)
+    notifier = Notifier(engine, config, DryRunSender())
+
+    Worker(engine, config, notifier, llm_factory=lambda m: None, clock=lambda: at).run_once()
+
+    assert AlertStore(engine).count(iid, "M2") == 1
+
+
+def test_reminder_failure_does_not_stop_worker(engine):
+    _opened(engine)
+
+    class Broken(Notifier):
+        def check_reminders(self, now):
+            raise RuntimeError("boom")
+
+    worker = Worker(
+        engine,
+        CONFIG,
+        Broken(engine, CONFIG, DryRunSender()),
+        llm_factory=lambda m: _scripted(),
+        make_k8s=lambda: FixtureReader(*raw_cluster("s04/localhost")),
+        clock=lambda: NOW + timedelta(seconds=5),
+    )
+
+    assert worker.run_once() is not None  # 리마인드가 실패해도 조사는 한다
 
 
 def test_alert_is_sent_before_worker_can_claim(engine):

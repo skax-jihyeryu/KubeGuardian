@@ -32,12 +32,20 @@ class Sender(Protocol):
     dry_run: bool
 
     def post(
-        self, channel: str, text: str, *, thread_ts: str | None = None, broadcast: bool = False
+        self,
+        channel: str,
+        text: str,
+        *,
+        thread_ts: str | None = None,
+        broadcast: bool = False,
+        blocks: list[dict[str, Any]] | None = None,
     ) -> str:
         """메시지를 보내고 ts(메시지 ID)를 돌려준다. 실패하면 NOTIFY_FAILED."""
         ...
 
-    def update(self, channel: str, ts: str, text: str) -> None: ...
+    def update(
+        self, channel: str, ts: str, text: str, blocks: list[dict[str, Any]] | None = None
+    ) -> None: ...
 
 
 class SlackSender:
@@ -48,7 +56,13 @@ class SlackSender:
         self._sleep = sleep
 
     def post(
-        self, channel: str, text: str, *, thread_ts: str | None = None, broadcast: bool = False
+        self,
+        channel: str,
+        text: str,
+        *,
+        thread_ts: str | None = None,
+        broadcast: bool = False,
+        blocks: list[dict[str, Any]] | None = None,
     ) -> str:
         # 시간 초과 뒤에는 다시 보내지 않는다: 요청이 이미 닿았으면 같은 메시지가 두 번 올라간다
         resp = self._call(
@@ -56,13 +70,18 @@ class SlackSender:
             retry_on_timeout=False,
             channel=channel,
             text=text,
+            blocks=blocks,
             thread_ts=thread_ts,
             reply_broadcast=broadcast if thread_ts else None,
         )
         return str(resp["ts"])
 
-    def update(self, channel: str, ts: str, text: str) -> None:
-        self._call("chat_update", retry_on_timeout=True, channel=channel, ts=ts, text=text)
+    def update(
+        self, channel: str, ts: str, text: str, blocks: list[dict[str, Any]] | None = None
+    ) -> None:
+        self._call(
+            "chat_update", retry_on_timeout=True, channel=channel, ts=ts, text=text, blocks=blocks
+        )
 
     def _call(self, method: str, *, retry_on_timeout: bool, **kwargs: Any) -> Any:
         """한 번 부르고, 일시 오류면 한 번 더. 끝내 실패하면 NOTIFY_FAILED(사유)."""
@@ -98,11 +117,19 @@ class DryRunSender:
     dry_run = True
 
     def post(
-        self, channel: str, text: str, *, thread_ts: str | None = None, broadcast: bool = False
+        self,
+        channel: str,
+        text: str,
+        *,
+        thread_ts: str | None = None,
+        broadcast: bool = False,
+        blocks: list[dict[str, Any]] | None = None,
     ) -> str:
         return f"{DRY_RUN_PREFIX}{uuid.uuid4().hex[:12]}"
 
-    def update(self, channel: str, ts: str, text: str) -> None:
+    def update(
+        self, channel: str, ts: str, text: str, blocks: list[dict[str, Any]] | None = None
+    ) -> None:
         return None
 
 
