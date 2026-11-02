@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}KubeGuardian{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/kg.css">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+<div class="app">
+  {% include "_rail.html" %}
+  <div class="main">
+    {% include "_gnb.html" %}
+    {% include "_band.html" %}
+    <div class="body">{% block body %}{% endblock %}</div>
+  </div>
+  {% block overlay %}{% endblock %}
+</div>
+<script src="/static/app.js" defer></script>
+</body>
+</html>

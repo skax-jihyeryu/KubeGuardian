@@ -1,5 +1,6 @@
 """API 의존성. 테스트는 app.dependency_overrides로 바꾼다."""
 
+from datetime import UTC, datetime
 from functools import lru_cache
 
 from sqlalchemy import Engine
@@ -21,3 +22,8 @@ def get_config() -> KubeGuardianConfig:
 
 def get_llm_factory() -> LlmFactory:
     return build_chat_model
+
+
+def get_now() -> datetime:
+    """화면이 보는 '지금'. 테스트는 이 의존성을 바꾼다."""
+    return datetime.now(UTC)
