@@ -98,6 +98,8 @@ class RunContext:
     k8s: Any = None  # 네임스페이스에 묶인 조회 클라이언트 (core.k8s)
     now: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
     http: Any = None  # 네임스페이스에 묶인 HTTP 클라이언트 (core.http)
+    # API 시나리오 이름 → 그 시나리오가 지키는 기능의 서비스 목록 (core_paths). 사전 확인이 쓴다
+    scenario_services: dict[str, list[str]] = field(default_factory=dict)
 
     def tool_context(self) -> ToolContext:
         return ToolContext(
