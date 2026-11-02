@@ -4,7 +4,15 @@ import json
 
 import yaml
 
-from report import apply_label, load_batch, load_labels, render, summarize, wilson
+from report import (
+    apply_label,
+    batch_drift,
+    load_batch,
+    load_labels,
+    render,
+    summarize,
+    wilson,
+)
 
 KEY_OK = {"key_found": ["k"], "key_missing": [], "key_all_found": True, "tool_limited": False}
 
@@ -269,3 +277,177 @@ def test_kpi_excludes_skip_and_not_run_but_keeps_gate_fail(tmp_path):
     assert k["seconds"] == 20.0 and k["tokens"] == 200
     s = summary["scenarios"]["A1"]
     assert s["tokens"] == 200 and s["seconds"] == 20.0
+
+
+def test_overconfirm_and_underconfirm_counts(tmp_path):
+    runs = [make_run(judgement="confirmed") for _ in range(3)]
+    runs += [make_run("F2", judgement="confirmed"), make_run("F3", judgement="confirmed")]
+    runs += [make_run(judgement="candidate"), make_run("F2", judgement="candidate")]
+    results, scen = build(tmp_path, {"A1": runs})
+    summary = summarize(results, {}, scen)
+    k = summary["kpi"]
+    assert (k["overconfirmed"], k["confirmed"], k["overconfirm_rate"]) == (2, 5, 0.4)
+    assert k["underconfirmed"] == 1  # candidate pass만. candidate F2는 어느 쪽에도 안 센다
+    assert "40% (2/5)" in render(summary, None)
+
+
+def test_underconfirm_ignores_runs_without_judgement(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run(), make_run(judgement="guess")]})
+    k = summarize(results, {}, scen)["kpi"]
+    assert k["underconfirmed"] == 1
+
+
+def test_overconfirm_excludes_invalid_and_skipped_runs(tmp_path):
+    skip = {"status": "skipped", "passed": True, "judgement": "confirmed"}
+    runs = [
+        make_run(judgement="confirmed"),
+        make_run("F0", invalid="x", judgement="confirmed"),
+        skip,
+    ]
+    results, scen = build(tmp_path, {"A1": runs})
+    k = summarize(results, {}, scen)["kpi"]
+    assert (k["overconfirmed"], k["confirmed"]) == (0, 1)
+
+
+def test_overconfirm_renders_dash_without_confirmed(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run(judgement="candidate")]})
+    summary = summarize(results, {}, scen)
+    assert summary["kpi"]["overconfirm_rate"] is None
+    assert "| 오확정률 (confirmed 중 pass 아님) | - |" in render(summary, None)
+
+
+def test_label_reclassified_confirmed_run_counts_as_overconfirmed(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run(judgement="confirmed")]})
+    label = {
+        "index": 0,
+        "top1_match": False,
+        "claims": [{"source": "conclusion", "verdict": "supported"}],
+    }
+    k = summarize(results, {("t0-A1", 0): label}, scen)["kpi"]
+    assert (k["overconfirmed"], k["confirmed"]) == (1, 1)
+
+
+def _drift_batch(tmp_path, specs):
+    """specs: (시나리오, in_cluster 또는 None, 결과 추가 필드) 목록. 이름 순번이 시각순이다."""
+    history = tmp_path / "history"
+    for i, (sid, in_cluster, extra) in enumerate(specs):
+        if in_cluster is not None:
+            extra = {**extra, "in_cluster": in_cluster}
+        write_result(history, f"{i:02d}-{sid}", sid, extra.pop("runs", [make_run()]), **extra)
+    return load_batch(history, "b1")
+
+
+def _cluster(config="1", image="sha256:" + "a" * 64):
+    return {"pod": "p", "image_id": image, "config_resource_version": config}
+
+
+def test_batch_drift_reproduces_w4_base(tmp_path):
+    old, new = _cluster("1614530"), _cluster("1617267")
+    bad = {"invalid": "증상 없음", "runs": []}
+    results = _drift_batch(
+        tmp_path,
+        [
+            ("H0", old, {}),
+            ("H1", old, {}),
+            ("A1", old, {}),
+            ("A3", old, bad),
+            ("A5", new, bad),
+            ("B1", new, bad),
+            ("C1", new, bad),
+            ("C2", new, bad),
+        ],
+    )
+    expected = "config_resource_version: 1614530 → 1617267 (A3 시작~A5 시작 사이)"
+    assert batch_drift(results) == [expected]
+    scen = tmp_path / "scenarios"
+    text = render(summarize(results, {}, scen), None)
+    warning = (
+        "> **경고: 평가 도중 클러스터가 바뀌었습니다.** "
+        "이 묶음의 결과는 같은 조건이 아니므로 비교에 쓰지 마세요."
+    )
+    assert text.startswith(f"# 평가 리포트\n\n{warning}\n> - {expected}\n\n")
+
+
+def test_batch_drift_shows_last_12_chars_of_image_id(tmp_path):
+    results = _drift_batch(
+        tmp_path,
+        [
+            ("A1", _cluster(image="sha256:" + "a" * 64), {}),
+            ("A3", _cluster(image="sha256:" + "a" * 52 + "b" * 12), {}),
+        ],
+    )
+    assert batch_drift(results) == [f"image_id: {'a' * 12} → {'b' * 12} (A1 시작~A3 시작 사이)"]
+
+
+def test_batch_drift_empty_when_same_and_no_warning(tmp_path):
+    results = _drift_batch(tmp_path, [("A1", _cluster(), {}), ("A3", _cluster(), {})])
+    assert batch_drift(results) == []
+    assert "경고" not in render(summarize(results, {}, tmp_path / "scenarios"), None)
+
+
+def test_batch_drift_skips_results_without_in_cluster(tmp_path):
+    results = _drift_batch(
+        tmp_path,
+        [("A1", _cluster("1"), {}), ("A3", None, {}), ("A4", _cluster("1"), {})],
+    )
+    assert batch_drift(results) == []
+
+
+def test_batch_drift_reports_each_change_when_value_returns(tmp_path):
+    results = _drift_batch(
+        tmp_path,
+        [("A1", _cluster("1"), {}), ("A3", _cluster("2"), {}), ("A4", _cluster("1"), {})],
+    )
+    assert batch_drift(results) == [
+        "config_resource_version: 1 → 2 (A1 시작~A3 시작 사이)",
+        "config_resource_version: 2 → 1 (A3 시작~A4 시작 사이)",
+    ]
+
+
+def test_baseline_drift_warning_independent_of_current(tmp_path):
+    scen = tmp_path / "scenarios"
+    clean = summarize(_drift_batch(tmp_path / "c", [("A1", _cluster(), {})]), {}, scen)
+    dirty = summarize(
+        _drift_batch(tmp_path / "d", [("A1", _cluster("1"), {}), ("A3", _cluster("2"), {})]),
+        {},
+        scen,
+    )
+    assert clean["drift"] == []
+    text = render(clean, dirty)
+    assert text.startswith(
+        "# 평가 리포트\n\n"
+        "> **경고: baseline 묶음 도중 클러스터가 바뀌었습니다.** 회귀 비교를 믿지 마세요.\n"
+        "> - config_resource_version: 1 → 2 (A1 시작~A3 시작 사이)\n\n"
+    )
+    assert "baseline 묶음 도중" not in render(clean, clean)
+    assert "baseline 묶음 도중" not in render(clean, None)
+
+
+def test_error_run_with_confirmed_counts_as_overconfirmed(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run("error", judgement="confirmed")]})
+    k = summarize(results, {}, scen)["kpi"]
+    assert (k["overconfirmed"], k["confirmed"]) == (1, 1)
+
+
+def test_rules_failed_run_is_not_overconfirmed_but_underconfirmed(tmp_path):
+    history, scen = tmp_path / "history", tmp_path / "scenarios"
+    write_result(history, "a", "A1", [make_run(judgement="candidate")], score={"passed": False})
+    write_scenario(scen, "A1")
+    k = summarize(load_batch(history, "b1"), {}, scen)["kpi"]
+    assert (k["overconfirmed"], k["underconfirmed"]) == (0, 1)
+
+
+def test_judgement_none_pass_is_not_underconfirmed(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run(judgement=None)]})
+    assert summarize(results, {}, scen)["kpi"]["underconfirmed"] == 0
+
+
+def test_label_reclassified_to_pass_counts_as_underconfirmed(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run("F2", judge=False, judgement="candidate")]})
+    label = {
+        "index": 0,
+        "top1_match": True,
+        "claims": [{"source": "conclusion", "verdict": "supported"}],
+    }
+    k = summarize(results, {("t0-A1", 0): label}, scen)["kpi"]
+    assert k["underconfirmed"] == 1

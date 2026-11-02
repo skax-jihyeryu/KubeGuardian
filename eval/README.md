@@ -135,6 +135,9 @@ make eval-report B=w4-new BASE=w4-base     # baseline 대비 회귀 표 포함
 - `eval-batch`는 시나리오를 차례로 실행하고(한 시나리오가 실패·무효여도 다음으로 간다) 끝에 `eval-report`를 부른다. `eval-report`는 `uv run python eval/report.py <묶음> [--baseline <묶음>]`이며 `eval/report.md`를 만든다
 - 리포트 통과 = 규칙 채점 통과(`score.passed`) + 회차 분류 pass/skip이다. 분류 분포는 에이전트 분류 그대로 두고, 시나리오 표의 "규칙 실패" 열이 규칙 채점이 실패한 회차 수를 따로 보여 준다. KPI·비율·시간·토큰의 분모는 조사가 돈 유효 회차(skip·not_run 제외, gate_fail 포함)다. `--ai-repeats`가 2 이상이면 `--condition ai`가 필요하다
 - 리포트 내용: 시나리오별 표(통과 k/N, 실패 분류 분포, `cause_match`·`judge_match`·`key_all_found` 비율, `support_rate` 평균, 시간·토큰 중앙값), 레벨별(L1~L3)·경로별(A·B) 통과율과 Wilson 95% 신뢰구간, 일관성(N회가 모두 같은 분류인 시나리오 비율), KPI(원인 정확도, 원인 규명 커버리지, 근거 일치율, 조사 시간·토큰 중앙값)
+  - 오확정률(회차 `judgement`가 confirmed인데 분류가 pass가 아닌 비율)과 과소 확정 수(pass인데 confirmed가 아닌 회차, `judgement`가 없는 옛 결과는 제외)도 KPI 표에 함께 낸다. 규칙 실패는 반영하지 않고 회차 분류만 본다
+  - 묶음 도중 결과의 `in_cluster`에서 `image_id`·`config_resource_version`이 바뀌면 리포트 맨 위에 어느 두 시나리오 시작 사이에 바뀌었는지(`A3 시작~A5 시작 사이`) 경고한다. baseline 묶음도 같은 방식으로 검사해 경고한다 (묶음을 멈추거나 종료 코드를 바꾸지는 않는다)
+  - 한계: `in_cluster`는 시나리오 시작 때만 기록되므로 변경은 두 시나리오 시작 사이로만 표시되고, 마지막 시나리오 도중의 변경과 시나리오 1개짜리 묶음의 변경은 잡히지 않는다
 - `--baseline`: 시나리오별 통과 수 변화와 실패 분류 분포 변화를 회귀 표로 낸다. 통과 수가 2 이상 줄면 회귀로 표시한다
 - 상한에 닿아 끝난(`limited`) 실패 회차 수를 시나리오별 표에 따로 센다
 

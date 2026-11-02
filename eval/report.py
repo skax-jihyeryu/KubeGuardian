@@ -128,7 +128,31 @@ def _ci(k: int, n: int) -> str:
     return f"{k}/{n} ({lo:.0%}~{hi:.0%})" if n else "0/0"
 
 
+def batch_drift(results: list[tuple[str, dict]]) -> list[str]:
+    """묶음 도중 이미지·설정이 바뀐 구간을 문장으로 돌려준다.
+
+    in_cluster는 시나리오 시작 때만 기록되므로 변경 시점은 두 시작 사이다.
+    값이 없는 결과는 건너뛴다.
+    """
+    out = []
+    for key in ("image_id", "config_resource_version"):
+        prev = prev_sid = None
+        for _, result in results:
+            value = (result.get("in_cluster") or {}).get(key)
+            if not value:
+                continue
+            if prev is not None and value != prev:
+                show = (lambda v: str(v)[-12:]) if key == "image_id" else str
+                out.append(
+                    f"{key}: {show(prev)} → {show(value)} "
+                    f"({prev_sid} 시작~{result['scenario']} 시작 사이)"
+                )
+            prev, prev_sid = value, result["scenario"]
+    return out
+
+
 def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path) -> dict:
+    drift = batch_drift(results)
     scen: dict[str, dict] = {}
     rules: dict[str, list[bool]] = defaultdict(list)
     rules_invalid: dict[str, int] = defaultdict(int)
@@ -227,11 +251,20 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
             g[str(s[attr])][1] += s["valid"]
         return dict(sorted(g.items()))
 
+    # 오확정: confirmed라 했는데 pass가 아님. 과소 확정: pass인데 confirmed가 아님
+    # (judgement 없는 옛 회차는 뺀다)
+    confirmed = [r for r in all_runs if r.get("judgement") == "confirmed"]
+    overconfirmed = sum(_outcome(r) != "pass" for r in confirmed)
+    underconfirmed = sum(
+        _outcome(r) == "pass" and bool(r.get("judgement")) and r["judgement"] != "confirmed"
+        for r in all_runs
+    )
     judged = [s for s in scen.values() if s["consistent"] is not None]
     n_conc, n_claims = len(agree_conc), len(agree_claims)
     conc = _rate(sum(agree_conc), n_conc)
     claims = _rate(sum(agree_claims), n_claims)
     return {
+        "drift": drift,
         "scenarios": dict(sorted(scen.items())),
         "by_level": group("level"),
         "by_path": group("gate_path"),
@@ -250,6 +283,10 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
                 ]
             ),
             "tokens": _median([_tokens(r) for r in all_runs]),
+            "overconfirmed": overconfirmed,
+            "confirmed": len(confirmed),
+            "overconfirm_rate": _rate(overconfirmed, len(confirmed)),
+            "underconfirmed": underconfirmed,
         },
         "judge_agreement": {
             "conclusion": conc,
@@ -315,6 +352,19 @@ def _regression_rows(summary: dict, baseline: dict) -> tuple[list[str], int, int
 
 def render(summary: dict, baseline: dict | None) -> str:
     out = ["# 평가 리포트", ""]
+    if summary["drift"]:
+        out += [
+            "> **경고: 평가 도중 클러스터가 바뀌었습니다.** "
+            "이 묶음의 결과는 같은 조건이 아니므로 비교에 쓰지 마세요.",
+            *[f"> - {d}" for d in summary["drift"]],
+            "",
+        ]
+    if baseline and baseline.get("drift"):
+        out += [
+            "> **경고: baseline 묶음 도중 클러스터가 바뀌었습니다.** 회귀 비교를 믿지 마세요.",
+            *[f"> - {d}" for d in baseline["drift"]],
+            "",
+        ]
     out += [
         "## 시나리오별",
         "",
@@ -362,6 +412,14 @@ def render(summary: dict, baseline: dict | None) -> str:
         f"| 근거 일치율 | {_num(k['support_rate'], '{:.2f}')} |",
         f"| 조사 시간 중앙값(s) | {_num(k['seconds'])} |",
         f"| 토큰 중앙값 | {_num(k['tokens'])} |",
+        "| 오확정률 (confirmed 중 pass 아님) | "
+        + (
+            f"{_pct(k['overconfirm_rate'])} ({k['overconfirmed']}/{k['confirmed']})"
+            if k["confirmed"]
+            else "-"
+        )
+        + " |",
+        f"| 과소 확정 (pass인데 confirmed 아님) | {k['underconfirmed']} |",
         "",
     ]
     a = summary["judge_agreement"]
