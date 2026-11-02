@@ -10,8 +10,8 @@
 | 겹치는 열린 이슈, 다른 지문 | changed (같은 이슈에서 재조사) |
 | 열린 이슈가 이번 점검에서 사라짐 | resolved (그 이슈의 규칙·증상을 모두 확인한 점검일 때만) |
 
-이슈를 열고·잇고·바꾸는 것은 주기 점검(schedule)만 한다. 직접 점검(check·ui·investigate)은
-해결만 하고, 겹치는 열린 이슈에는 seen으로 연결만 한다 (UI 정의서 §6.5).
+주기 점검(schedule)과 직접 점검(check·ui)은 같은 열기·잇기·변경 규칙을 쓴다.
+명시적 증상 조사(investigate)는 기존 동기 실행을 유지하고 열린 이슈에 seen으로 연결한다.
 run_check가 점검 잠금 안에서 부른다.
 """
 
@@ -114,9 +114,9 @@ def _follow(
     run_id: int,
     now: datetime,
 ) -> IncidentChange | None:
-    if trigger != "schedule":
+    if trigger == "investigate":
         if matched is None:
-            return None  # 직접 점검은 이슈를 새로 열지 않는다
+            return None  # 명시적 증상 조사는 별도 동기 실행 경로를 유지한다
         store.touch(matched.id, run_id, now, "seen")
         return IncidentChange(matched.id, "seen", matched.first_severity)
     detail = _detail(fp)

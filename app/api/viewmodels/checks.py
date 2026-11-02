@@ -1,8 +1,8 @@
 """점검 상세 화면 값 (UI 정의서 §6.4). 본 것(판정·점검 과정·근거)만 보이고 결론·조치는 이슈에 둔다.
 
 - 저장된 값은 이미 마스킹돼 있지만 근거 원문·조사 인자 등 다른 출처는 표시 전에 한 번 더 마스킹한다.
-- 조사 시작 표기는 gate_path만으로 정하지 않는다. 직접 점검은 이슈를 열지 않고 이어진 점검은
-  조사를 시작하지 않으므로, 이슈 연결(incident_check)과 조사 행(investigation)으로 정한다.
+- 조사 시작 표기는 gate_path만으로 정하지 않는다. 같은 지문은 다시 조사하지 않으므로
+  이슈 연결(incident_check)과 조사 행(investigation)으로 정한다.
 """
 
 import json
@@ -18,6 +18,7 @@ from api.viewmodels.setup import STAGES
 from api.viewmodels.shell import IMPACT, SEVERITY
 from core.config import KubeGuardianConfig
 from core.db import (
+    CheckLockStore,
     CheckResultStore,
     CheckRunStore,
     EvidenceStore,
@@ -245,10 +246,12 @@ def _load(engine: Engine, run_id: int, now: datetime) -> _Loaded | None:
     queued = False
     if inv is None:
         queue = InvestigationQueue(engine)
+        lock = CheckLockStore(engine).current(now) if trigger == "ui" else None
+        dispatching = lock is not None and lock.run_id == run_id
         queued = any(
             inc.status == "open"
             and action in ("opened", "changed")
-            and queue.queued_run(inc.id) == run_id
+            and (queue.queued_run(inc.id) == run_id or dispatching)
             for inc, action in links
         )
     live = state == "running" or inv_state == "running" or queued
@@ -600,12 +603,6 @@ def _gate(d: _Loaded) -> GateLine | None:
             f"조사 안 함 — 이슈 #{continued[0].id}에 이어짐",
             False,
             "같은 문제가 이어져 다시 조사하지 않습니다.",
-        )
-    if d.trigger != "schedule":
-        return GateLine(
-            "조사 안 함 — 직접 점검은 이슈를 열지 않음",
-            False,
-            "장애 신호는 있지만 직접 점검은 조사를 시작하지 않습니다. 주기 점검이 이슈를 엽니다.",
         )
     return GateLine("조사 안 함 — 조사 요청이 기록되지 않음", False, "")
 

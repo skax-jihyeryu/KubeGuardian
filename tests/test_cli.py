@@ -590,11 +590,12 @@ def test_cli_ask_rejects_bad_conversation_id(tmp_path, capsys):
 # ── 작업자 (#28) ──
 
 
-def test_worker_once_investigates_incident_queued_by_schedule_check(tmp_path, capsys):
+@pytest.mark.parametrize("trigger", ["schedule", "check"])
+def test_worker_once_investigates_incident_queued_by_check(tmp_path, capsys, trigger):
     from core.db import IncidentStore, create_db_engine
 
     cli.main(
-        [*_args(tmp_path), "--trigger", "schedule"],
+        [*_args(tmp_path), "--trigger", trigger],
         make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
     )
     capsys.readouterr()

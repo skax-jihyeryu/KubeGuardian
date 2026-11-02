@@ -93,7 +93,7 @@
       {%- if d.state != "none" %}
       <div class="sec" id="s-inv">
         <h2>점검 과정{% if d.live %}<span class="hint">진행 중에는 단계 목록이 수 초마다 갱신됩니다</span>{% endif %}</h2>
-        {% with steps = d.steps, oob = false %}{% include "checks/_steps.html" %}{% endwith %}
+        {% with steps = d.steps, oob = false, check_state = d.state %}{% include "checks/_steps.html" %}{% endwith %}
         <p class="s13 muted" style="margin-top:8px">프롬프트·LLM 응답 원문은 이 화면에 없습니다.</p>
       </div>
       {%- endif %}
