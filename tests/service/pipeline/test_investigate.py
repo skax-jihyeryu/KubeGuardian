@@ -219,7 +219,10 @@ def test_run_investigation_attaches_judgement_from_stored_evidence(engine):
 
     # 스크립트 보고서는 신호판 S04 근거(설정·상태)만 인용하고 원인 리소스 설정은 인용하지 않는다
     assert result.report.judgement == "candidate"
-    assert result.report.judgement_basis == "원인 리소스 설정 미인용 · 근거 출처 1종(설정·상태)"
+    assert (
+        result.report.judgement_basis
+        == "원인 리소스 설정 미인용 · 근거 출처 1종(설정·상태) · 지지된 가설 없음"
+    )
 
 
 # ── 조사 기록 (#98) ──
