@@ -35,7 +35,7 @@ def test_issue_list_and_report(client, engine):
     assert "&lt;script&gt;bad&lt;/script&gt;" in response.text
     assert f"/dev/checks/{run}?ev=1" in response.text
     assert client.get("/dev/issues?status=resolved").text.count('class="irow') == 0
-    assert "할당량 소진" in client.get("/dev/issues?q=할당량").text
+    assert "채팅 실패" in client.get("/dev/issues?q=할당량").text
     IncidentStore(engine).resolve(inc, make_run(engine, start=at(70)), at(70))
     assert "해결 14:06" in client.get(f"/dev/issues/{inc}").text
 
@@ -144,3 +144,30 @@ def test_timeline_reminder_splits_continued_group(client, engine, clock):
         ("Slack M2", 1),
         ("이어짐 점검", 2),
     ]
+
+
+def test_list_title_is_top_issue_title_but_search_finds_conclusion(client, engine):
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    inv = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, inv, report(conclusion="긴 결론 전문 키워드xyz"))
+    text = client.get("/dev/issues").text
+    assert '<div class="ttl">채팅 실패</div>' in text
+    assert "긴 결론 전문" not in text
+    assert "채팅 실패" in client.get("/dev/issues?q=키워드xyz").text
+
+
+def test_list_title_falls_back_without_issues_or_report(client, engine):
+    from api.viewmodels.issues import issue_row
+    from core.db import IncidentStore
+
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    incident = IncidentStore(engine).get(inc)
+    fallback = ", ".join(incident.features or incident.services) or "장애 신호·기능 점검 실패"
+    assert issue_row(engine, incident).title == fallback
+    inv = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, inv, report().model_copy(update={"issues": []}))
+    row = issue_row(engine, incident)
+    assert row.title == fallback
+    assert client.get(f"/dev/issues/{inc}").status_code == 200

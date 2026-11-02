@@ -32,6 +32,7 @@ class IssueRow:
     incident: Incident
     title: str
     severity: Sev
+    search_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -59,13 +60,19 @@ class IssueDetail:
 def issue_row(engine: Engine, incident: Incident) -> IssueRow:
     investigations = InvestigationStore(engine).for_incident(incident.id)
     latest = next((i.report for i in reversed(investigations) if i.report), None)
-    title = latest.conclusion if latest else ", ".join(incident.features or incident.services)
+    top = latest.top_issue if latest else None
+    title = top.title if top else ", ".join(incident.features or incident.services)
     title = title or "장애 신호·기능 점검 실패"
     severity = IMPACT.get(
         incident.final_severity or "",
         SEVERITY.get(incident.first_severity or "", ("risk", "잠재 위험")),
     )
-    return IssueRow(incident, redact_text(title), Sev(*severity))
+    return IssueRow(
+        incident,
+        redact_text(title),
+        Sev(*severity),
+        redact_text(latest.conclusion) if latest else "",
+    )
 
 
 def list_issues(
@@ -87,7 +94,9 @@ def list_issues(
         and (
             not q
             or q.casefold()
-            in " ".join((r.title, *r.incident.services, *r.incident.rule_ids)).casefold()
+            in " ".join(
+                (r.title, r.search_text, *r.incident.services, *r.incident.rule_ids)
+            ).casefold()
         )
     ]
 
