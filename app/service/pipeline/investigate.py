@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from core.config import KubeGuardianConfig
 from core.db import EvidenceStore, InvestigationQueue, InvestigationStore
+from core.db.investigations import INTERRUPTED
 from core.guard.budget import BudgetTracker
 from core.guard.judgement import judge
 from core.guard.redact import redact_text
@@ -167,7 +168,11 @@ def run_request(
                 http=http,
             )
         except BaseException as e:  # SIGTERM(SystemExit)도 행을 running으로 남기지 않는다
-            _finish(store, investigation_id, AgentResult(status="failed", error=type(e).__name__))
+            # 끝을 기록하지 못한 조사와 같은 값 (sweep_stale)
+            error = (
+                INTERRUPTED if isinstance(e, SystemExit | KeyboardInterrupt) else type(e).__name__
+            )
+            _finish(store, investigation_id, AgentResult(status="failed", error=error))
             raise
         _finish(store, investigation_id, result)  # 판단 수준까지 붙은 보고서를 남긴다
         return result
@@ -201,7 +206,10 @@ def _run_agent(
     if (
         result.report is not None
     ):  # 판단 수준은 에이전트가 아니라 여기서 저장된 근거로 정한다 (#106)
-        result.report = judge(result.report, EvidenceStore(engine).get)
+        try:
+            result.report = judge(result.report, EvidenceStore(engine).get)
+        except Exception as e:  # noqa: BLE001 — 판단 수준이 없어도 끝난 보고서를 잃지 않는다
+            logger.warning(f"판단 수준 계산 실패: {type(e).__name__}")
     return result
 
 

@@ -291,9 +291,8 @@ def _queue(
 
 
 def _open_incident_id(outcome: CheckOutcome) -> int | None:
-    """이번 점검이 건드린 이슈 중 열려 있는 것 (점검 하나 = 이슈 하나). 해결된 것은 뒤로 미룬다."""
-    changes = sorted(outcome.incidents, key=lambda c: c.action == "resolved")
-    return changes[0].incident_id if changes else None
+    """이번 점검이 건드린 이슈 중 열려 있는 것 (점검 하나 = 이슈 하나). 해결된 것은 잇지 않는다."""
+    return next((c.incident_id for c in outcome.incidents if c.action != "resolved"), None)
 
 
 def _claim_jobs(engine: Engine, outcome: CheckOutcome) -> list[Job]:

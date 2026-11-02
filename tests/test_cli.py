@@ -707,6 +707,23 @@ def test_manual_investigate_links_the_investigation_to_its_open_incident(tmp_pat
     ]
 
 
+def test_manual_investigate_does_not_link_to_an_incident_resolved_by_the_same_check(tmp_path):
+    from core.db import InvestigationStore, create_db_engine
+
+    _schedule_investigate(tmp_path, _llm_factory(_scripted()))  # 주기 점검이 이슈 #1을 연다
+    cli.main(  # 클러스터는 고쳐졌고, 사용자 증상만으로 경로 B가 열린다. #1은 이 점검에서 해결된다
+        _investigate_args(tmp_path, "결제 화면이 멈춰요"),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(),
+        make_llm=_llm_factory(_scripted()),
+    )
+
+    store = InvestigationStore(create_db_engine(str(tmp_path / "kg.db")))
+    assert [(i.trigger, i.incident_id) for i in store.for_incident(1)] == [("schedule", 1)]
+    [manual] = [i for i in store.for_check(2) if i.trigger == "investigate"]
+    assert manual.incident_id is None
+
+
 def test_investigate_storage_error_is_mapped(tmp_path, capsys, monkeypatch):
     from sqlalchemy.exc import OperationalError
 

@@ -279,9 +279,9 @@ def test_exception_after_start_marks_row_failed_and_reraises(engine, monkeypatch
     from service.pipeline import investigate
 
     def boom(*a, **k):
-        raise RuntimeError("judge broke")
+        raise RuntimeError("agent broke")
 
-    monkeypatch.setattr(investigate, "judge", boom)
+    monkeypatch.setattr(investigate, "_run_agent", boom)
 
     with pytest.raises(RuntimeError):
         _run(engine)
@@ -297,13 +297,47 @@ def test_base_exception_marks_row_failed_and_reraises(engine, monkeypatch):
     def term(*a, **k):
         raise SystemExit(143)
 
-    monkeypatch.setattr(investigate, "judge", term)
+    monkeypatch.setattr(investigate, "_run_agent", term)
 
     with pytest.raises(SystemExit):
         _run(engine)
 
     [inv] = InvestigationStore(engine).for_check(1)
-    assert (inv.status, inv.error) == ("failed", "SystemExit")
+    assert (inv.status, inv.error) == ("failed", "INTERRUPTED")  # sweep_stale과 같은 값
+
+
+def test_keyboard_interrupt_marks_row_interrupted_and_reraises(engine, monkeypatch):
+    from core.db import InvestigationStore
+    from service.pipeline import investigate
+
+    def ctrl_c(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(investigate, "_run_agent", ctrl_c)
+
+    with pytest.raises(KeyboardInterrupt):
+        _run(engine)
+
+    [inv] = InvestigationStore(engine).for_check(1)
+    assert (inv.status, inv.error) == ("failed", "INTERRUPTED")
+
+
+def test_judge_failure_keeps_the_finished_report_without_judgement(engine, monkeypatch, caplog):
+    from core.db import InvestigationStore
+    from service.pipeline import investigate
+
+    def boom(*a, **k):
+        raise RuntimeError("secret-ish detail")
+
+    monkeypatch.setattr(investigate, "judge", boom)
+
+    out, result = _run(engine)
+
+    assert result.status == "done" and result.report is not None
+    assert result.report.judgement is None
+    [inv] = InvestigationStore(engine).for_check(out.run_id)
+    assert inv.status == "done" and inv.report.judgement is None
+    assert "secret-ish detail" not in caplog.text
 
 
 def test_finish_storage_error_still_returns_the_result(engine, monkeypatch):

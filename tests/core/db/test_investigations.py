@@ -149,6 +149,21 @@ def test_finish_masks_secrets_in_report(engine):
     assert (saved.judgement, saved.evidence_ids) == ("candidate", ["ev-0001"])
 
 
+def test_finish_masks_a_missing_secret_name_even_though_it_hides_diagnostic_text(engine):
+    # 마스킹이 안전한 기본값이다. "DB_PASSWORD가 누락됐다"는 진단 문장도 값처럼 가려진다
+    _, store, iid = _start(engine)
+    report = Report(
+        conclusion="DB_PASSWORD: 누락",
+        confidence="high",
+        impact_scope="전체",
+        evidence_ids=["ev-0001"],
+    )
+
+    store.finish(iid, AgentResult(status="done", report=report), NOW)
+
+    assert store.get(iid).report.conclusion == "DB_PASSWORD: ***"
+
+
 def test_record_survives_storage_error_and_keeps_memory_copy(engine, monkeypatch):
     from sqlalchemy.exc import OperationalError
 
