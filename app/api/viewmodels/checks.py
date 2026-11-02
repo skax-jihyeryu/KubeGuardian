@@ -391,7 +391,7 @@ def _judge(result: CheckResult) -> tuple[list[Item], str | None, str | None]:
             passed += int(rule.get("passed", 0))
         for it in rule.get("items", []):
             verdict = it.get("verdict")
-            if is_advice:
+            if is_advice and verdict == "detected":
                 advice += 1
                 continue
             sev = SEVERITY.get(it.get("severity") or "")

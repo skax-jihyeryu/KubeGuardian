@@ -457,3 +457,32 @@ def test_evidence_table_lists_this_checks_evidence_with_links(client, engine):
     assert f"?ev={int(ev[3:])}" in text
     assert f"?ev={int(other[3:])}" not in text
     assert "근거" in text
+
+
+def test_unknown_advice_is_shown_with_reason(client, engine):
+    from service.model import GateResult
+
+    run = make_run(engine)
+    store = CheckResultStore(engine)
+    store.start(run, at(0))
+    store.finish(
+        run,
+        "done",
+        at(5),
+        GateResult(path="C", reason="수집 일부 실패"),
+        [
+            Signal(
+                rule_id="H01",
+                verdict="unknown",
+                subject="dev/Deployment/agent",
+                message="Pod 수집 권한이 없어 readinessProbe를 확인하지 못했습니다",
+            )
+        ],
+        [],
+        rules=["H01"],
+    )
+    page = detail(client, run).text
+    assert "점검 규칙 H01" in page
+    assert "Pod 수집 권한이 없어 readinessProbe를 확인하지 못했습니다" in page
+    assert "확인하지 못함 1" in page
+    assert "개선 권고 1건" not in page
