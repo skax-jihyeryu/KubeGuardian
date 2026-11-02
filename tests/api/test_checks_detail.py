@@ -259,10 +259,11 @@ def test_unknown_items_show_reason_and_gate_stays_not_investigating(client, engi
 # ── 조사 시작 표기는 gate_path만으로 정하지 않는다 ───────────────
 
 
-def test_direct_check_does_not_start_investigation_even_with_gate_path_b(client, engine):
+def test_missing_queue_is_not_misreported_as_direct_check_exclusion(client, engine):
     run, _ = _chat_failed(engine, trigger="ui")
     text = detail(client, run).text
-    assert "조사 안 함" in text and "직접 점검" in text
+    assert "조사 요청이 기록되지 않음" in text
+    assert "직접 점검은 이슈를 열지 않음" not in text
     assert "조사 시작" not in text
     assert "조사 중" not in text
     assert POLL not in text
@@ -587,3 +588,13 @@ def test_rule_result_rows_show_input_fields(client, engine):
     assert "입력 정보" in html
     for kind, fields in CATALOG["S01"].inputs:
         assert f"{kind} ({fields})" in html
+
+
+def test_completed_check_refreshes_header_while_investigation_keeps_polling(client, investigating):
+    run, *_ = investigating
+    transition = client.get(f"/dev/checks/{run}/steps?live=1&check_state=running")
+    assert POLL in transition.text
+    assert transition.headers.get("HX-Refresh") == "true"
+    settled = client.get(f"/dev/checks/{run}/steps?live=1&check_state=done")
+    assert POLL in settled.text and "HX-Refresh" not in settled.headers
+    assert "check_state=done" in detail(client, run).text

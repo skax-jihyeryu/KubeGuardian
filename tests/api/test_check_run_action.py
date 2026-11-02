@@ -47,7 +47,7 @@ def test_post_running_conflict_links_existing_run(client, engine):
     assert client.post("/other/checks").status_code == 404
 
 
-def test_manual_executes_existing_run_without_opening_incident(engine):
+def test_manual_executes_reserved_run_and_queues_new_incident(engine):
     from core.db import CheckRunStore, IncidentStore
     from service.notify.sender import DryRunSender
     from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
@@ -65,7 +65,13 @@ def test_manual_executes_existing_run_without_opening_incident(engine):
     tasks[0]()
     assert CheckResultStore(engine).get(run).status == "done"
     assert len(CheckRunStore(engine).list_runs()) == 1
-    assert IncidentStore(engine).open_incidents() == []
+    [incident] = IncidentStore(engine).open_incidents()
+    assert incident.investigation == "pending"
+    from core.db import AlertStore, InvestigationQueue
+
+    assert [a.kind for a in AlertStore(engine).for_incident(incident.id)] == ["M1"]
+    job = InvestigationQueue(engine).claim(NOW, CHECK_LOCK_TTL)
+    assert job.check_run_id == run and job.request["trigger"] == "ui"
     assert CheckLockStore(engine).current(NOW) is None
 
 
@@ -99,3 +105,191 @@ def test_race_to_lock_returns_html_conflict_with_holder_link(client, engine, mon
     assert response.status_code == 409
     assert response.headers["content-type"].startswith("text/html")
     assert "/dev/checks/777" in response.text
+
+
+def _manual(engine, now, fixture="s04/localhost", sender_factory=None):
+    from service.notify.sender import DryRunSender
+    from tests.service.checks.detectors.cases import CONFIG, FixtureReader, raw_cluster
+
+    tasks = []
+    run = start_manual_check(
+        engine,
+        CONFIG,
+        now,
+        tasks.append,
+        reader_factory=lambda _: FixtureReader(*raw_cluster(fixture)),
+        http_factory=lambda _: None,
+        sender_factory=sender_factory or (lambda _: DryRunSender()),
+    )
+    tasks[0]()
+    return run
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_manual_check_worker_result_links_to_history_issue_and_alerts(client, engine, failed):
+    from core.db import AlertStore, IncidentStore, InvestigationStore
+    from tests.service.checks.detectors.cases import NOW
+    from tests.service.pipeline.test_worker import _worker
+    from tests.test_cli import _scripted
+
+    run = _manual(engine, NOW)
+    [incident] = IncidentStore(engine).open_incidents()
+    queued = client.get(f"/dev/checks/{run}").text
+    assert "대기 중" in queued and f"/dev/issues/{incident.id}" in queued
+
+    def make_llm(_):
+        if failed:
+            raise RuntimeError("LLM unavailable")
+        return llm
+
+    llm = _scripted()
+    assert _worker(engine, make_llm).run_once() == incident.id
+    stored = InvestigationStore(engine).for_check(run)
+    assert len(stored) == 1 and stored[0].incident_id == incident.id
+    assert stored[0].status == ("failed" if failed else "done")
+    assert IncidentStore(engine).get(incident.id).investigation == stored[0].status
+    assert [a.kind for a in AlertStore(engine).for_incident(incident.id)] == ["M1", "M1u", "M9"]
+    text = client.get(f"/dev/issues/{incident.id}").text
+    assert ("조사 실패" if failed else "gateway 주소 env가 localhost") in text
+    assert CheckResultStore(engine).get(run).status == "done"
+
+
+def test_manual_then_schedule_same_fault_does_not_duplicate_job_or_first_alert(engine):
+    from datetime import timedelta
+
+    from core.db import AlertStore, IncidentStore, InvestigationQueue
+    from service.notify.notifier import Notifier
+    from service.notify.sender import DryRunSender
+    from service.pipeline.check import run_check
+    from service.pipeline.investigate import queue_investigations
+    from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
+
+    first = _manual(engine, NOW)
+    _manual(engine, NOW + timedelta(seconds=61))
+    later = run_check(
+        FixtureReader(*raw_cluster("s04/localhost")),
+        CONFIG,
+        engine,
+        trigger="schedule",
+        now=NOW + timedelta(seconds=62),
+    )
+    Notifier(engine, CONFIG, DryRunSender()).after_check(
+        later.run_id, later.gate, later.incidents, NOW
+    )
+    queue_investigations(engine, CONFIG, later, trigger="schedule", now=NOW)
+    [incident] = IncidentStore(engine).open_incidents()
+    assert [a.kind for a in AlertStore(engine).for_incident(incident.id)] == ["M1"]
+    job = InvestigationQueue(engine).claim(NOW, CHECK_LOCK_TTL)
+    assert job.check_run_id == first
+    assert InvestigationQueue(engine).claim(NOW, CHECK_LOCK_TTL) is None
+
+
+@pytest.mark.parametrize("stage", ["sender", "notify"])
+def test_notification_failure_does_not_prevent_manual_investigation(engine, monkeypatch, stage):
+    from core.db import InvestigationQueue
+    from service.notify.notifier import Notifier
+    from tests.service.checks.detectors.cases import NOW
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("private diagnostic value")
+
+    if stage == "notify":
+        monkeypatch.setattr(Notifier, "after_check", broken)
+    run = _manual(engine, NOW, sender_factory=broken if stage == "sender" else None)
+    assert CheckResultStore(engine).get(run).status == "done"
+    assert InvestigationQueue(engine).claim(NOW, CHECK_LOCK_TTL).check_run_id == run
+    assert CheckLockStore(engine).current(NOW) is None
+
+
+def test_manual_recovery_sends_m3_once_and_clears_pending_job(engine):
+    from datetime import timedelta
+
+    from core.db import AlertStore, IncidentStore, InvestigationQueue
+    from tests.service.checks.detectors.cases import NOW
+
+    _manual(engine, NOW)
+    run = _manual(engine, NOW + timedelta(minutes=2), fixture=None)
+    _manual(engine, NOW + timedelta(minutes=4), fixture=None)
+    incident = IncidentStore(engine).get(1)
+    assert incident.status == "resolved"
+    assert run in IncidentStore(engine).check_ids(1)
+    assert [a.kind for a in AlertStore(engine).for_incident(1)] == ["M1", "M3"]
+    assert InvestigationQueue(engine).claim(NOW, CHECK_LOCK_TTL) is None
+
+
+@pytest.mark.parametrize("unknown", [False, True])
+def test_manual_normal_or_unknown_does_not_open_or_investigate(engine, unknown):
+    from core.db import AlertStore, IncidentStore, InvestigationQueue
+    from service.notify.sender import DryRunSender
+    from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
+
+    objects, _ = raw_cluster()
+    tasks = []
+    run = start_manual_check(
+        engine,
+        CONFIG,
+        NOW,
+        tasks.append,
+        reader_factory=lambda _: FixtureReader(
+            objects, {"Service": "unavailable"} if unknown else {}
+        ),
+        http_factory=lambda _: None,
+        sender_factory=lambda _: DryRunSender(),
+    )
+    tasks[0]()
+    assert CheckResultStore(engine).get(run).gate_path == "C"
+    assert IncidentStore(engine).open_incidents() == []
+    assert InvestigationQueue(engine).claim(NOW, CHECK_LOCK_TTL) is None
+    assert AlertStore(engine).for_incident(1) == []
+
+
+def test_manual_new_alert_keeps_ack_button_when_listener_configured(engine, monkeypatch):
+    from service.notify.sender import DryRunSender
+    from tests.service.checks.detectors.cases import NOW
+
+    class FakeLiveSender(DryRunSender):
+        dry_run = False
+        blocks = None
+
+        def post(self, channel, text, **kwargs):
+            self.blocks = kwargs.get("blocks")
+            return "123.001"
+
+    monkeypatch.setenv("SLACK_APP_TOKEN", "configured-test-token")
+    sender = FakeLiveSender()
+    _manual(engine, NOW, sender_factory=lambda _: sender)
+    import json
+
+    assert "kg_ack" in json.dumps(sender.blocks)
+
+
+def test_manual_fingerprint_change_replaces_pending_request(engine):
+    from datetime import timedelta
+
+    from core.db import AlertStore, IncidentStore, InvestigationQueue
+    from tests.service.checks.detectors.cases import NOW
+
+    _manual(engine, NOW)
+    latest = _manual(engine, NOW + timedelta(minutes=2), fixture="s01/detected")
+    [incident] = IncidentStore(engine).open_incidents()
+    job = InvestigationQueue(engine).claim(NOW, CHECK_LOCK_TTL)
+    assert job.check_run_id == latest and job.incident_id == incident.id
+    assert job.request["trigger"] == "ui"
+    assert sum(a.kind == "M1" for a in AlertStore(engine).for_incident(incident.id)) == 1
+
+
+def test_manual_page_keeps_polling_while_notification_precedes_queue(engine):
+    from api.viewmodels.checks import build_check_detail, build_steps
+    from service.notify.sender import DryRunSender
+    from tests.service.checks.detectors.cases import NOW
+
+    observed = []
+
+    def sender_factory(_):
+        run = CheckLockStore(engine).current(NOW).run_id
+        page = build_check_detail(engine, "dev", run, NOW)
+        observed.append((page.state, build_steps(engine, run, NOW)[1]))
+        return DryRunSender()
+
+    _manual(engine, NOW, sender_factory=sender_factory)
+    assert observed == [("done", True)]
