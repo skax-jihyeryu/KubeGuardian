@@ -128,9 +128,8 @@ class HistoryQaV1(BaseAgent):
 
     def _now_text(self) -> str:
         now = self.ctx.now().astimezone(DISPLAY_TZ)
-        return (
-            f"현재 시각: {now:%Y-%m-%d %H:%M} ({WEEKDAYS[now.weekday()]}요일, 한국 표준시 KST, UTC+9)"
-        )
+        day = WEEKDAYS[now.weekday()]
+        return f"현재 시각: {now:%Y-%m-%d %H:%M} ({day}요일, KST, UTC+9)"
 
     def _call_tool(self, tool: HistoryTool | None, args: dict, name: str) -> dict:
         with self.step("tool") as s:

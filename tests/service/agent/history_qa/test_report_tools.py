@@ -1,6 +1,7 @@
 """보고서 도구는 저장된 조사 결과만 읽고 근거 소유권과 크기 제한을 지킨다."""
 
 import json
+from datetime import timedelta, timezone
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -65,6 +66,19 @@ def test_search_reports_empty_and_filter_by_owner_keyword_and_time(tools, engine
     assert row["conclusion"] == "quota exhausted"
     assert call(tools, "search_reports", since=at(100).isoformat())["reports"] == []
     assert call(tools, "search_reports", run_id=run, issue_id=999)["reports"] == []
+
+
+def test_search_reports_until_bounds_start_time(tools, engine):
+    rid, *_ = saved(engine)
+
+    assert (
+        call(tools, "search_reports", until=(at(0) - timedelta(days=30)).isoformat())["reports"]
+        == []
+    )
+    found = call(tools, "search_reports", until=(at(0) + timedelta(days=30)).isoformat())
+    assert [r["id"] for r in found["reports"]] == [rid]
+    kst = (at(0) + timedelta(days=30)).astimezone(timezone(timedelta(hours=9)))
+    assert call(tools, "search_reports", until=kst.isoformat())["total"] == 1
 
 
 @pytest.mark.parametrize(
