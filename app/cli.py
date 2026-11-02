@@ -19,6 +19,7 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -36,6 +37,7 @@ from core.llm import build_chat_model
 from service.agent.base import AgentResult
 from service.chat import answer_question, format_answer
 from service.checks.detectors.catalog import CATALOG
+from service.evidence_summary_worker import start_summary_thread
 from service.model import JUDGEMENT_LABEL
 from service.notify import ack_listener
 from service.notify.notifier import Notifier
@@ -219,6 +221,10 @@ def worker(
         make_http=lambda: make_http(config),
     )
     print(f"작업자 시작: {args.db} (알림 {'dry-run' if notifier.dry_run else 'Slack'})", flush=True)
+    if not args.once:  # 근거 요약은 조사와 분리된 스레드가 미리 만든다 (#176)
+        start_summary_thread(
+            engine, partial(build_chat_model, timeout=30, max_retries=0), poll_s=WORKER_POLL_S
+        )
     while True:
         try:
             done = work.run_once()
