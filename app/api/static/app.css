@@ -31,7 +31,7 @@ details.stp>.sbody{padding-left:22px}
 .chat textarea{width:100%;resize:vertical;border:0;background:transparent;color:var(--ink);font:inherit}
 .chat .raw2{white-space:pre-wrap}
 .chat .q,.chat .a{white-space:pre-wrap;overflow-wrap:anywhere}
-.chat .sent+.sent{margin-top:8px}
+.chat .ans-sent+.ans-sent{margin-top:8px}
 .chat .ctx{max-width:100%;min-width:0}
 .chat .ctx-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .chat .ctx button{flex:none}
