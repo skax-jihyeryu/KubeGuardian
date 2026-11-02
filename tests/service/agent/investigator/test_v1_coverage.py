@@ -8,7 +8,7 @@ from service.agent.investigator.v1.coverage import (
 )
 from service.agent.investigator.v1.state import Observation
 from service.model import Report
-from service.model.report import AreaCoverage, Coverage, Issue, ResourceRef
+from service.model.report import AreaCoverage, Coverage, Hypothesis, Issue, ResourceRef
 
 ALL_NA = {
     a: AreaCoverage(status="not_applicable", summary="해당 없음")
@@ -29,8 +29,14 @@ def _issue(kind="Deployment", name="gateway", rank=1) -> Issue:
 
 def _report(issues=None, **areas) -> Report:
     cov = Coverage(**{**ALL_NA, **areas})
+    supported = [Hypothesis(statement="h", status="supported")] if issues else []
     return Report(
-        conclusion="c", confidence="high", impact_scope="s", issues=issues or [], coverage=cov
+        conclusion="c",
+        confidence="high",
+        impact_scope="s",
+        issues=issues or [],
+        hypotheses=supported,
+        coverage=cov,
     )
 
 
@@ -168,3 +174,57 @@ def test_missing_cause_resource_counts_as_unresolved():
 
 def test_no_issues_skips_cause_check():
     assert find_gaps(_report([]), []) == []
+
+
+def _hyp(status, statement="가설", reason="사유") -> Hypothesis:
+    return Hypothesis(statement=statement, status=status, reason=reason)
+
+
+def _unresolved(hypotheses) -> Report:
+    report = _report([_issue()])
+    return report.model_copy(update={"hypotheses": hypotheses})
+
+
+_CAUSE_OBS = [_get("Deployment", "gateway")]
+_UNRESOLVED = "핵심 가설이 미해결입니다."
+
+
+def test_find_gaps_unresolved_hypothesis_lists_inconclusive_items():
+    report = _unresolved([_hyp("refuted"), _hyp("inconclusive", "env가 localhost", "env 미확인")])
+
+    assert find_gaps(report, _CAUSE_OBS) == [
+        f"{_UNRESOLVED} 다음 미확인 항목을 확인하세요:\n  - env가 localhost (env 미확인)"
+    ]
+
+
+def test_find_gaps_no_gap_when_a_hypothesis_is_supported():
+    report = _unresolved([_hyp("supported"), _hyp("inconclusive")])
+
+    assert find_gaps(report, _CAUSE_OBS) == []
+
+
+def test_find_gaps_no_unresolved_gap_without_issues():
+    report = _report([]).model_copy(update={"hypotheses": [_hyp("inconclusive")]})
+
+    assert find_gaps(report, []) == []
+
+
+def test_find_gaps_unresolved_without_inconclusive_has_no_list():
+    report = _unresolved([_hyp("refuted")])
+
+    assert find_gaps(report, _CAUSE_OBS) == [f"{_UNRESOLVED} 근거를 더 모으세요"]
+    assert find_gaps(_unresolved([]), _CAUSE_OBS) == [f"{_UNRESOLVED} 근거를 더 모으세요"]
+
+
+def test_find_gaps_unresolved_lists_at_most_five_hypotheses():
+    report = _unresolved([_hyp("inconclusive", f"h{n}") for n in range(7)])
+
+    (gap,) = find_gaps(report, _CAUSE_OBS)
+    assert gap.count("\n  - ") == 5 and "h4" in gap and "h5" not in gap
+
+
+def test_find_gaps_unresolved_truncates_reason_to_200_chars():
+    report = _unresolved([_hyp("inconclusive", "h", "가" * 300)])
+
+    (gap,) = find_gaps(report, _CAUSE_OBS)
+    assert gap.endswith(f"h ({'가' * 200})")

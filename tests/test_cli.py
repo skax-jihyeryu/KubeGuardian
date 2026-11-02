@@ -201,6 +201,13 @@ def _scripted():
                     "cause_resource": {"kind": "Deployment", "name": "gateway"},
                 }
             ],
+            "hypotheses": [
+                {
+                    "statement": "gateway 주소 env가 localhost",
+                    "status": "supported",
+                    "evidence_ids": ["ev-0001"],
+                }
+            ],
             "evidence_ids": ["ev-0001"],  # 새 DB의 첫 근거 (규칙 점검이 저장한 S04 적발)
         }
     )

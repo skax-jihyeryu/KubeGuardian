@@ -517,7 +517,14 @@ def _cause(kind="Deployment", name="gateway") -> dict:
                 "evidence_ids": ["ev-1"],
                 "cause_resource": {"kind": kind, "name": name},
             }
-        ]
+        ],
+        "hypotheses": [
+            {
+                "statement": "gateway 주소 env가 localhost",
+                "status": "supported",
+                "evidence_ids": ["ev-1"],
+            }
+        ],
     }
 
 
