@@ -367,3 +367,10 @@ mixin 지속 시간을 따르면 상태 규칙은 장애 후 최소 15분이 지
 | [learnk8s — Troubleshooting Kubernetes deployments](https://learnkube.com/troubleshooting-deployments) | S01, S03 |
 | [K8sGPT analyzers](https://github.com/k8sgpt-ai/k8sgpt) | 규칙 범위 비교 (Pod, Service, Deployment, Node, ConfigMap) |
 | 기획서 §2.3 템플릿 결함 T1 | S04 |
+
+## 점검 설정의 확인 불가와 알림
+
+설정이나 계정 문제로 확인하지 못한 항목은 통과·장애로 단정하지 않는다. 점검 결과의 `unknown`과 이유를 유지하고 다른 항목 점검은 계속한다.
+같은 항목이 연속 3회 `unknown`이면 M10을 1회 보낸다. 전송 실패는 다음 점검에서 재시도하며, 정상 복구로 연속 구간이 끝난 뒤 재발하면 다시 알린다.
+화면은 최근 점검의 확인 불가 수와 판정 절 링크를 표시한다. 저장된 스냅샷과 비교할 수 있는 Service 이름은 유사 후보를 수정 제안으로만 보여 준다.
+후보가 없거나 비교할 수 없으면 이유만 표시하며, OpenAPI 경로·메서드 비교나 설정 자동 수정은 하지 않는다 (#85, #131).

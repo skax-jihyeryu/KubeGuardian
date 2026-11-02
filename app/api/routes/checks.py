@@ -23,7 +23,7 @@ def check_detail(
     ev: str | None = None,
 ):
     run_id = parse_id(run)
-    detail = build_check_detail(engine, project, run_id, now)
+    detail = build_check_detail(engine, project, run_id, now, config=config)
     if detail is None:
         raise HTTPException(404)
     drawer = None
