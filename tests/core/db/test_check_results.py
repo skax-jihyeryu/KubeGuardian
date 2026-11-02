@@ -151,3 +151,46 @@ def test_finished_status_is_shown_as_is_even_when_old(engine, status):
     store.finish(run, status, NOW + timedelta(seconds=5), None, [], [])
 
     assert store.display_status(store.get(run), NOW + timedelta(days=1)) == status
+
+
+def test_finish_records_the_error_type_of_a_failed_check(engine):
+    run = _run(engine)
+    store = CheckResultStore(engine)
+    store.start(run, NOW)
+
+    store.finish(run, "failed", NOW, None, [], [], error="RuntimeError")
+
+    got = store.get(run)
+    assert (got.status, got.error) == ("failed", "RuntimeError")
+
+
+def test_rules_without_signals_still_get_an_entry(engine):
+    run = _run(engine)
+    store = CheckResultStore(engine)
+    store.start(run, NOW)
+
+    store.finish(run, "done", NOW, None, _signals(), [], rules=["S01", "N01", "H01"])
+
+    assert [(v["rule_id"], v["passed"], v["items"] == []) for v in store.get(run).verdicts] == [
+        ("S01", 2, True),
+        ("N01", 0, True),
+        ("H01", 0, False),
+        ("W02", 0, False),  # rules에 없어도 신호가 있으면 버리지 않는다
+    ]
+
+
+def test_failed_full_write_falls_back_to_status_and_finish_time(engine, monkeypatch):
+    from core.db import check_results
+
+    run = _run(engine)
+    store = CheckResultStore(engine)
+    store.start(run, NOW)
+
+    def broken(signals, rules):
+        raise ValueError("직렬화 실패")
+
+    monkeypatch.setattr(check_results, "_verdicts", broken)
+    store.finish(run, "done", NOW + timedelta(seconds=5), None, _signals(), [])
+
+    got = store.get(run)
+    assert (got.status, got.finished_at, got.verdicts) == ("done", NOW + timedelta(seconds=5), [])

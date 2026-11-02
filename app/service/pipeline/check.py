@@ -9,6 +9,7 @@ http가 있고 설정에 API 시나리오가 있으면 규칙 점검 뒤에 증�
 """
 
 from collections import Counter
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -90,6 +91,7 @@ class _Recorder:
         self.gate: GateResult | None = None
         self.signals: list[Signal] = []
         self.symptoms: list[Symptom] = []
+        self.rules: list[str] = []  # 돌린 규칙 (규칙 목록 순서)
 
     def clock(self) -> datetime:
         return self._now + (_wall_now() - self._t0)
@@ -99,19 +101,26 @@ class _Recorder:
         self._record(lambda: self._store.start(run_id, self._now, sorted(excluded)))
         self._phase_start = self.clock()
 
-    def phase(self, name: str, summary: str) -> None:
+    def phase(self, name: str, summary: Callable[[], str]) -> None:
         ended = self.clock()
         started, self._phase_start = self._phase_start, ended
         if self._run_id is not None:
             run_id = self._run_id
-            self._record(lambda: self._store.phase(run_id, name, started, ended, summary))
+            self._record(lambda: self._store.phase(run_id, name, started, ended, summary()))
 
-    def finish(self, status: str) -> None:
+    def finish(self, status: str, error: str | None = None) -> None:
         if self._run_id is not None:
             run_id = self._run_id
             self._record(
                 lambda: self._store.finish(
-                    run_id, status, self.clock(), self.gate, self.signals, self.symptoms
+                    run_id,
+                    status,
+                    self.clock(),
+                    self.gate,
+                    self.signals,
+                    self.symptoms,
+                    rules=self.rules,
+                    error=error,
                 )
             )
 
@@ -119,7 +128,7 @@ class _Recorder:
     def _record(write) -> None:
         try:
             write()
-        except SQLAlchemyError as e:
+        except Exception as e:  # 기록 결함(요약 계산 포함)이 점검을 막거나 원래 예외를 가리지 않게
             logger.warning(f"점검 결과 기록 실패: {type(e).__name__}")
 
 
@@ -243,7 +252,8 @@ def _run_locked(
         evidence = EvidenceStore(engine, run_id)
         signals = _store_evidence(evidence, snapshot, run_detectors(ctx, excluded))
         rec.signals = signals
-        rec.phase("rules", _rules_summary(signals))
+        rec.rules = [r for r in CATALOG if r not in excluded]
+        rec.phase("rules", lambda: _rules_summary(signals))
         lock.renew()
         symptoms = []
         if http is not None and config.api_scenarios:
@@ -256,10 +266,10 @@ def _run_locked(
             )
             symptoms = detect_symptoms(config, tool_ctx)
         rec.symptoms = symptoms
-        rec.phase("symptoms", _symptoms_summary(symptoms))
+        rec.phase("symptoms", lambda: _symptoms_summary(symptoms))
         gate = decide_gate(signals, symptoms, clean_symptom(user_symptom))
         rec.gate = gate
-        rec.phase("gate", gate.reason)
+        rec.phase("gate", lambda: gate.reason)
         # 이슈 상태도 잠금 안에서 정한다 (두 점검이 같은 이슈를 동시에 열지 않게)
         incidents = track(
             engine,
@@ -281,8 +291,8 @@ def _run_locked(
             symptoms=symptoms,
             incidents=incidents,
         )
-    except Exception as e:
-        rec.finish("failed")
+    except BaseException as e:  # SIGTERM(SystemExit)도 행을 running으로 남기지 않는다
+        rec.finish("failed", error=type(e).__name__)
         if isinstance(e, SQLAlchemyError):
             raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
         raise

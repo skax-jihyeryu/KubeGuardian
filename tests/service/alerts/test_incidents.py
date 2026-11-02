@@ -269,9 +269,7 @@ def test_new_signal_on_same_feature_keeps_the_off_rules_target(engine):
     checks = Checks(engine)
     [opened] = checks.run([_sig("S01", "agent")])
 
-    [changed] = checks.run(
-        [_sig("P03", "agent", subject="dev/Pod/a/agent")], excluded={"S01"}
-    )
+    [changed] = checks.run([_sig("P03", "agent", subject="dev/Pod/a/agent")], excluded={"S01"})
 
     assert (changed.action, changed.incident_id) == ("changed", opened.incident_id)
     assert set(IncidentStore(engine).get(opened.incident_id).targets) == {

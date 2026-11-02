@@ -4,7 +4,10 @@
   phase로 덧붙여 화면이 진행 중에 단계를 하나씩 보여 준다. 끝나면 finish로 판정을 채운다.
 - verdicts는 규칙마다 `{rule_id, passed, items}`: passed는 통과 대상 수(`통과 n건`), items는
   통과가 아닌 판정(대상·판정·1차 심각도·이유·값·근거 번호). 이유는 unknown의 사유다.
-  규칙 순서는 점검이 돌린 순서이고, 끈 규칙은 없다(excluded_rules에 있다).
+  돌린 규칙은 대상이 없어도 한 줄씩 있고(passed 0), 순서는 점검이 돌린 순서다.
+  끈 규칙은 없다(excluded_rules에 있다).
+- 실패한 점검(failed)은 error에 예외 종류 이름을 남긴다.
+  Phoenix 링크는 investigation.trace_id를 쓴다.
 - 값과 문구는 표시 전에 마스킹하지 않고 저장 전에 마스킹한다 (화면이 그대로 보여 준다).
 - 못 끝난 점검(프로세스가 죽음)은 running으로 남는다. display_status가 잠금 만료가 지나면
   halted로 바꿔 보여 준다.
@@ -47,7 +50,7 @@ class CheckResult:
     symptoms: list[dict[str, Any]]
     phases: list[Phase]
     excluded_rules: list[str]
-    trace_id: str | None
+    error: str | None
 
 
 class CheckResultStore:
@@ -88,17 +91,29 @@ class CheckResultStore:
         gate: GateResult | None,
         verdicts: Sequence[Signal],
         symptoms: Sequence[Symptom],
+        *,
+        rules: Sequence[str] = (),
+        error: str | None = None,
     ) -> None:
-        with Session(self._engine) as s, s.begin():
-            row = s.get_one(CheckResultRow, run_id)
-            row.status = status
-            row.finished_at = require_aware(now)
-            if gate is not None:
-                row.gate_path = gate.path
-                row.gate_reason = redact_text(gate.reason)
-                row.first_severity = gate.severity
-            row.verdicts = _verdicts(verdicts)
-            row.symptoms = [redact_mapping(x.model_dump(mode="json")) for x in symptoms]
+        """판정을 채우고 끝낸다. 전체 쓰기가 실패하면 상태와 끝난 시각만이라도 남긴다."""
+        try:
+            with Session(self._engine) as s, s.begin():
+                row = s.get_one(CheckResultRow, run_id)
+                row.status = status
+                row.finished_at = require_aware(now)
+                row.error = error
+                if gate is not None:
+                    row.gate_path = gate.path
+                    row.gate_reason = redact_text(gate.reason)
+                    row.first_severity = gate.severity
+                row.verdicts = _verdicts(verdicts, rules)
+                row.symptoms = [redact_mapping(x.model_dump(mode="json")) for x in symptoms]
+        except Exception:
+            with Session(self._engine) as s, s.begin():
+                row = s.get_one(CheckResultRow, run_id)
+                row.status = status
+                row.finished_at = require_aware(now)
+                row.error = error
 
     def get(self, run_id: int) -> CheckResult | None:
         with Session(self._engine) as s:
@@ -122,8 +137,10 @@ class CheckResultStore:
         return "halted" if now - last > CHECK_LOCK_TTL else "running"
 
 
-def _verdicts(signals: Sequence[Signal]) -> list[dict[str, Any]]:
-    by_rule: dict[str, dict[str, Any]] = {}
+def _verdicts(signals: Sequence[Signal], rules: Sequence[str]) -> list[dict[str, Any]]:
+    by_rule: dict[str, dict[str, Any]] = {
+        r: {"rule_id": r, "passed": 0, "items": []} for r in rules
+    }
     for sig in signals:
         entry = by_rule.setdefault(sig.rule_id, {"rule_id": sig.rule_id, "passed": 0, "items": []})
         if sig.verdict == "passed":
@@ -166,5 +183,5 @@ def _to_result(row: CheckResultRow) -> CheckResult:
             for p in row.phases or []
         ],
         excluded_rules=row.excluded_rules or [],
-        trace_id=row.trace_id,
+        error=row.error,
     )

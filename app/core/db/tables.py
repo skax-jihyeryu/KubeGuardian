@@ -233,7 +233,7 @@ class CheckResultRow(Base):
     symptoms: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     phases: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     excluded_rules: Mapped[list[str]] = mapped_column(JSON, default=list)
-    trace_id: Mapped[str | None] = mapped_column(String(32))
+    error: Mapped[str | None] = mapped_column(String(64))  # 실패한 점검의 예외 종류 이름
 
 
 class RuleSelectionRow(Base):

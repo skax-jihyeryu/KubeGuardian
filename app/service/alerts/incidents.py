@@ -85,7 +85,9 @@ def track(
     return changes
 
 
-def _with_excluded(fp: Fingerprint, matched: Incident, excluded_rules: frozenset[str]) -> Fingerprint:
+def _with_excluded(
+    fp: Fingerprint, matched: Incident, excluded_rules: frozenset[str]
+) -> Fingerprint:
     """끈 규칙의 대상·서비스를 지문에 되돌린다. 끈 규칙은 이번 점검이 확인하지 않은 것이라
     그 때문에 생긴 차이는 상황 변화가 아니다 (재조사·대상 덮어쓰기·잘못된 해결을 막는다).
     서비스는 규칙별로 기록하지 않아 이슈의 서비스를 모두 되돌린다."""

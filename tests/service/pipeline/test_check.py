@@ -448,7 +448,8 @@ def test_values_are_masked_before_storing(engine, monkeypatch):
     monkeypatch.setattr(pipeline, "run_detectors", fake)
     out = run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
 
-    [item] = CheckResultStore(engine).get(out.run_id).verdicts[0]["items"]
+    verdicts = CheckResultStore(engine).get(out.run_id).verdicts
+    [item] = next(v for v in verdicts if v["rule_id"] == "H01")["items"]
     assert item["values"]["db_password"] == "***"
 
 
@@ -513,7 +514,7 @@ def test_re_enabled_rule_restarts_its_hold_timer(engine):
     )
 
     s02 = [s for s in out.signals if s.rule_id == "S02" and s.verdict != "passed"]
-    assert [s.verdict for s in s02] == ["observing"]  # 꺼 둔 동안의 옛 관측으로 detected가 되지 않는다
+    assert [s.verdict for s in s02] == ["observing"]  # 옛 관측으로 detected가 되지 않는다
 
 
 def test_turning_a_rule_off_clears_w01_hold_timestamp(engine):
@@ -526,3 +527,99 @@ def test_turning_a_rule_off_clears_w01_hold_timestamp(engine):
     run_check(_reader(), CONFIG, engine, trigger="schedule", now=NOW + timedelta(days=1))
 
     assert store.get("W01", "dev/Deployment/agent") is None
+
+
+def _store_failing(monkeypatch, name, exc):
+    from core.db import CheckResultStore
+
+    def broken(*a, **kw):
+        raise exc
+
+    monkeypatch.setattr(CheckResultStore, name, broken)
+
+
+def test_sigterm_during_a_check_closes_the_result_as_failed_and_reraises(engine, monkeypatch):
+    from core.db import CheckResultStore
+    from service.pipeline import check as pipeline
+
+    def term(*a, **kw):
+        raise SystemExit(143)
+
+    monkeypatch.setattr(pipeline, "decide_gate", term)
+    with pytest.raises(SystemExit):
+        run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
+
+    got = CheckResultStore(engine).get(1)
+    assert (got.status, got.error) == ("failed", "SystemExit")
+    assert got.finished_at is not None
+
+
+def test_recorder_failure_of_any_kind_does_not_fail_the_check(engine, monkeypatch):
+    _store_failing(monkeypatch, "finish", ValueError("직렬화 실패"))
+
+    out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="check", now=NOW)
+
+    assert out.gate.path == "A"
+
+
+def test_summary_failure_does_not_fail_the_check(engine, monkeypatch):
+    from service.pipeline import check as pipeline
+
+    def broken(signals):
+        raise KeyError("Z99")
+
+    monkeypatch.setattr(pipeline, "_rules_summary", broken)
+
+    out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="check", now=NOW)
+
+    assert out.gate.path == "A"
+
+
+def test_recorder_failure_does_not_replace_the_original_exception(engine, monkeypatch):
+    from service.pipeline import check as pipeline
+
+    def boom(*a, **kw):
+        raise RuntimeError("gate 결함")
+
+    monkeypatch.setattr(pipeline, "decide_gate", boom)
+    _store_failing(monkeypatch, "finish", ValueError("기록 결함"))
+
+    with pytest.raises(RuntimeError, match="gate 결함"):
+        run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
+
+
+def test_failed_check_keeps_the_exception_type_name(engine, monkeypatch):
+    from core.db import CheckResultStore
+    from service.pipeline import check as pipeline
+
+    def boom(*a, **kw):
+        raise RuntimeError("gate 결함")
+
+    monkeypatch.setattr(pipeline, "decide_gate", boom)
+    with pytest.raises(RuntimeError):
+        run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
+
+    assert CheckResultStore(engine).get(1).error == "RuntimeError"
+
+
+def test_done_check_has_no_error_and_every_ran_rule_has_a_verdict_entry(engine):
+    from core.db import CheckResultStore
+    from service.checks.detectors.catalog import CATALOG
+
+    out = run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
+
+    got = CheckResultStore(engine).get(out.run_id)
+    assert got.error is None
+    assert [v["rule_id"] for v in got.verdicts] == list(CATALOG)  # 대상이 없는 규칙도 한 줄
+
+
+def test_disabled_rules_have_no_verdict_entry_but_other_rules_do(engine):
+    from core.db import CheckResultStore, RuleSelectionStore
+    from service.checks.detectors.catalog import CATALOG
+
+    RuleSelectionStore(engine).save(*_all_rules_except("W02"), NOW)
+
+    out = run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
+
+    got = CheckResultStore(engine).get(out.run_id)
+    assert [v["rule_id"] for v in got.verdicts] == [r for r in CATALOG if r != "W02"]
