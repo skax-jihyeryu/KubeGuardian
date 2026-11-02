@@ -27,6 +27,7 @@ AREA_BY_KIND: dict[str, set[Area]] = {
 }
 _UNRESOLVED_MAX = 5  # 재조사 메시지에 싣는 미확인 가설 수
 _REASON_MAX = 200
+_STATEMENT_MAX = 200
 _LABEL: dict[Area, str] = {"run": "구동", "config": "설정", "wiring": "연결", "logs": "로그"}
 
 
@@ -74,7 +75,7 @@ def _unresolved_gap(report: Report) -> str | None:
     open_items = [h for h in report.hypotheses if h.status == "inconclusive"][:_UNRESOLVED_MAX]
     if not open_items:
         return f"{head} 근거를 더 모으세요"
-    lines = [f"  - {h.statement} ({h.reason[:_REASON_MAX]})" for h in open_items]
+    lines = [f"  - {h.statement[:_STATEMENT_MAX]} ({h.reason[:_REASON_MAX]})" for h in open_items]
     return "\n".join([f"{head} 다음 미확인 항목을 확인하세요:", *lines])
 
 

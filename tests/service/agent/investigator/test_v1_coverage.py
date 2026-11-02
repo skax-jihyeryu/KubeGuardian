@@ -228,3 +228,10 @@ def test_find_gaps_unresolved_truncates_reason_to_200_chars():
 
     (gap,) = find_gaps(report, _CAUSE_OBS)
     assert gap.endswith(f"h ({'가' * 200})")
+
+
+def test_find_gaps_unresolved_truncates_statement_to_200_chars():
+    report = _unresolved([_hyp("inconclusive", "나" * 300, "r")])
+
+    (gap,) = find_gaps(report, _CAUSE_OBS)
+    assert gap.endswith(f"  - {'나' * 200} (r)")

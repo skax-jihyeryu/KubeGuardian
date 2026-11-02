@@ -410,7 +410,7 @@ def build_graph(agent: "InvestigatorV1"):
             ctx.budget.start_issue()  # 재조사는 문제당 호출 수를 새로 센다
             note = (
                 "[재조사] 보고서 전에 다음을 확인하세요:\n"
-                + "\n".join(f"- {g}" for g in gaps)
+                + "\n".join(f"- {_gap_for_prompt(g)}" for g in gaps)
                 + f"\n이번 재조사에 도구를 {ctx.budget.recheck_calls()}회 새로 쓸 수 있습니다. "
                 "이미 쓴 횟수는 다시 세지 않습니다. 빈틈을 해소할 도구를 먼저 호출하세요."
             )
@@ -471,6 +471,12 @@ def build_graph(agent: "InvestigatorV1"):
     g.add_conditional_edges("validate", after_validate, ["write_report", "stop_check"])
     g.add_conditional_edges("stop_check", after_stop_check, ["act", END])
     return g.compile()
+
+
+def _gap_for_prompt(gap: str) -> str:
+    """여러 줄 빈틈의 항목은 가설 문장·사유(로그에서 파생될 수 있음)라 도구 출력으로 감싼다."""
+    head, _, items = gap.partition("\n")
+    return f"{head}\n{wrap_tool_output(items)}" if items else gap
 
 
 def _parse_result(content: str) -> tuple[str | None, bool]:
