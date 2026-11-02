@@ -34,7 +34,7 @@ def test_routes_use_project_id_and_shell_displays_namespace(client, engine):
     run = make_run(engine)
     finish_check(engine, run, path="C")
     assert client.get("/").headers["location"] == "/llm-gateway/checks"
-    for path in ["checks", f"checks/{run}", "issues"]:
+    for path in ["checks", f"checks/{run}", "issues", "setup/services"]:
         assert client.get(f"/llm-gateway/{path}").status_code == 200
         assert client.get(f"/dev/{path}").status_code == 404
     page = client.get("/llm-gateway/checks").text

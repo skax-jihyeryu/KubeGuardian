@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}점검 구성 · KubeGuardian{% endblock %}
+{% block body %}
+<link rel="stylesheet" href="/static/setup.css">
+<div class="setup-page{% if request.query_params.get('service') or request.query_params.get('rule') or request.query_params.get('feature') %} setup-selected{% endif %}" style="display:flex;flex-direction:column;min-width:0;flex:1">
+<nav class="tabs" aria-label="점검 구성">
+  <a href="/{{ p }}/setup/services"{% if tab == 'services' %} class="on" aria-current="page"{% endif %}>대상 서비스 <span class="n">{{ service_names|length }}</span></a>
+  <a href="/{{ p }}/setup/rules"{% if tab == 'rules' %} class="on" aria-current="page"{% endif %}>점검 규칙 <span class="n">{{ rule_count }}</span></a>
+  <a href="/{{ p }}/setup/features"{% if tab == 'features' %} class="on" aria-current="page"{% endif %}>기능 점검 <span class="n">{{ feature_count }}</span></a>
+  <span class="sp"></span><span class="s13 muted" style="align-self:center">{% if tab == 'rules' %}점검할 규칙을 고를 수 있습니다{% else %}읽기 전용 · 원본 kubeguardian.yaml{% endif %}</span>
+</nav>
+<div class="body" style="flex:1">{% block setup_body %}{% endblock %}</div>
+</div>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "setup/base.html" %}
+{% block setup_body %}
+<section class="list" aria-label="점검 규칙 목록">
+<div class="lhead"><h1>점검 규칙</h1><div class="sub">사용 {{ enabled_count }} · 끔 {{ 14 - enabled_count }} · 준비 중 11</div></div>
+<div style="padding:10px 20px;border-bottom:1px solid var(--line)"><div class="seg"><a href="?view=stage&rule={{ selected.id }}"{% if view == 'stage' %} class="on"{% endif %}>단계별</a><a href="?view=kind&rule={{ selected.id }}"{% if view == 'kind' %} class="on"{% endif %}>구성별</a></div></div>
+<form method="post" action="/{{ p }}/setup/rules" id="rule-selection">
+<input type="hidden" name="view" value="{{ view }}">
+<div class="selbar"><span>점검할 규칙 <b id="enabled-count">{{ enabled_count }}</b>개</span><span><button type="button" class="btn btn-ghost btn-sm" data-rule-select="all">전체 선택</button><button type="button" class="btn btn-ghost btn-sm" data-rule-select="none">전체 해제</button></span></div>
+<div class="selbar"><span id="rule-dirty" class="muted" aria-live="polite">{% if saved %}저장했습니다. 다음 점검부터 적용됩니다.{% else %}준비 중인 규칙은 켤 수 없습니다.{% endif %}</span><span><button type="reset" class="btn btn-ghost btn-sm">되돌리기</button><button type="submit" class="btn btn-primary btn-sm">저장</button></span></div>
+{% for name, rules in groups %}
+<div class="sgrp">{{ name }}</div>
+{% for rule in rules %}<div class="mrow{% if not rule.enabled %} off{% endif %}{% if selected.id == rule.id %} sel{% endif %}">
+<input type="checkbox" name="enabled" value="{{ rule.id }}" aria-label="{{ rule.id }} 점검 사용"{% if rule.enabled %} checked{% endif %}{% if not rule.available %} disabled{% endif %}>
+<a class="nm" href="?view={{ view }}&rule={{ rule.id }}"><span class="mono s13">{{ rule.id }}</span> {{ rule.name }}</a>
+<span class="mono s13 muted">{% if rule.available %}{{ rule.hold }}{% else %}준비 중{% endif %}</span>
+</div>{% else %}<div class="note">{% if name == '9 점검' %}점검 중단 감시 · 구현 완료{% elif name == '8 요청' %}<a href="/{{ p }}/setup/features">기능 점검 탭에서 보기 →</a>{% else %}전용 규칙 없음 · 기능 점검과 AI 조사에서 확인합니다.{% endif %}</div>{% endfor %}
+{% endfor %}
+</form>
+</section>
+<section class="detail" aria-label="점검 규칙 상세"><div class="doc"><a class="setup-back" href="/{{ p }}/setup/rules">← 목록으로</a>
+<div class="crumb">{{ p }} › 점검 구성 › 점검 규칙 › {{ selected.id }}</div>
+<h1 class="title"><span class="mono">{{ selected.id }}</span> {{ selected.name }}</h1>
+<div class="s13 muted">{{ selected.grade }} · {{ selected.stage }} · {{ selected.kind }}</div>
+<div class="paper">
+{% if not selected.available %}<div class="sec"><h2>준비 중</h2><p>아직 실행할 수 없는 규칙입니다. 구현 전까지 점검에 포함되지 않습니다.</p></div>{% else %}
+<div class="sec"><h2>무엇을 보나</h2><p>{{ selected.name }} — {{ selected.nature }}를 확인합니다.</p></div>
+<div class="sec"><h2>판정 기준</h2><div class="dl"><span class="k">조건</span><div>{{ selected.predicate }}</div><span class="k">대상</span><div>{{ p }} 네임스페이스의 {{ selected.kind }}</div><span class="k">지속 시간</span><div>{{ selected.hold }}</div><span class="k">구분</span><div>{{ selected.grade }}</div><span class="k">1차 심각도</span><div>{{ selected.severities }}</div></div></div>
+<div class="sec"><h2>출처</h2><p>{% if selected.source_url %}<a href="{{ selected.source_url }}" target="_blank" rel="noopener noreferrer">{{ selected.source }}</a>{% else %}{{ selected.source }}{% endif %}</p><p class="s13 muted">규칙 점검 명세 §4 기준 · 외부 출처를 확인하지 못한 항목은 위에 명시합니다.</p></div>
+<div class="sec"><h2>최근 적발 점검</h2>{% for run, time in recent %}<p><a href="/{{ p }}/checks/{{ run }}">{{ time|md_hm }} · 점검 #{{ run }}</a></p>{% else %}<p class="muted">최근 기록에서 적발된 점검이 없습니다.</p>{% endfor %}</div>
+<div class="sec"><p class="muted">규칙을 끄면 다음 점검부터 적용됩니다. 이미 열린 이슈는 해당 규칙을 확인하지 못한 것으로 남으며, 자동으로 해결되지 않습니다.</p></div>
+{% endif %}
+</div></div></section>
+<script src="/static/setup.js" defer></script>
+{% endblock %}

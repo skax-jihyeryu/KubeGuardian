@@ -1,0 +1,14 @@
+{% extends "setup/base.html" %}
+{% block setup_body %}
+<section class="list" aria-label="기능 점검 목록">
+<div class="lhead"><h1>기능 점검</h1><div class="sub">등록한 API 흐름 · 읽기 전용</div></div>
+{% for scenario in scenarios %}<a class="mrow{% if selected and selected.name == scenario.name %} sel{% endif %}" href="?feature={{ scenario.name|urlencode }}"><span class="nm"><span class="mono">{{ scenario.name }}</span> · {{ scenario.feature }}</span><span class="s13 muted">{{ scenario.steps|length }}단계</span></a>{% else %}<p class="muted" style="padding:20px">아직 등록한 기능 점검이 없습니다.</p>{% endfor %}
+</section>
+<section class="detail" aria-label="기능 점검 상세"><div class="doc"><a class="setup-back" href="/{{ p }}/setup/features">← 목록으로</a>
+{% if selected %}<div class="crumb">{{ p }} › 점검 구성 › 기능 점검</div><h1 class="title">{{ selected.name }}</h1><div class="s13 muted">지키는 기능 · {{ selected.feature }}</div>
+<div class="paper"><div class="sec"><h2>단계 흐름</h2>{% for step in selected.steps %}{% set action = step.login or step.call %}<p><span class="mono">{{ loop.index }} · {% if step.login %}login{% else %}{{ action.method }}{% endif %} {{ action.via }}{{ action.path }}</span></p>{% endfor %}</div>
+<div class="sec"><h2>원본 YAML</h2><pre class="code">{{ definition }}</pre></div>
+<div class="sec"><h2>최근 실패 점검</h2>{% for run, time in recent %}<p><a href="/{{ p }}/checks/{{ run }}">{{ time|md_hm }} · 점검 #{{ run }}</a></p>{% else %}<p class="muted">최근 기록에서 실패한 점검이 없습니다.</p>{% endfor %}</div></div>
+{% else %}<h1 class="title">기능 점검 정의</h1><div class="paper"><p>kubeguardian.yaml의 api_scenarios에 지키는 기능과 API 호출 순서를 등록하세요.</p><p class="muted">이 화면은 저장된 정의만 보여 줍니다.</p></div>{% endif %}
+</div></section>
+{% endblock %}
