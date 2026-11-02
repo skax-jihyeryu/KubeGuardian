@@ -144,18 +144,21 @@ def investigate(
         print("\n조사 생략: 이번 점검이 넣은 조사 대기가 없다 (같은 지문이거나 작업자가 이미 맡음)")
         print_alerts(notifier)
         return 0
-    result = run_investigation(
-        outcome,
-        config,
-        engine,
-        run_id=f"kg-investigate-{outcome.run_id}",
-        trigger=args.trigger,
-        llm_factory=make_llm,
-        k8s=reader,
-        http=http,
-        symptom=symptom,
-        incident_id=jobs[0].incident_id if jobs else None,  # 점검 하나 = 이슈 하나
-    )
+    try:
+        result = run_investigation(
+            outcome,
+            config,
+            engine,
+            run_id=f"kg-investigate-{outcome.run_id}",
+            trigger=args.trigger,
+            llm_factory=make_llm,
+            k8s=reader,
+            http=http,
+            symptom=symptom,
+            incident_id=jobs[0].incident_id if jobs else _open_incident_id(outcome),
+        )
+    except SQLAlchemyError as e:
+        raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
     print_investigation(result)
     try:
         for job in jobs:
@@ -285,6 +288,12 @@ def _queue(
         queue_investigations(engine, config, outcome, trigger=trigger, now=_now(), symptom=symptom)
     except SQLAlchemyError as e:
         raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
+
+
+def _open_incident_id(outcome: CheckOutcome) -> int | None:
+    """이번 점검이 건드린 이슈 중 열려 있는 것 (점검 하나 = 이슈 하나). 해결된 것은 뒤로 미룬다."""
+    changes = sorted(outcome.incidents, key=lambda c: c.action == "resolved")
+    return changes[0].incident_id if changes else None
 
 
 def _claim_jobs(engine: Engine, outcome: CheckOutcome) -> list[Job]:
