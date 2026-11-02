@@ -70,6 +70,12 @@ class BudgetTracker:
         """전체 호출 수가 남아 있다 (시간·문제당 상한은 보지 않는다)."""
         return self.tool_calls < self.budget.total_tool_calls
 
+    def recheck_calls(self) -> int:
+        """재조사에서 새로 쓸 수 있는 호출 수: 문제당 상한과 전체 남은 호출 중 작은 값."""
+        return max(
+            0, min(self.budget.per_issue_tool_calls, self.budget.total_tool_calls - self.tool_calls)
+        )
+
     def issue_exhausted(self) -> bool:
         """문제당 상한에 닿았다 (전체 상한·시간과 무관)."""
         return self._issue_calls >= self.budget.per_issue_tool_calls

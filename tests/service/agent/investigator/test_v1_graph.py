@@ -1240,3 +1240,46 @@ def test_no_recheck_means_no_recheck_no_tool_calls_record():
 
     (stop,) = [s for s in result.steps if s.node == "stop_check"]
     assert "recheck_no_tool_calls" not in stop.detail
+
+
+def _recheck_note(budget: Budget | None = None) -> str:
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+    ]
+    _, llm, _ = _run(script, budget)
+    return llm.calls[4][-1].content  # triage, plan, act, report 다음의 재조사 act
+
+
+def test_recheck_note_tells_how_many_tool_calls_are_left():
+    note = _recheck_note()  # 사전 확인 2회를 썼으니 전체 18, 문제당 8 중 작은 값
+
+    assert "이번 재조사에 도구를 8회 새로 쓸 수 있습니다." in note
+    assert "이미 쓴 횟수는 다시 세지 않습니다." in note
+    assert "빈틈을 해소할 도구를 먼저 호출하세요." in note
+
+
+def test_recheck_note_count_is_capped_by_the_total_calls_left():
+    note = _recheck_note(Budget(per_issue_tool_calls=8, total_tool_calls=5))  # 5 - 사전 확인 2
+
+    assert "이번 재조사에 도구를 3회 새로 쓸 수 있습니다." in note
+
+
+def test_voluntary_stop_records_whether_the_issue_limit_was_reached():
+    free, _, _ = _run(
+        [TRIAGE, PLAN, _tool_call(1), AIMessage(content="조사 완료"), _report(["ev-3"])]
+    )
+    at_limit, _, _ = _run(
+        [TRIAGE, PLAN, _tool_call(1), AIMessage(content="조사 완료"), _report(["ev-3"])],
+        Budget(per_issue_tool_calls=1, total_tool_calls=20),
+    )
+
+    def voluntary(result):
+        return next(s for s in result.steps if s.detail.get("stop_reason") == "voluntary")
+
+    assert voluntary(free).detail["at_issue_limit"] is False
+    assert voluntary(at_limit).detail["at_issue_limit"] is True

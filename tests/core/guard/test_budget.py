@@ -100,3 +100,16 @@ def test_remaining_with_recheck_counts_extension_once():
     assert tracker.remaining_with_recheck() == 70
     tracker.extend_for_recheck()
     assert tracker.remaining_with_recheck() == 70
+
+
+def test_recheck_calls_is_the_smaller_of_issue_limit_and_total_left():
+    t = BudgetTracker(Budget(per_issue_tool_calls=8, total_tool_calls=10))
+    for _ in range(3):
+        t.count_tool_call()
+    t.start_issue()
+    assert t.recheck_calls() == 7  # 전체 남은 7 < 문제당 8
+    t = BudgetTracker(Budget(per_issue_tool_calls=8, total_tool_calls=20))
+    assert t.recheck_calls() == 8
+    t = BudgetTracker(Budget(per_issue_tool_calls=8, total_tool_calls=1))
+    t.count_tool_call()
+    assert t.recheck_calls() == 0

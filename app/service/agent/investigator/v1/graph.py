@@ -268,6 +268,7 @@ def build_graph(agent: "InvestigatorV1"):
             s.detail = {"tool_calls": [c["name"] for c in reply.tool_calls]}
             if not reply.tool_calls:
                 s.detail["stop_reason"] = "voluntary"  # 도구를 더 부르지 않고 스스로 끝냈다
+                s.detail["at_issue_limit"] = ctx.budget.issue_exhausted()
         return {"messages": state["messages"] + [reply]}
 
     def has_next_issue(state: InvestigationState) -> bool:
@@ -407,7 +408,12 @@ def build_graph(agent: "InvestigatorV1"):
         if recheck:
             ctx.budget.extend_for_recheck()  # 보고서 작성 뒤 남는 시간이 짧아 재조사 몫을 더한다
             ctx.budget.start_issue()  # 재조사는 문제당 호출 수를 새로 센다
-            note = "[재조사] 보고서 전에 다음을 확인하세요:\n" + "\n".join(f"- {g}" for g in gaps)
+            note = (
+                "[재조사] 보고서 전에 다음을 확인하세요:\n"
+                + "\n".join(f"- {g}" for g in gaps)
+                + f"\n이번 재조사에 도구를 {ctx.budget.recheck_calls()}회 새로 쓸 수 있습니다. "
+                "이미 쓴 횟수는 다시 세지 않습니다. 빈틈을 해소할 도구를 먼저 호출하세요."
+            )
             return {
                 "messages": state["messages"] + [HumanMessage(note)],
                 "rechecked": True,
