@@ -141,7 +141,7 @@ def test_timeline_reminder_splits_continued_group(client, engine, clock):
     assert [(event.label, event.count) for event in timeline] == [
         ("점검 · 열림", 1),
         ("이어짐 점검", 1),
-        ("Slack M2", 1),
+        ("Slack · 리마인더", 1),
         ("이어짐 점검", 2),
     ]
 
@@ -319,3 +319,19 @@ def test_failed_old_investigation_has_no_fold(client, engine):
     text = client.get(f"/dev/issues/{inc}").text
     assert "조사 실패" in text
     assert f"R-{first:04d} 보고서" not in text
+
+
+def test_timeline_shows_message_name_not_number(client, engine, clock):
+    from api.viewmodels.issues import build_issue_detail
+
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    store = AlertStore(engine)
+    store.add(kind="M1", channel="C", text="a", sent_at=at(10), incident_id=inc)
+    store.add(kind="M1u", channel="C", text="b", sent_at=at(20), incident_id=inc)
+    store.add(kind="M99", channel="C", text="c", sent_at=at(30), incident_id=inc)
+    labels = [e.label for e in build_issue_detail(engine, inc, None, clock.now).timeline]
+    assert "Slack · 이슈 알림" in labels
+    assert "Slack · 원인 갱신" in labels
+    assert "Slack · M99" in labels
+    assert "Slack M1" not in labels

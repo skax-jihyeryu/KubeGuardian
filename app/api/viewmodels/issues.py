@@ -26,6 +26,18 @@ from core.db.investigations import Investigation
 from core.db.tables import IncidentCheckRow
 from core.guard.redact import redact_text
 
+# 알림 kind(M 번호는 코드·DB 식별자)를 화면에 보이는 이름으로
+ALERT_LABEL = {
+    "M1": "이슈 알림",
+    "M1u": "원인 갱신",
+    "M2": "리마인더",
+    "M3": "복구 알림",
+    "M7": "점검 중단 알림",
+    "M9": "원인 확인 답글",
+    "M10": "점검 일부 확인 못 함",
+    "TEST": "연결 확인",
+}
+
 
 @dataclass(frozen=True)
 class IssueRow:
@@ -164,7 +176,10 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
     for alert in AlertStore(engine).for_incident(incident_id):
         events.append(
             Event(
-                alert.sent_at, "Slack " + alert.kind, redact_text(alert.text), dry_run=alert.dry_run
+                alert.sent_at,
+                f"Slack · {ALERT_LABEL.get(alert.kind, alert.kind)}",
+                redact_text(alert.text),
+                dry_run=alert.dry_run,
             )
         )
     timeline = []
