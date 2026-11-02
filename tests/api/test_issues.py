@@ -253,3 +253,28 @@ def test_coverage_status_display(client, engine):
     assert ">확인함<" not in text
     assert "확인하지 못함" in text
     assert "해당 없음" in text
+
+
+def test_single_investigation_has_no_previous_report_section(client, engine):
+    text = client.get(f"/dev/issues/{_done_issue(engine)}").text
+    assert "이전 보고서" not in text
+    assert "#s-previous" not in text
+    assert "이 보고서 보기" not in text
+
+
+def test_old_report_lives_in_timeline_entry(client, engine):
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    first = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, first, report(conclusion="옛 결론"))
+    second = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, second, report(conclusion="새 결론"))
+    text = client.get(f"/dev/issues/{inc}").text
+    assert "이전 보고서" not in text
+    assert f"<summary>R-{first:04d} 보고서</summary>" in text
+    assert f"<summary>R-{second:04d} 보고서</summary>" not in text
+    assert "옛 결론" in text
+    assert f"report={first}" in text and "이 보고서 보기" in text
+    old = client.get(f"/dev/issues/{inc}?report={first}").text
+    assert f"<summary>R-{second:04d} 보고서</summary>" in old
+    assert f"<summary>R-{first:04d} 보고서</summary>" not in old
