@@ -313,7 +313,7 @@ W2 이슈 중 #16·#18·#19·#22·#24·#46과 W2에 새로 생긴 #53·#54·#59�
 | 평가 러너에 장애 감지 시간·원인 파악 시간 기록 (주입 시각 → 알림 이력의 1차 발송·갱신 시각), 평가 중 알림은 Slack 전송 생략(dry-run) | 1 | `eval/` | W5 |
 | diagnostic-agent Deployment + 조사 작업자(조사 대기열, 점검 중단 감시 M7) #28 — 10/28 결정: 점검은 CronJob, 조사는 Deployment 작업자 | 4 | `service/pipeline/worker.py`, `deploy/kubeguardian/diagnostic-agent.yaml` | W6 |
 | ~~`/kg check`, `/kg investigate` Slack 명령~~ — 10/31 제외(#96, 확장 후보). 즉시 점검은 화면·CLI, 증상 조사는 CLI | 0 | | W6 |
-| 보고서 화면 완성(서버 렌더링): 점검 이력(홈)·점검 상세, 이슈·이슈 상세(근거·알림 이력 포함), 점검 구성 + **점검 실행 버튼**(백그라운드 실행, 동시 1건, 1분 간격), 진행 중 갱신, 마스킹 적용 | 4 | `api/routes/`, `api/templates/` | W6 |
+| 보고서 화면 완성(서버 렌더링): 점검 이력(홈)·점검 상세, 이슈·이슈 상세(근거·알림 이력 포함), 점검 구성, GNB **점검 실행 버튼**(백그라운드 실행, 동시 1건, 1분 간격), 진행 중 갱신, 마스킹 적용 | 4 | `api/routes/`, `api/templates/` | W6 |
 | Slack 연동 테스트 (Slack API 모의 객체로 메시지 형식·스레드·오류 경로) | 1.5 | `tests/` | W6 |
 | **평가 신뢰성 (10/28 W4에서 당김)** eval: chaos-mesh 주입 흔적을 에이전트 입력에서 제외 #82 — **먼저** | 1.5 | `service/sensors/`, `service/tools/`, eval 설정 | 신규 |
 | agent: C2 하위 의존 연결 차단 원인 찾기 (probe·로그 지침 보강) #83 — #82 뒤 | 3 | `service/knowledge/`, `service/tools/` | 신규 |
