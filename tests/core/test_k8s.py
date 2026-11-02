@@ -5,7 +5,7 @@ import urllib3
 from kubernetes.client.exceptions import ApiException
 
 from core.config import KubeGuardianConfig
-from core.k8s import K8sCallError, K8sClient
+from core.k8s import LOG_LIMIT_BYTES, K8sCallError, K8sClient
 
 
 class _Resp:
@@ -138,7 +138,16 @@ def test_read_log_uses_namespace_and_tail():
     assert kwargs["container"] == "agent"
     assert kwargs["previous"] is True
     assert kwargs["tail_lines"] == 200
-    assert kwargs["limit_bytes"] > 0  # 아주 긴 줄도 바이트 상한으로 자른다
+    assert kwargs["limit_bytes"] == LOG_LIMIT_BYTES  # 아주 긴 줄도 바이트 상한으로 자른다
+    assert "since_seconds" not in kwargs  # None이면 API에 넘기지 않는다
+
+
+def test_read_log_passes_since_seconds_when_given():
+    client, core, _, _ = _client()
+
+    client.read_log("agent-1", "agent", previous=False, tail_lines=10, since_seconds=1800)
+
+    assert core.calls[0][2]["since_seconds"] == 1800
 
 
 def test_client_has_no_write_methods():
