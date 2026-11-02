@@ -25,7 +25,7 @@ POLL = 'hx-trigger="every 3s"'
 
 
 def detail(client, run, query=""):
-    return client.get(f"/p/dev/checks/{run}{query}")
+    return client.get(f"/dev/checks/{run}{query}")
 
 
 def _chat_failed(engine, trigger="schedule"):
@@ -79,7 +79,7 @@ def test_investigating_shows_progress_and_issue_link_but_no_conclusion(client, i
     assert "조사 중" in text
     assert "도구 호출" in text and "2/8" in text  # 분모는 문제당 예산
     assert f"이슈 #{inc}" in text
-    assert f'href="/p/dev/issues/{inc}"' in text
+    assert f'href="/dev/issues/{inc}"' in text
     assert "1차 판정" in text
     assert "조사 시작" in text  # 조사 판단
 
@@ -88,12 +88,12 @@ def test_investigating_polls_only_the_steps_fragment(client, investigating):
     run, *_ = investigating
     text = detail(client, run).text
     assert text.count(POLL) == 1
-    assert f'hx-get="/p/dev/checks/{run}/steps' in text
+    assert f'hx-get="/dev/checks/{run}/steps' in text
 
 
 def test_steps_fragment_lists_tool_calls_with_evidence_links(client, investigating):
     run, _, _, ev, ev2 = investigating
-    res = client.get(f"/p/dev/checks/{run}/steps")
+    res = client.get(f"/dev/checks/{run}/steps")
     assert res.status_code == 200
     assert "<html" not in res.text  # 조각
     assert "get_pod_logs" in res.text and "probe" in res.text
@@ -105,7 +105,7 @@ def test_polling_stops_when_investigation_finishes(client, engine, investigating
     run, _, iid, ev, _ = investigating
     finish_investigation(engine, iid, report(evidence_ids=(ev,)))
     assert POLL not in detail(client, run).text
-    res = client.get(f"/p/dev/checks/{run}/steps?live=1")
+    res = client.get(f"/dev/checks/{run}/steps?live=1")
     assert POLL not in res.text
     assert res.headers.get("HX-Refresh") == "true"  # 머리·판정도 새 상태로
 
@@ -114,11 +114,11 @@ def test_polling_stops_when_running_check_becomes_halted(client, engine, clock):
     run = make_run(engine)
     start_running_check(engine, run)
     assert POLL in detail(client, run).text
-    live = client.get(f"/p/dev/checks/{run}/steps?live=1")
+    live = client.get(f"/dev/checks/{run}/steps?live=1")
     assert POLL in live.text and "HX-Refresh" not in live.headers
 
     clock.now = at(1) + timedelta(seconds=271)  # 마지막 진행에서 잠금 만료(270초)가 지남
-    stopped = client.get(f"/p/dev/checks/{run}/steps?live=1")
+    stopped = client.get(f"/dev/checks/{run}/steps?live=1")
     assert POLL not in stopped.text
     assert stopped.headers.get("HX-Refresh") == "true"
     page = detail(client, run).text
@@ -251,8 +251,8 @@ def test_unknown_items_show_reason_and_gate_stays_not_investigating(client, engi
     assert "W02" in text
     assert "대상 Deployment가 클러스터에 없어" in text
     assert "조사 안 함" in text
-    band = client.get("/p/dev/checks").text
-    assert f'href="/p/dev/checks/{run}#s-judge"' in band  # 상단 띠 칩의 도착점
+    band = client.get("/dev/checks").text
+    assert f'href="/dev/checks/{run}#s-judge"' in band  # 상단 띠 칩의 도착점
     assert "확인하지 못함 1" in band
 
 
@@ -301,9 +301,7 @@ def test_old_check_without_result_says_no_record(client, engine):
 # ── 404 ─────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "path", ["/p/dev/checks/999", "/p/dev/checks/999/steps", "/p/dev/checks/abc"]
-)
+@pytest.mark.parametrize("path", ["/dev/checks/999", "/dev/checks/999/steps", "/dev/checks/abc"])
 def test_missing_check_is_404_not_500(client, path):
     assert client.get(path).status_code == 404
 
@@ -330,7 +328,7 @@ def test_evidence_drawer_opens_with_masked_source(client, engine):
     assert "dev/Pod/agent-x" in res.text
     assert "hunter2" not in res.text and "abcdefgh12345678" not in res.text
     assert "***" in res.text  # 원문은 마스킹되어 보인다
-    assert f"/p/dev/checks/{run}?ev={n}" in res.text  # 단독 페이지 링크
+    assert f"/dev/checks/{run}?ev={n}" in res.text  # 단독 페이지 링크
 
 
 def test_page_without_ev_has_no_open_drawer(client, engine):
@@ -417,7 +415,7 @@ def test_untrusted_strings_are_escaped_everywhere(client, engine):
     for page in (
         detail(client, run),
         detail(client, run, f"?ev={n}"),
-        client.get(f"/p/dev/checks/{run}/steps"),
+        client.get(f"/dev/checks/{run}/steps"),
     ):
         assert page.status_code == 200
         assert "<script>alert" not in page.text
@@ -441,7 +439,7 @@ def test_stored_secret_values_in_step_args_show_masked(client, engine):
             )
         ],
     )
-    text = client.get(f"/p/dev/checks/{run}/steps").text
+    text = client.get(f"/dev/checks/{run}/steps").text
     assert "hunter2" not in text and "pw12345" not in text
     assert "***" in text
 

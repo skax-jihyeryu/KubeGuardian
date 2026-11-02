@@ -17,10 +17,10 @@ def healthz() -> dict[str, str]:
 
 @router.get("/")
 def home(config: ConfigDep) -> RedirectResponse:
-    return RedirectResponse(f"/p/{config.target.namespace}/checks")
+    return RedirectResponse(f"/{config.project.id}/checks")
 
 
-@router.get("/p/{p}/checks", response_class=HTMLResponse)
+@router.get("/{p}/checks", response_class=HTMLResponse)
 def checks_home(
     request: Request,
     project: ProjectDep,

@@ -13,13 +13,14 @@ from tests.service.checks.detectors.cases import NOW
 
 CONFIG = KubeGuardianConfig.model_validate(
     {
+        "project": {"id": "dev"},
         "target": {"namespace": "dev"},
         "core_paths": {"chat": ["gateway", "agent"]},
         "slack": {
             "alert_target": "C0123456789",
             "bot_token_secret": "kg-slack-bot",
             "app_token_secret": "kg-slack-app",
-            "report_url": "http://kg.local/p/dev",
+            "report_url": "http://kg.local/dev",
             "reminders": {
                 "critical": {"first_after": "30m", "then_every": "2h", "max": 3},
                 "warning": {"first_after": "2h", "max": 1},
@@ -111,7 +112,7 @@ def test_new_incident_sends_first_alert_before_investigation(env):
     [m1] = sender.posts
     assert m1["channel"] == "C0123456789" and m1["thread"] is None
     assert "🔴 긴급" in m1["text"] and "dev" in m1["text"] and "원인을 조사하고" in m1["text"]
-    assert "http://kg.local/p/dev/checks/1" in m1["text"]
+    assert "http://localhost:8080/dev/checks/1" in m1["text"]
     assert IncidentStore(engine).get(c.incident_id).slack_ts == "ts-1"
     assert [a.kind for a in AlertStore(engine).for_incident(c.incident_id)] == ["M1"]
 

@@ -1,6 +1,8 @@
 # KubeGuardian 설정 예시. 복사해서 kubeguardian.yaml로 쓴다 (클러스터에서는 ConfigMap).
 # 비밀값(토큰·키·계정)은 여기에 두지 않고 Secret 이름만 적는다.
 # LLM 연결 정보는 환경 변수(LLM_PROVIDER, AZURE_OPENAI_*), 모델은 에이전트 버전 설정에서 정한다.
+project:
+  id: llm-gateway           # 화면 URL의 프로젝트 ID. Kubernetes namespace와 별개
 target:
   namespace: dev
 schedule: "*/5 * * * *"
@@ -44,7 +46,7 @@ app_apis: {}
 exclude_event_api_groups: [chaos-mesh.org]
 slack:
   alert_target: "C0123456789"  # 채널 ID (채널 정보 맨 아래). 이름은 메시지 수정이 실패한다
-  report_url: http://localhost:8000/p/default   # 알림 링크의 보고서 화면 주소 (port-forward 기준)
+  report_url: http://localhost:8000/default   # 알림 링크의 보고서 화면 주소 (port-forward 기준)
   # 봇 토큰(chat:write)은 여기 적지 않는다. .env의 SLACK_BOT_TOKEN → make kg-up → kubeguardian-env
   reminders:
     critical: {first_after: 30m, then_every: 2h, max: 3}
@@ -52,3 +54,7 @@ slack:
 knowledge:
   runbooks: [./runbooks/]
   environment: ./environment.md
+
+# Slack 링크가 가리킬 보고서 화면의 기본 주소 (프로젝트 경로는 자동으로 붙음)
+web:
+  base_url: http://localhost:8080

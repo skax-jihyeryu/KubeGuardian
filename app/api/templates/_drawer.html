@@ -2,7 +2,7 @@
 {#- 근거 서랍. 열린 서랍은 ?ev=N 주소와 같은 화면이다. 닫으면 ?ev가 지워진 같은 화면. -#}
 <div id="drawer-root">
 {%- if drawer %}
-{%- set close = "/p/" ~ p ~ "/checks/" ~ run_id %}
+{%- set close = "/" ~ p ~ "/checks/" ~ run_id %}
 {%- set here = close ~ "?ev=" ~ drawer.n %}
 <a class="scrim" href="{{ close }}" aria-label="서랍 닫기" hx-get="{{ close }}" hx-target="#drawer-root" hx-select="#drawer-root" hx-swap="outerHTML" hx-push-url="true"></a>
 <aside class="drawer" role="dialog" aria-label="근거 {{ drawer.n }}">

@@ -1,5 +1,5 @@
 {% from "checks/_parts.html" import step, progress_box %}
-<div id="steps"{% if steps.live %} hx-get="/p/{{ p }}/checks/{{ steps.run_id }}/steps?live=1" hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"{% endif %}>
+<div id="steps"{% if steps.live %} hx-get="/{{ p }}/checks/{{ steps.run_id }}/steps?live=1" hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"{% endif %}>
   {%- if steps.check_steps %}
   <div class="cap" style="margin-top:0">점검</div>
   <div class="steps">{% for s in steps.check_steps %}{{ step(s, p, steps.run_id, steps.live) }}{% endfor %}</div>

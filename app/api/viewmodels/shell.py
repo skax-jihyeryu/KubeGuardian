@@ -31,6 +31,7 @@ IMPACT = {
 class Shell:
     project: str
     cluster: str
+    namespace: str
     last_time: str | None  # 마지막 점검 시각 (HH:MM)
     next_time: str | None
     halted_minutes: int | None  # 점검이 멈췄으면 몇 분째인가
@@ -51,7 +52,8 @@ def build_shell(engine: Engine, config: KubeGuardianConfig, now: datetime) -> Sh
     if latest is not None and now - latest[1] > STALL_AFTER:
         halted = int((now - latest[1]).total_seconds() // 60)
     return Shell(
-        project=config.target.namespace,
+        project=config.project.id,
+        namespace=config.target.namespace,
         cluster=CLUSTER_LABEL,
         last_time=hm(latest[1]) if latest else None,
         next_time=_next_time(config.schedule, now),

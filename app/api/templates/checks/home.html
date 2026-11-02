@@ -5,7 +5,7 @@
   <div>
     <h1 class="title">점검 이력</h1>
     {% if latest_run %}
-    <p><a href="/p/{{ p }}/checks/{{ latest_run }}">가장 최근 점검 보기</a></p>
+    <p><a href="/{{ p }}/checks/{{ latest_run }}">가장 최근 점검 보기</a></p>
     {% else %}
     <p class="muted">아직 점검 기록이 없습니다.</p>
     {% endif %}

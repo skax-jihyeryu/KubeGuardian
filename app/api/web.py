@@ -27,8 +27,8 @@ _ID = re.compile(r"[1-9]\d{0,9}")  # SQLite 정수 범위를 넘는 값은 조�
 
 
 def require_project(p: str, config: Annotated[KubeGuardianConfig, Depends(get_config)]) -> str:
-    """주소의 프로젝트는 설정의 대상 이름 하나뿐이다."""
-    if p != config.target.namespace:
+    """주소의 프로젝트는 설정의 project.id 하나뿐이다."""
+    if p != config.project.id:
         raise HTTPException(404)
     return p
 

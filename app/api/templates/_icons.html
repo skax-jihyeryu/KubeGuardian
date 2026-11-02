@@ -30,6 +30,6 @@
 
 {#- 근거 번호 링크. 서랍은 주소(?ev=N)로 열리고, 같은 페이지 안에서는 HTMX가 서랍만 바꿔 끼운다. -#}
 {% macro evlink(p, run, n) -%}
-{%- set url = "/p/" ~ p ~ "/checks/" ~ run ~ "?ev=" ~ n -%}
+{%- set url = "/" ~ p ~ "/checks/" ~ run ~ "?ev=" ~ n -%}
 <a class="ev" href="{{ url }}" hx-get="{{ url }}" hx-target="#drawer-root" hx-select="#drawer-root" hx-swap="outerHTML" hx-push-url="true">근거 {{ n }}</a>
 {%- endmacro %}

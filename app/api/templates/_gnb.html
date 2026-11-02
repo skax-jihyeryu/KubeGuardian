@@ -1,6 +1,6 @@
 {% from "_icons.html" import ic %}
 <header class="gnb">
-  <span class="proj">{{ shell.project }} · {{ shell.cluster }}</span>
+  <span class="proj">{{ shell.project }} · {{ shell.cluster }}<span class="wide"> · 네임스페이스 {{ shell.namespace }}</span></span>
   <span class="sp"></span>
   {% if shell.halted_minutes is not none %}
   <span class="lastchk halt">{{ ic("triangle-alert") }}점검 {{ shell.halted_minutes }}분째 안 됨<span class="wide"> · 마지막 정상 </span><span class="t">{{ shell.last_time }}</span></span>

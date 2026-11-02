@@ -54,6 +54,12 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ProjectConfig(_Strict):
+    """화면·링크용 단일 프로젝트 ID. Kubernetes 네임스페이스와 별개다."""
+
+    id: str = Field(default="default", pattern=r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
+
+
 class TargetConfig(_Strict):
     namespace: str = Field(pattern=r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")  # DNS label
 
@@ -129,7 +135,7 @@ class ReminderPolicy(_Strict):
     max: int = Field(ge=1)  # 리마인더 총 횟수
 
 
-DEFAULT_REPORT_URL = "http://localhost:8000/p/default"
+DEFAULT_REPORT_URL = "http://localhost:8000/default"
 
 
 class SlackConfig(_Strict):
@@ -162,7 +168,12 @@ class KnowledgeConfig(_Strict):
     environment: str | None = None
 
 
+class WebConfig(_Strict):
+    base_url: str = "http://localhost:8080"
+
+
 class KubeGuardianConfig(_Strict):
+    project: ProjectConfig = ProjectConfig()
     target: TargetConfig
     schedule: str = Field(default="*/5 * * * *", pattern=r"^\S+( \S+){4}$")  # cron 5필드
     core_paths: dict[str, list[str]] = {}  # 사용자 기능 → 서비스 목록 (1차 심각도, 05-rules §3)
@@ -174,6 +185,7 @@ class KubeGuardianConfig(_Strict):
     # 수집에서 뺄 이벤트의 대상 API 그룹 (involvedObject.apiVersion의 그룹, 정확히 일치).
     # 평가용 장애 주입 도구의 흔적이 점검·조사 입력에 들어가지 않게 한다 (#82). 운영 기본값은 비움
     exclude_event_api_groups: list[str] = []
+    web: WebConfig = WebConfig()
     slack: SlackConfig | None = None
     knowledge: KnowledgeConfig = KnowledgeConfig()
 

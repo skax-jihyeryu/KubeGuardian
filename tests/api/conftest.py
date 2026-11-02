@@ -30,7 +30,10 @@ def client(engine, clock):
     app = create_app()
     app.dependency_overrides[get_engine] = lambda: engine
     app.dependency_overrides[get_config] = lambda: KubeGuardianConfig(
-        target={"namespace": "dev"}, core_paths={"chat": ["agent"]}
+        project={"id": "dev"},
+        target={"namespace": "dev"},
+        schedule="*/5 * * * *",
+        core_paths={"chat": ["agent"]},
     )
     app.dependency_overrides[get_now] = lambda: clock.now
     return TestClient(app, follow_redirects=False)

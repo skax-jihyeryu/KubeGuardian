@@ -22,7 +22,6 @@ from service.agent.history_qa.v1.tools import KNOWLEDGE_DIR, build_history_tools
 from service.model.chat import AnswerSentence, ChatAnswer, ChatRequest
 from service.notify.messages import DISPLAY_TZ
 
-DEFAULT_PROJECT = "dev"
 MAX_QUESTION = 500
 HISTORY_TURNS = 10
 CURRENT_STATE_GUIDE = (
@@ -54,13 +53,14 @@ def answer_question(
     config: KubeGuardianConfig,
     llm_factory: LlmFactory,
     conversation_id: str | None = None,
-    project: str = DEFAULT_PROJECT,
+    project: str | None = None,
     knowledge_dir: Path = KNOWLEDGE_DIR,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> ChatReply:
     if len(question) > MAX_QUESTION:
         raise ServiceException(ErrorCode.VALIDATION_ERROR, "질문은 500자 이내")
     conversation_id = conversation_id or uuid4().hex[:12]
+    project = project or config.project.id
 
     chat = ChatStore(engine)
     history = chat.recent(conversation_id, HISTORY_TURNS)
@@ -98,7 +98,7 @@ def answer_question(
             run_id, started_at = latest
             front.append(
                 _guide(
-                    f"마지막 점검: {_when(started_at)} /p/{project}/checks/{run_id}",
+                    f"마지막 점검: {_when(started_at)} /{project}/checks/{run_id}",
                     run_ids=[run_id],
                 )
             )
