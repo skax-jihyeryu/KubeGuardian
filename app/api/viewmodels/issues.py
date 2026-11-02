@@ -32,6 +32,7 @@ class IssueRow:
     incident: Incident
     title: str
     severity: Sev
+    search_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -43,13 +44,13 @@ class Event:
     dry_run: bool = False
     count: int = 1
     runs: tuple[int, ...] = ()
+    report: Investigation | None = None
 
 
 @dataclass(frozen=True)
 class IssueDetail:
     row: IssueRow
     selected: Investigation | None
-    previous: list[Investigation]
     timeline: list[Event]
     evidence: dict[str, tuple[int, int]]
     live: bool
@@ -59,13 +60,19 @@ class IssueDetail:
 def issue_row(engine: Engine, incident: Incident) -> IssueRow:
     investigations = InvestigationStore(engine).for_incident(incident.id)
     latest = next((i.report for i in reversed(investigations) if i.report), None)
-    title = latest.conclusion if latest else ", ".join(incident.features or incident.services)
+    top = latest.top_issue if latest else None
+    title = top.title if top else ", ".join(incident.features or incident.services)
     title = title or "장애 신호·기능 점검 실패"
     severity = IMPACT.get(
         incident.final_severity or "",
         SEVERITY.get(incident.first_severity or "", ("risk", "잠재 위험")),
     )
-    return IssueRow(incident, redact_text(title), Sev(*severity))
+    return IssueRow(
+        incident,
+        redact_text(title),
+        Sev(*severity),
+        redact_text(latest.conclusion) if latest else "",
+    )
 
 
 def list_issues(
@@ -87,7 +94,9 @@ def list_issues(
         and (
             not q
             or q.casefold()
-            in " ".join((r.title, *r.incident.services, *r.incident.rule_ids)).casefold()
+            in " ".join(
+                (r.title, r.search_text, *r.incident.services, *r.incident.rule_ids)
+            ).casefold()
         )
     ]
 
@@ -147,8 +156,9 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
                 "조사 완료"
                 if inv.report
                 else {"running": "조사 중", "failed": "조사 실패"}.get(inv.status, "조사 미완"),
-                f"보고서 R-{inv.id:04d}" if inv.report else "",
+                f"보고서 R-{inv.id:04d}" if inv.report and inv is selected else "",
                 inv.check_run_id,
+                report=inv if inv.report and inv is not selected else None,
             )
         )
     for alert in AlertStore(engine).for_incident(incident_id):
@@ -180,7 +190,6 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
     return IssueDetail(
         issue_row(engine, incident),
         selected,
-        [i for i in reversed(investigations) if i is not selected],
         timeline,
         evidence,
         state in {"queued", "running"},
