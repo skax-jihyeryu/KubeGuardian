@@ -1,6 +1,6 @@
 from core.config import KubeGuardianConfig
 from core.db import AlertStore, create_db_engine
-from service.model import GateResult, Signal
+from service.model import GateResult, Signal, Symptom
 from service.notify.notifier import Notifier
 from tests.api.seed import at, finish_check, make_run
 from tests.service.notify.test_notifier import FakeSender
@@ -65,3 +65,45 @@ def test_unknown_failed_alert_retries_during_same_streak(tmp_path):
     alerts = AlertStore(engine).list_alerts()
     assert len(alerts) == 2
     assert sum(a.error is None for a in alerts) == 1
+
+
+def test_unknown_symptom_without_failed_step_has_no_none(tmp_path):
+    engine = create_db_engine(tmp_path / "kg.db")
+    sender = FakeSender()
+    config = KubeGuardianConfig(project={"id": "dev"}, target={"namespace": "dev"})
+    gate = GateResult(path="C", reason="unknown")
+    for index in range(3):
+        run = make_run(engine, start=at(index * 300))
+        finish_check(
+            engine,
+            run,
+            path="C",
+            signals=[],
+            symptoms=[Symptom(scenario="chat", status="unknown", summary="계정 없음")],
+            start=at(index * 300),
+        )
+        Notifier(engine, config, sender).after_check(run, gate, [], at(index * 300 + 12))
+    assert len(sender.posts) == 1
+    assert "None" not in sender.posts[0]["text"]
+    assert "• 기능 점검 chat\n" in sender.posts[0]["text"]
+
+
+def test_unknown_dedup_matches_cleaned_items(tmp_path):
+    engine = create_db_engine(tmp_path / "kg.db")
+    sender = FakeSender()
+    config = KubeGuardianConfig(project={"id": "dev"}, target={"namespace": "dev"})
+    gate = GateResult(path="C", reason="unknown")
+    for index in range(5):
+        run = make_run(engine, start=at(index * 300))
+        signals = [
+            Signal(
+                rule_id="S01",
+                verdict="unknown",
+                subject="dev/Pod/* <a> & b",
+                message="수집 실패",
+            )
+        ]
+        finish_check(engine, run, path="C", signals=signals, start=at(index * 300))
+        Notifier(engine, config, sender).after_check(run, gate, [], at(index * 300 + 12))
+    assert len(sender.posts) == 1
+    assert "• S01 · dev/Pod/* &lt;a&gt; &amp; b" in sender.posts[0]["text"]

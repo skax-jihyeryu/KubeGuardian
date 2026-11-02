@@ -90,7 +90,9 @@ class Notifier:
                 self._incidents.set_slack_ts(incident.id, ts)
             return
         self._update("M1u", incident, thread, text, now)
-        reply = messages.cause_reply(status, report) + f"\n이슈: {self._url}/issues/{incident.id}"
+        reply = (
+            messages.cause_reply(status, report) + f"\n🔗 이슈: {self._url}/issues/{incident.id}"
+        )
         self._post("M9", incident.id, reply, now, thread=thread)
 
     def connection_test(self, now: datetime) -> str | None:
@@ -135,7 +137,8 @@ class Notifier:
                 if i.get("verdict") == "unknown"
             }
             items.update(
-                f"기능 점검 {s.get('scenario', '')} · {s.get('failed_step', '')}"
+                f"기능 점검 {s.get('scenario', '')}"
+                + (f" · {s['failed_step']}" if s.get("failed_step") is not None else "")
                 for s in result.symptoms
                 if s.get("status") == "unknown"
             )
@@ -174,10 +177,15 @@ class Notifier:
                 )
             )
             for alert in sent:
-                lines = alert.text.splitlines()
-                items = lines[1].partition(": ")[2].split(", ") if len(lines) > 1 else []
+                sent_items = {
+                    line.removeprefix("• ")
+                    for line in alert.text.splitlines()
+                    if line.startswith("• ")
+                }
                 repeated -= {
-                    item for item in items if item in starts and alert.sent_at >= starts[item]
+                    item
+                    for item in repeated
+                    if messages.clean(item) in sent_items and alert.sent_at >= starts[item]
                 }
         if not repeated:
             return False
