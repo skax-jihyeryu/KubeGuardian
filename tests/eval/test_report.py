@@ -4,7 +4,15 @@ import json
 
 import yaml
 
-from report import apply_label, load_batch, load_labels, render, summarize, wilson
+from report import (
+    apply_label,
+    batch_drift,
+    load_batch,
+    load_labels,
+    render,
+    summarize,
+    wilson,
+)
 
 KEY_OK = {"key_found": ["k"], "key_missing": [], "key_all_found": True, "tool_limited": False}
 
@@ -317,3 +325,63 @@ def test_label_reclassified_confirmed_run_counts_as_overconfirmed(tmp_path):
     }
     k = summarize(results, {("t0-A1", 0): label}, scen)["kpi"]
     assert (k["overconfirmed"], k["confirmed"]) == (1, 1)
+
+
+def _drift_batch(tmp_path, specs):
+    """specs: (시나리오, in_cluster 또는 None, 결과 추가 필드) 목록. 이름 순번이 시각순이다."""
+    history = tmp_path / "history"
+    for i, (sid, in_cluster, extra) in enumerate(specs):
+        if in_cluster is not None:
+            extra = {**extra, "in_cluster": in_cluster}
+        write_result(history, f"{i:02d}-{sid}", sid, extra.pop("runs", [make_run()]), **extra)
+    return load_batch(history, "b1")
+
+
+def _cluster(config="1", image="sha256:" + "a" * 64):
+    return {"pod": "p", "image_id": image, "config_resource_version": config}
+
+
+def test_batch_drift_reproduces_w4_base(tmp_path):
+    results = _drift_batch(
+        tmp_path,
+        [
+            ("A1", _cluster("1614530"), {}),
+            ("A3", _cluster("1614530"), {}),
+            ("A4", _cluster("1614530"), {}),
+            ("A5", _cluster("1617267"), {"invalid": "증상 없음", "runs": []}),
+            ("B1", _cluster("1617267"), {}),
+        ],
+    )
+    assert batch_drift(results) == ["config_resource_version: 1614530 → 1617267 (A5부터)"]
+    scen = tmp_path / "scenarios"
+    text = render(summarize(results, {}, scen), None)
+    warning = (
+        "> **경고: 평가 도중 클러스터가 바뀌었습니다.** "
+        "이 묶음의 결과는 같은 조건이 아니므로 비교에 쓰지 마세요."
+    )
+    assert text.startswith(f"# 평가 리포트\n\n{warning}\n> - config_resource_version: 1614530")
+
+
+def test_batch_drift_shows_last_12_chars_of_image_id(tmp_path):
+    results = _drift_batch(
+        tmp_path,
+        [
+            ("A1", _cluster(image="sha256:" + "a" * 64), {}),
+            ("A3", _cluster(image="sha256:" + "a" * 52 + "b" * 12), {}),
+        ],
+    )
+    assert batch_drift(results) == [f"image_id: {'a' * 12} → {'b' * 12} (A3부터)"]
+
+
+def test_batch_drift_empty_when_same_and_no_warning(tmp_path):
+    results = _drift_batch(tmp_path, [("A1", _cluster(), {}), ("A3", _cluster(), {})])
+    assert batch_drift(results) == []
+    assert "경고" not in render(summarize(results, {}, tmp_path / "scenarios"), None)
+
+
+def test_batch_drift_skips_results_without_in_cluster(tmp_path):
+    results = _drift_batch(
+        tmp_path,
+        [("A1", _cluster("1"), {}), ("A3", None, {}), ("A4", _cluster("1"), {})],
+    )
+    assert batch_drift(results) == []

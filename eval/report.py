@@ -128,7 +128,24 @@ def _ci(k: int, n: int) -> str:
     return f"{k}/{n} ({lo:.0%}~{hi:.0%})" if n else "0/0"
 
 
+def batch_drift(results: list[tuple[str, dict]]) -> list[str]:
+    """묶음 도중 이미지·설정이 바뀐 지점을 문장으로 돌려준다. 값이 없는 결과는 건너뛴다."""
+    out = []
+    for key in ("image_id", "config_resource_version"):
+        prev = None
+        for _, result in results:
+            value = (result.get("in_cluster") or {}).get(key)
+            if not value:
+                continue
+            if prev is not None and value != prev:
+                show = (lambda v: str(v)[-12:]) if key == "image_id" else str
+                out.append(f"{key}: {show(prev)} → {show(value)} ({result['scenario']}부터)")
+            prev = value
+    return out
+
+
 def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path) -> dict:
+    drift = batch_drift(results)
     scen: dict[str, dict] = {}
     rules: dict[str, list[bool]] = defaultdict(list)
     rules_invalid: dict[str, int] = defaultdict(int)
@@ -240,6 +257,7 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
     conc = _rate(sum(agree_conc), n_conc)
     claims = _rate(sum(agree_claims), n_claims)
     return {
+        "drift": drift,
         "scenarios": dict(sorted(scen.items())),
         "by_level": group("level"),
         "by_path": group("gate_path"),
@@ -327,6 +345,13 @@ def _regression_rows(summary: dict, baseline: dict) -> tuple[list[str], int, int
 
 def render(summary: dict, baseline: dict | None) -> str:
     out = ["# 평가 리포트", ""]
+    if summary["drift"]:
+        out += [
+            "> **경고: 평가 도중 클러스터가 바뀌었습니다.** "
+            "이 묶음의 결과는 같은 조건이 아니므로 비교에 쓰지 마세요.",
+            *[f"> - {d}" for d in summary["drift"]],
+            "",
+        ]
     out += [
         "## 시나리오별",
         "",
