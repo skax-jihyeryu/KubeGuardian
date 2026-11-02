@@ -205,3 +205,51 @@ def test_report_without_verification_has_no_seventh_section(client, engine):
     text = client.get(f"/dev/issues/{inc}").text
     assert "6. 권장 조치" in text
     assert "7. 재검증" not in text
+
+
+def _hyps():
+    from service.model.report import Hypothesis
+
+    return [
+        Hypothesis(statement="지지 가설", status="supported", reason="r1"),
+        Hypothesis(statement="미결 가설", status="inconclusive", reason="r2"),
+        Hypothesis(statement="배제 가설", status="refuted", reason="r3"),
+    ]
+
+
+def test_refuted_hypotheses_are_folded(client, engine):
+    text = client.get(f"/dev/issues/{_done_issue(engine, hypotheses=_hyps())}").text
+    head, _, folded = text.partition("<details><summary>배제한 가설 1건</summary>")
+    assert folded
+    assert "지지 가설" in head and "미결 가설" in head
+    assert "배제 가설" not in head
+    assert "배제 가설" in folded.split("</details>")[0]
+    assert 'class="nowrap"' in head
+
+
+def test_no_refuted_means_no_fold_and_only_refuted_means_no_table(client, engine):
+    from service.model.report import Hypothesis
+
+    only_supported = [Hypothesis(statement="지지 가설", status="supported")]
+    text = client.get(f"/dev/issues/{_done_issue(engine, hypotheses=only_supported)}").text
+    assert "배제한 가설" not in text
+    only_refuted = [Hypothesis(statement="배제 가설", status="refuted")]
+    text = client.get(f"/dev/issues/{_done_issue(engine, hypotheses=only_refuted)}").text
+    section = text.split("4. 가설 판정")[1].split("5. 확인한 범위")[0]
+    assert "<table" not in section.split("<details>")[0]
+    assert "배제한 가설 1건" in section
+
+
+def test_coverage_status_display(client, engine):
+    from service.model.report import AreaCoverage, Coverage
+
+    coverage = Coverage(
+        run=AreaCoverage(status="checked", summary="본 것"),
+        config=AreaCoverage(status="not_checked", summary="사유"),
+        wiring=AreaCoverage(status="not_applicable", summary="사유2"),
+    )
+    text = client.get(f"/dev/issues/{_done_issue(engine, coverage=coverage)}").text
+    assert 'aria-label="확인함"' in text
+    assert ">확인함<" not in text
+    assert "확인하지 못함" in text
+    assert "해당 없음" in text

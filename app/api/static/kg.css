@@ -367,3 +367,4 @@ ul.facts li::before{content:"";width:5px;height:5px;border-radius:50%;background
 .mrow.off .nm{color:var(--muted)}
 .selbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 20px;border-bottom:1px solid var(--line);font-size:13px;line-height:20px}
 .selbar.dirty{background:var(--accent-soft)}
+.nowrap{white-space:nowrap}
