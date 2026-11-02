@@ -62,6 +62,14 @@ INCIDENT_LABEL = {
 }
 
 SenderFactory = Callable[[KubeGuardianConfig], Sender]
+
+
+def _notifier(engine: Engine, config: KubeGuardianConfig, sender: Sender) -> Notifier:
+    """확인 버튼은 앱 토큰이 있고 실제로 보낼 때만 쓴다 (받을 수 있어야 눌러도 의미가 있다)."""
+    ack_enabled = bool(get_setting().SLACK_APP_TOKEN) and not sender.dry_run
+    return Notifier(engine, config, sender, ack_enabled=ack_enabled)
+
+
 ReaderFactory = Callable[[KubeGuardianConfig], KubeReader]
 HttpFactory = Callable[[KubeGuardianConfig], Any]
 LlmFactory = Callable[[str], BaseChatModel]
@@ -110,7 +118,7 @@ def check(
     engine = _open_db(args.db)
     outcome = run_check(reader, config, engine, trigger=args.trigger, http=make_http(config))
     print_outcome(outcome)
-    notifier = Notifier(engine, config, make_sender(config))
+    notifier = _notifier(engine, config, make_sender(config))
     _notify(lambda: notifier.after_check(outcome.run_id, outcome.gate, outcome.incidents, _now()))
     _queue(engine, config, outcome, args.trigger)  # 1차 알림 뒤에 (작업자가 집는다)
     print_alerts(notifier)
@@ -135,7 +143,7 @@ def investigate(
         reader, config, engine, trigger=args.trigger, http=http, user_symptom=symptom
     )
     print_outcome(outcome)
-    notifier = Notifier(engine, config, make_sender(config))
+    notifier = _notifier(engine, config, make_sender(config))
     # 1차 감지 알림은 AI 조사를 기다리지 않는다
     _notify(lambda: notifier.after_check(outcome.run_id, outcome.gate, outcome.incidents, _now()))
     _queue(engine, config, outcome, args.trigger, symptom)
@@ -200,7 +208,7 @@ def worker(
     (집힘은 만료 뒤 다른 작업자가 다시 집는다)."""
     config = _load_config(args.config)
     engine = _open_db(args.db)
-    notifier = Notifier(engine, config, make_sender(config))
+    notifier = _notifier(engine, config, make_sender(config))
     work = Worker(
         engine,
         config,
@@ -241,7 +249,7 @@ SLACK_HINTS = {
 def slack_test(args: argparse.Namespace, make_sender: SenderFactory) -> int:
     """Slack 알림 연결 확인. 0 성공, 1 Slack 오류, 2 토큰·설정 없음(dry-run)."""
     config = _load_config(args.config)
-    notifier = Notifier(_open_db(args.db), config, make_sender(config))
+    notifier = _notifier(_open_db(args.db), config, make_sender(config))
     if notifier.dry_run:
         print(
             "Slack 연결 확인: 보내지 않음 (dry-run). "

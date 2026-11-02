@@ -2,8 +2,8 @@
 
 주기 점검(CronJob)이 새 이슈·지문 변경을 조사 대기열에 넣으면, 항상 떠 있는 작업자가
 몇 초 안에 집어 조사하고 이슈에 결과를 남기며 1차 알림(M1)을 원인으로 갱신한다.
-점검 중단 감시(M7)도 같은 주기로 돈다. CronJob 시간 제한(270초)에 조사가 잘리지 않고,
-별도 조사 CronJob의 대기 없이 원인 파악 7분을 지킨다.
+점검 중단 감시(M7)와 이슈 리마인드(M2, #156)도 같은 주기로 돈다.
+CronJob 시간 제한(270초)에 조사가 잘리지 않고, 별도 조사 CronJob의 대기 없이 원인 파악 7분을 지킨다.
 """
 
 from collections.abc import Callable
@@ -75,11 +75,15 @@ class Worker:
         self._queue = InvestigationQueue(engine)
 
     def run_once(self) -> int | None:
-        """점검 중단을 감시하고, 대기 중인 조사를 하나 처리한다. 처리한 이슈 번호(없으면 None)."""
+        """감시·리마인드 뒤 대기 중인 조사를 하나 처리한다. 처리한 이슈 번호(없으면 None)."""
         try:
             self._notifier.check_stalled(self._clock())
         except Exception as e:  # noqa: BLE001 — 감시 실패가 조사를 막지 않게
             logger.warning(f"점검 중단 감시 실패: {type(e).__name__}")
+        try:
+            self._notifier.check_reminders(self._clock())
+        except Exception as e:  # noqa: BLE001 — 리마인드 실패가 조사를 막지 않게
+            logger.warning(f"리마인드 실패: {type(e).__name__}")
         try:  # 끝을 못 쓰고 끊긴 조사(SIGKILL·OOM)를 닫는다. kg investigate 행도 여기서 닫힌다
             InvestigationStore(self._engine).sweep_stale(self._clock(), STALE_CLAIM)
         except Exception as e:  # noqa: BLE001 — 정리 실패가 조사를 막지 않게

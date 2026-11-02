@@ -158,6 +158,27 @@ def test_default_http_gets_accounts_from_accounts_dir(tmp_path, monkeypatch):
         get_setting.cache_clear()
 
 
+@pytest.mark.parametrize(
+    ("token", "dry_run", "enabled"),
+    [("xapp-1", False, True), ("", False, False), ("xapp-1", True, False)],
+)
+def test_ack_is_enabled_only_with_app_token_and_real_sender(
+    tmp_path, monkeypatch, token, dry_run, enabled
+):
+    class Sender:
+        pass
+
+    Sender.dry_run = dry_run
+    monkeypatch.setenv("SLACK_APP_TOKEN", token)
+    get_setting.cache_clear()
+    try:
+        config = KubeGuardianConfig.model_validate({"target": {"namespace": "dev"}})
+        notifier = cli._notifier(cli._open_db(str(tmp_path / "kg.db")), config, Sender())
+        assert notifier._ack_enabled is enabled
+    finally:
+        get_setting.cache_clear()
+
+
 # ── kg investigate ──
 
 

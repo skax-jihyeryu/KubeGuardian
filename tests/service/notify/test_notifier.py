@@ -23,7 +23,7 @@ CONFIG = KubeGuardianConfig.model_validate(
             "app_token_secret": "kg-slack-app",
             "report_url": "http://kg.local/dev",
             "reminders": {
-                "critical": {"first_after": "30m", "then_every": "2h", "max": 3},
+                "critical": {"first_after": "30m", "then_every": "30m", "require_ack": True},
                 "warning": {"first_after": "2h", "max": 1},
             },
         },
@@ -344,9 +344,9 @@ def test_done_without_issues_is_not_reported_as_failure(env):
 
 
 def test_reminder_and_recovery_measure_outage_from_incident_open(env):
-    _, sender, check = env
+    engine, sender, check = env
     check([_sig()], NOW)
-    check([_sig()], NOW + timedelta(minutes=31))
+    Notifier(engine, CONFIG, sender).check_reminders(NOW + timedelta(minutes=31))
     check([_sig(verdict="passed")], NOW + timedelta(minutes=40))
 
     assert "31분째" in sender.posts[1]["text"] and "약 40분" in sender.posts[2]["text"]
