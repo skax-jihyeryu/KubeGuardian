@@ -75,4 +75,28 @@ def test_band_counts_open_incidents_and_unknown_of_latest_check(client, engine):
     text = client.get("/dev/checks").text
     assert "긴급 1" in text
     assert "주의 0" in text
-    assert "확인하지 못함" not in text  # 0이면 숨김
+    assert "확인하지 못함 0" not in text  # 필터 선택지와 별개로 0건 칩은 숨김
+
+
+def test_manual_check_cooldown_has_expiry(client, engine, clock):
+    from core.db import CheckRunStore
+
+    CheckRunStore(engine).create("ui", clock.now)
+    response = client.get("/dev/checks")
+    assert 'data-check-wait="61"' in response.text
+
+
+def test_running_header_polls_until_lock_released(client, engine, clock):
+    from datetime import timedelta
+
+    from core.db import CheckLockStore
+
+    locks = CheckLockStore(engine)
+    held = locks.acquire("ui", clock.now, timedelta(minutes=4)).holder
+    response = client.get("/dev/shell")
+    assert 'hx-get="/dev/shell"' in response.text
+    assert "점검 중" in response.text
+    locks.release(held.token)
+    response = client.get("/dev/shell")
+    assert "hx-trigger=" not in response.text
+    assert "btn-primary" in response.text

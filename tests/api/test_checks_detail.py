@@ -220,7 +220,7 @@ def test_calm_check(client, engine):
     assert "이상 없음" in text
     assert "조사 안 함 — 장애 신호 없음" in text
     assert "통과 2건" in text
-    assert "확인하지 못함" not in text
+    assert "확인하지 못함 0" not in text
     assert "조사 시작" not in text
     assert POLL not in text
     assert "해당 없음" in text  # 조사 단계는 붙지 않는다
@@ -455,6 +455,33 @@ def test_evidence_table_lists_this_checks_evidence_with_links(client, engine):
     assert f"?ev={int(ev[3:])}" in text
     assert f"?ev={int(other[3:])}" not in text
     assert "근거" in text
+
+
+def test_running_elapsed_marker_is_server_anchored_and_static_after_completion(
+    client, engine, clock
+):
+    run = make_run(engine)
+    start_running_check(engine, run)
+    clock.now = at(81)
+    page = detail(client, run).text
+    assert 'data-check-elapsed="81"' in page
+    assert 'role="timer"' in page
+    assert "1분 21초" in page
+    assert 'aria-live="off"' in page
+    assert POLL in page
+    CheckResultStore(engine).finish(run, "done", at(82), None, [], [])
+    page = detail(client, run).text
+    assert "data-check-elapsed=" not in page
+    assert 'role="timer"' not in page
+
+
+def test_failed_and_halted_checks_have_no_active_elapsed_marker(client, engine, clock):
+    run = make_run(engine)
+    start_running_check(engine, run)
+    clock.now = at(300)
+    assert "data-check-elapsed=" not in detail(client, run).text
+    CheckResultStore(engine).finish(run, "failed", at(4), None, [], [], error="RuntimeError")
+    assert "data-check-elapsed=" not in detail(client, run).text
 
 
 def test_unknown_advice_is_shown_with_reason(client, engine):

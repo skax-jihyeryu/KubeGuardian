@@ -1,0 +1,334 @@
+"""스냅샷을 읽지 않는 페이지 단위 점검 이력."""
+
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from urllib.parse import urlencode
+
+from sqlalchemy import Engine, Integer, String, case, cast, exists, func, or_, select, true
+from sqlalchemy.orm import Session, aliased
+
+from api.timefmt import md_hm
+from api.viewmodels.checks import ACTION_LABEL, TRIGGER_LABEL, Sev
+from api.viewmodels.shell import unknown_count
+from core.db import CheckResultStore
+from core.db.tables import CheckResultRow, CheckRunRow, IncidentCheckRow, InvestigationRow
+from core.guard.redact import redact_text
+from core.schedule import stalled_after
+from service.checks.detectors.catalog import CATALOG
+
+
+@dataclass(frozen=True)
+class CheckFilters:
+    period: str = "all"
+    severity: str = ""
+    relation: str = ""
+    trigger: str = ""
+    status: str = ""
+    q: str = ""
+
+    @classmethod
+    def from_query(cls, query):
+        return cls(
+            **{
+                k: str(query.get(k, "all" if k == "period" else ""))[:200]
+                for k in cls.__dataclass_fields__
+            }
+        )
+
+
+@dataclass
+class CheckRow:
+    id: int
+    time: str
+    severity: Sev | None
+    summary: str
+    trigger: str
+    status: str
+    relation: str
+    advice: int = 0
+    unknown: int = 0
+    gap: int = 0
+    calm: bool = False
+    url: str = ""
+    more_issues: int = 0
+
+
+@dataclass
+class CheckPage:
+    rows: list[CheckRow]
+    filters: CheckFilters
+    next_url: str | None
+    live: bool = False
+    groups: list[list[CheckRow]] = field(default_factory=list)
+
+
+STATUS = {"running": "진행 중", "done": "완료", "failed": "중단", "halted": "중단"}
+
+
+def list_checks(
+    engine: Engine,
+    filters: CheckFilters,
+    cursor: int | None,
+    now: datetime,
+    project: str = "dev",
+    schedule: str = "*/5 * * * *",
+) -> CheckPage:
+    previous = aliased(CheckRunRow)
+    previous_time = (
+        select(previous.started_at)
+        .where(previous.id < CheckRunRow.id)
+        .order_by(previous.id.desc())
+        .limit(1)
+        .correlate(CheckRunRow)
+        .scalar_subquery()
+    )
+    first_rank = {"critical": 4, "warning": 3, "info": 2}
+    impact_rank = {"core_path_broken": 4, "partial_users": 3, "latent_risk": 2, "improvement": 1}
+    latest_investigation = (
+        select(InvestigationRow.id)
+        .where(InvestigationRow.check_run_id == CheckRunRow.id)
+        .order_by(InvestigationRow.id.desc())
+        .limit(1)
+        .correlate(CheckRunRow)
+        .scalar_subquery()
+    )
+    reported_issues = func.json_each(InvestigationRow.report, "$.issues").table_valued("value")
+    resolved = exists(
+        select(1)
+        .where(
+            IncidentCheckRow.check_run_id == CheckRunRow.id,
+            IncidentCheckRow.incident_id == InvestigationRow.incident_id,
+            IncidentCheckRow.action == "resolved",
+        )
+        .correlate(CheckRunRow, InvestigationRow)
+    )
+    # 점검 상세처럼 이 점검의 최신 조사·1순위 문제만 사용한다.
+    # 이슈 행의 최종 심각도는 나중 재조사 때 바뀌므로 과거 점검에 사용하지 않는다.
+    report_rank = (
+        select(case(impact_rank, value=func.json_extract(reported_issues.c.value, "$.impact")))
+        .select_from(InvestigationRow)
+        .join(reported_issues, true())
+        .where(
+            InvestigationRow.id == latest_investigation,
+            ~resolved,
+            func.json_type(InvestigationRow.report, "$.conclusion") == "text",
+            func.json_type(InvestigationRow.report, "$.impact_scope") == "text",
+            func.json_extract(InvestigationRow.report, "$.confidence").in_(
+                ["high", "medium", "low"]
+            ),
+        )
+        .order_by(cast(func.json_extract(reported_issues.c.value, "$.rank"), Integer))
+        .limit(1)
+        .correlate(CheckRunRow)
+        .scalar_subquery()
+    )
+    rules = func.json_each(CheckResultRow.verdicts).table_valued("value").alias("rules")
+    items = func.json_each(func.json_extract(rules.c.value, "$.items")).table_valued("value")
+    advice_exists = exists(
+        select(1)
+        .select_from(rules.join(items, true()))
+        .where(
+            func.json_extract(rules.c.value, "$.rule_id").in_(
+                [rid for rid, spec in CATALOG.items() if spec.grade == "advice"]
+            ),
+            func.json_extract(items.c.value, "$.verdict") == "detected",
+        )
+        .correlate(CheckResultRow)
+    )
+    rank = func.coalesce(
+        report_rank,
+        case(
+            first_rank, value=CheckResultRow.first_severity, else_=case((advice_exists, 1), else_=0)
+        ),
+    )
+    stmt = select(
+        CheckRunRow.id, CheckRunRow.started_at, CheckRunRow.trigger, previous_time, rank
+    ).outerjoin(CheckResultRow, CheckResultRow.run_id == CheckRunRow.id)
+    if cursor:
+        stmt = stmt.where(CheckRunRow.id < cursor)
+    days = {"today": 1, "1d": 1, "7d": 7, "30d": 30}.get(filters.period)
+    if days:
+        stmt = stmt.where(CheckRunRow.started_at >= now - timedelta(days=days))
+    if filters.severity:
+        ranks = {
+            "critical": 4,
+            "crit": 4,
+            "warning": 3,
+            "warn": 3,
+            "info": 2,
+            "risk": 2,
+            "tip": 1,
+            "calm": 0,
+        }
+        stmt = stmt.where(rank == ranks.get(filters.severity, -1))
+        if filters.severity == "calm":
+            stmt = stmt.where(CheckResultRow.status == "done")
+    if filters.trigger:
+        stmt = stmt.where(CheckRunRow.trigger == filters.trigger)
+    if filters.relation:
+        relation = exists(
+            select(IncidentCheckRow.incident_id).where(
+                IncidentCheckRow.check_run_id == CheckRunRow.id
+            )
+        )
+        if filters.relation == "none":
+            stmt = stmt.where(~relation)
+        else:
+            stmt = stmt.where(
+                exists(
+                    select(IncidentCheckRow.incident_id).where(
+                        IncidentCheckRow.check_run_id == CheckRunRow.id,
+                        IncidentCheckRow.action == filters.relation,
+                    )
+                )
+            )
+    if filters.status:
+        from core.db.check_lock import CHECK_LOCK_TTL
+
+        phases = func.json_each(CheckResultRow.phases).table_valued("value")
+        heartbeat = (
+            select(func.max(func.julianday(func.json_extract(phases.c.value, "$.ended_at"))))
+            .select_from(phases)
+            .correlate(CheckResultRow)
+            .scalar_subquery()
+        )
+        last_progress = func.max(
+            func.julianday(CheckResultRow.started_at),
+            func.coalesce(heartbeat, func.julianday(CheckResultRow.started_at)),
+        )
+        cutoff = func.julianday((now - CHECK_LOCK_TTL).isoformat())
+        if filters.status == "halted":
+            stmt = stmt.where(
+                or_(
+                    CheckResultRow.status == "failed",
+                    (CheckResultRow.status == "running") & (last_progress < cutoff),
+                )
+            )
+        elif filters.status == "running":
+            stmt = stmt.where(CheckResultRow.status == "running", last_progress >= cutoff)
+        elif filters.status == "unknown":
+            stmt = stmt.where(
+                or_(
+                    cast(CheckResultRow.verdicts, String).contains('"unknown"'),
+                    cast(CheckResultRow.symptoms, String).contains('"unknown"'),
+                )
+            )
+        else:
+            stmt = stmt.where(CheckResultRow.status == filters.status)
+    if filters.q:
+
+        def json_contains(column):
+            text = func.json_tree(column).table_valued("type", "value")
+            return exists(
+                select(1)
+                .select_from(text)
+                .where(
+                    text.c.type == "text",
+                    cast(text.c.value, String).contains(filters.q, autoescape=True),
+                )
+                .correlate(CheckResultRow)
+            )
+
+        titles = func.json_each(InvestigationRow.report, "$.issues").table_valued("value")
+        report_title_matches = exists(
+            select(1)
+            .select_from(InvestigationRow)
+            .join(titles, true())
+            .where(
+                InvestigationRow.check_run_id == CheckRunRow.id,
+                func.json_extract(titles.c.value, "$.title").contains(filters.q, autoescape=True),
+            )
+            .correlate(CheckRunRow)
+        )
+        stmt = stmt.where(
+            or_(
+                CheckResultRow.gate_reason.contains(filters.q, autoescape=True),
+                json_contains(CheckResultRow.verdicts),
+                json_contains(CheckResultRow.symptoms),
+                report_title_matches,
+            )
+        )
+    with Session(engine) as session:
+        runs = list(session.execute(stmt.order_by(CheckRunRow.id.desc()).limit(51)))
+        ids = [r[0] for r in runs[:50]]
+        links = (
+            list(
+                session.execute(
+                    select(
+                        IncidentCheckRow.check_run_id,
+                        IncidentCheckRow.incident_id,
+                        IncidentCheckRow.action,
+                    ).where(IncidentCheckRow.check_run_id.in_(ids))
+                )
+            )
+            if ids
+            else []
+        )
+    results = CheckResultStore(engine).for_runs(ids)
+    rows = []
+    query = {k: v for k, v in vars(filters).items() if v}
+    if cursor:
+        query["cursor"] = cursor
+    row_query = "?" + urlencode(query) if query else ""
+    severities = {
+        4: ("crit", "긴급"),
+        3: ("warn", "주의"),
+        2: ("risk", "잠재 위험"),
+        1: ("tip", "개선 권고"),
+    }
+    for run_id, started, trigger, prior_time, severity_rank in runs[:50]:
+        result = results.get(run_id)
+        state = CheckResultStore.display_status(result, now) if result else "missing"
+        severity = severities.get(severity_rank)
+        relation = " · ".join(f"{ACTION_LABEL.get(a, a)} #{i}" for r, i, a in links if r == run_id)
+        advice = (
+            sum(
+                sum(item.get("verdict") == "detected" for item in v.get("items", []))
+                for v in result.verdicts
+                if v.get("rule_id") in CATALOG and CATALOG[v["rule_id"]].grade == "advice"
+            )
+            if result
+            else 0
+        )
+        unknown = unknown_count(result.verdicts, result.symptoms) if result else 0
+        if state == "running":
+            summary = "점검 진행 중"
+        elif state == "halted":
+            summary = "점검 중단"
+        elif state == "failed":
+            summary = "점검 실패"
+        else:
+            summary = result.gate_reason if result else "이전 점검 — 상세 기록 없음"
+        rows.append(
+            CheckRow(
+                run_id,
+                md_hm(started),
+                Sev(*severity) if severity else None,
+                redact_text(summary or "이상 없음"),
+                TRIGGER_LABEL.get(trigger, trigger),
+                "일부 확인하지 못함"
+                if state == "done" and unknown
+                else STATUS.get(state, "기록 없음"),
+                relation,
+                advice,
+                unknown,
+                calm=state == "done" and severity_rank <= 1 and not relation and not unknown,
+                gap=int((started - prior_time).total_seconds() // 60)
+                if prior_time and started - prior_time > stalled_after(schedule)
+                else 0,
+                url=f"/{project}/checks/{run_id}{row_query}",
+                more_issues=max(
+                    0, sum(r == run_id and action != "resolved" for r, _, action in links) - 1
+                ),
+            )
+        )
+    groups: list[list[CheckRow]] = []
+    for row in rows:
+        if groups and row.calm and groups[-1][-1].calm and not groups[-1][-1].gap:
+            groups[-1].append(row)
+        else:
+            groups.append([row])
+    query = {k: v for k, v in vars(filters).items() if v}
+    query["cursor"] = rows[-1].id if rows else 0
+    next_url = f"/{project}/checks?{urlencode(query)}" if len(runs) > 50 else None
+    return CheckPage(rows, filters, next_url, any(r.status == "진행 중" for r in rows), groups)

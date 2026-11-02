@@ -1,11 +1,13 @@
 """점검 상세·단계 조각·근거 서랍 (UI 정의서 §6.3~§6.4). 조회만 한다."""
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
+from api.viewmodels.check_list import CheckFilters, list_checks
 from api.viewmodels.checks import build_check_detail, build_drawer, build_steps
 from api.viewmodels.shell import build_shell
 from api.web import ConfigDep, EngineDep, NowDep, ProjectDep, parse_id, render, templates
+from service.pipeline.manual_check import ManualCheckConflict, start_manual_check
 
 router = APIRouter(include_in_schema=False)
 
@@ -30,7 +32,22 @@ def check_detail(
         if drawer is None:
             raise HTTPException(404)
     return render(
-        request, "checks/detail.html", build_shell(engine, config, now), d=detail, drawer=drawer
+        request,
+        "checks/detail.html",
+        build_shell(engine, config, now),
+        d=detail,
+        drawer=drawer,
+        page=list_checks(
+            engine,
+            CheckFilters.from_query(request.query_params),
+            parse_id(request.query_params["cursor"])
+            if request.query_params.get("cursor")
+            else None,
+            now,
+            project,
+            schedule=config.schedule,
+        ),
+        selected_run=run_id,
     )
 
 
@@ -57,3 +74,24 @@ def check_steps(
     if live is not None and not keep_polling:
         response.headers["HX-Refresh"] = "true"
     return response
+
+
+@router.post("/{p}/checks")
+def run_manual_check(
+    request: Request,
+    background: BackgroundTasks,
+    project: ProjectDep,
+    engine: EngineDep,
+    config: ConfigDep,
+    now: NowDep,
+):
+    try:
+        run_id = start_manual_check(engine, config, now, background.add_task)
+    except ManualCheckConflict as exc:
+        link = f"/{project}/checks/{exc.run_id}" if exc.run_id else f"/{project}/checks"
+        from html import escape
+
+        return HTMLResponse(
+            f'<p>{escape(str(exc))}</p><a href="{link}">점검 보기</a>', status_code=409
+        )
+    return RedirectResponse(f"/{project}/checks/{run_id}", status_code=303)

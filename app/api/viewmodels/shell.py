@@ -1,13 +1,15 @@
 """모든 화면에 붙는 GNB·상단 띠 값 (UI 정의서 §6.2)."""
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session
 
 from api.timefmt import hm
 from core.config import KubeGuardianConfig
-from core.db import CheckResultStore, CheckRunStore, IncidentStore
+from core.db import CheckLockStore, CheckResultStore, CheckRunStore, IncidentStore
+from core.db.tables import CheckRunRow
 from core.schedule import next_check, stalled_after
 
 CLUSTER_LABEL = "minikube"  # 프로젝트 표시는 지금 고정 값이다
@@ -37,6 +39,10 @@ class Shell:
     open_counts: dict[str, int]  # crit / warn / risk → 열린 이슈 수
     unknown_count: int  # 가장 최근 점검에서 확인하지 못한 항목 수
     unknown_run: int | None
+    running: bool = False
+    running_run: int | None = None
+    cooldown: bool = False
+    cooldown_seconds: int = 0
 
 
 def build_shell(engine: Engine, config: KubeGuardianConfig, now: datetime) -> Shell:
@@ -50,6 +56,14 @@ def build_shell(engine: Engine, config: KubeGuardianConfig, now: datetime) -> Sh
     halted = None
     if latest is not None and now - latest[1] > stalled_after(config.schedule):
         halted = int((now - latest[1]).total_seconds() // 60)
+    current = CheckLockStore(engine).current(now)
+    with Session(engine) as session:
+        last_ui = session.scalar(
+            select(CheckRunRow.started_at)
+            .where(CheckRunRow.trigger == "ui")
+            .order_by(CheckRunRow.id.desc())
+            .limit(1)
+        )
     return Shell(
         project=config.project.id,
         namespace=config.target.namespace,
@@ -60,6 +74,10 @@ def build_shell(engine: Engine, config: KubeGuardianConfig, now: datetime) -> Sh
         open_counts=_open_counts(engine),
         unknown_count=unknown,
         unknown_run=unknown_run if unknown else None,
+        running=current is not None,
+        running_run=current.run_id if current else None,
+        cooldown=last_ui is not None and now - last_ui < timedelta(minutes=1),
+        cooldown_seconds=max(0, int(60 - (now - last_ui).total_seconds()) + 1) if last_ui else 0,
     )
 
 

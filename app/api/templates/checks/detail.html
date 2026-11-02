@@ -5,6 +5,7 @@
 {% set run_id = d.run_id %}
 {% block title %}{{ d.title }} · KubeGuardian{% endblock %}
 {% block body %}
+{% include "checks/_list.html" %}
 <section class="detail" aria-label="점검 상세">
   <div class="doc">
     <div class="crumb"><a href="/{{ p }}/checks">{{ p }}</a>›<a href="/{{ p }}/checks">점검 이력</a>›<span>{{ d.short_time }}</span></div>
@@ -32,7 +33,7 @@
           {%- if h.open %}<span class="open">OPEN</span>{% endif %}
           {%- if h.unknown %}<span class="aux st">{{ ic("ban", "ic14") }}확인하지 못함 {{ h.unknown }}</span>{% endif %}
         </div>
-        <div class="meta">{{ h.meta }}</div>
+        <div class="meta">{{ h.meta }}{% if h.elapsed_seconds is not none %} · <span role="timer" aria-live="off" aria-label="점검 경과 시간" data-check-elapsed="{{ h.elapsed_seconds }}">{{ h.elapsed_text }}</span> 경과{% endif %}</div>
         <div class="concl" style="max-width:520px">
           {{ progress_box(d.steps) }}
           {%- if d.steps.progress and h.issues %}

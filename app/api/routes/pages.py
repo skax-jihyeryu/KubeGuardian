@@ -3,9 +3,9 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from api.viewmodels.check_list import CheckFilters, list_checks
 from api.viewmodels.shell import build_shell
-from api.web import ConfigDep, EngineDep, NowDep, ProjectDep, render
-from core.db import CheckRunStore
+from api.web import ConfigDep, EngineDep, NowDep, ProjectDep, render, templates
 
 router = APIRouter(include_in_schema=False)
 
@@ -28,11 +28,30 @@ def checks_home(
     config: ConfigDep,
     now: NowDep,
 ):
-    """점검 이력 홈. 목록·필터는 #29에서 붙인다. 지금은 가장 최근 점검으로 가는 링크만 둔다."""
-    latest = CheckRunStore(engine).latest_run()
-    return render(
+    """필터·페이지 단위 점검 이력."""
+    cursor = request.query_params.get("cursor")
+    from api.web import parse_id
+
+    page = list_checks(
+        engine,
+        CheckFilters.from_query(request.query_params),
+        parse_id(cursor) if cursor else None,
+        now,
+        project,
+        schedule=config.schedule,
+    )
+    return render(request, "checks/home.html", build_shell(engine, config, now), page=page)
+
+
+@router.get("/{p}/shell", response_class=HTMLResponse)
+def shell_header(
+    request: Request, project: ProjectDep, engine: EngineDep, config: ConfigDep, now: NowDep
+):
+    return templates.TemplateResponse(
         request,
-        "checks/home.html",
-        build_shell(engine, config, now),
-        latest_run=latest[0] if latest else None,
+        "_gnb.html",
+        {
+            "shell": build_shell(engine, config, now),
+            "p": project,
+        },
     )

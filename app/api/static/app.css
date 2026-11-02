@@ -26,3 +26,26 @@ details.stp>.sbody{padding-left:22px}
   .drawer{width:100%;border-radius:0}
   .paper{padding:16px}
 }
+
+@media(max-width:960px){
+  .list.with-detail{display:none}
+  .body>.detail.empty{display:none}
+  .list select{max-width:100%}
+  .frow{flex-wrap:wrap}
+}
+/* 검색 필터의 화살표는 두 화면 모두 오른쪽 테두리에서 10px 안쪽에 둔다. */
+.filters select.pill{
+  appearance:none;
+  -webkit-appearance:none;
+  padding-right:32px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23566070' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 10px center;
+  background-size:14px;
+}
+/* 실제 실행 중인 표시에만 움직임을 준다. 진행률은 만들어 내지 않는다. */
+.aux.run>.ic,.gnb[hx-trigger] form .btn-dis>.ic,.loading-spin{animation:kg-loading-spin 1s linear infinite;transform-origin:center}
+@keyframes kg-loading-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){
+  .aux.run>.ic,.gnb[hx-trigger] form .btn-dis>.ic,.loading-spin{animation:none}
+}
