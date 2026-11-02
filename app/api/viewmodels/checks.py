@@ -96,6 +96,7 @@ class StepView:
     calls: list[Call] = field(default_factory=list)
     state: str = "done"  # done / cur / todo
     progress: tuple[int, int] | None = None  # (도구 호출 수, 문제당 예산)
+    collect: list["CollectRow"] = field(default_factory=list)  # 정보 수집 단계
 
 
 @dataclass(frozen=True)
@@ -637,6 +638,130 @@ def _check_steps(d: _Loaded) -> list[StepView]:
     return steps
 
 
+NAME_LIMIT = 8
+_PRIMARY_KINDS = ("Pod", "Deployment", "Service", "Node")
+
+
+@dataclass(frozen=True)
+class CollectRow:
+    kind: str
+    count: int
+    status: str
+    names: tuple[str, ...]
+    failed: str | None
+    primary: bool
+
+
+def _name(obj: dict[str, Any]) -> str:
+    return str((obj.get("metadata") or {}).get("name", ""))
+
+
+def _condition(obj: dict[str, Any], kind: str) -> bool | None:
+    """status.conditions의 해당 type이 True면 True, False면 False, 판단할 수 없으면 None."""
+    conditions = (obj.get("status") or {}).get("conditions") or []
+    for c in conditions:
+        if c.get("type") == kind:
+            return c.get("status") == "True"
+    return None
+
+
+def _pod_base_name(pod: dict[str, Any]) -> str:
+    """ReplicaSet 해시와 Pod 접미사를 뺀 이름. 소유자를 모르면 그대로."""
+    name = _name(pod)
+    owners = (pod.get("metadata") or {}).get("ownerReferences") or []
+    kinds = {o.get("kind") for o in owners}
+    parts = 2 if "ReplicaSet" in kinds else 1 if kinds & {"DaemonSet", "Job"} else 0
+    return name.rsplit("-", parts)[0] if parts and name.count("-") >= parts else name
+
+
+def _limited(names: list[str]) -> tuple[str, ...]:
+    if len(names) <= NAME_LIMIT:
+        return tuple(names)
+    return (*names[:NAME_LIMIT], f"외 {len(names) - NAME_LIMIT}개")
+
+
+def _pod_row(pods: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
+    ready = not_ready = unknown = restarts = 0
+    groups: dict[str, int] = {}
+    for pod in pods:
+        state = _condition(pod, "Ready")
+        if state is None:
+            unknown += 1
+        elif state:
+            ready += 1
+        else:
+            not_ready += 1
+        for cs in (pod.get("status") or {}).get("containerStatuses") or []:
+            restarts += int(cs.get("restartCount") or 0)
+        base = _pod_base_name(pod)
+        groups[base] = groups.get(base, 0) + 1
+    parts = [f"Ready {ready}"]
+    if not_ready:
+        parts.append(f"준비 안 됨 {not_ready}")
+    if unknown:
+        parts.append(f"확인 불가 {unknown}")
+    parts.append(f"재시작 {restarts}")
+    names = [f"{n} ×{c}" if c > 1 else n for n, c in groups.items()]
+    return " · ".join(parts), _limited(names)
+
+
+def _deployment_row(deployments: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
+    match, unknown = 0, 0
+    short = []
+    for dep in deployments:
+        if "status" not in dep:
+            unknown += 1
+            continue
+        expected = (dep.get("spec") or {}).get("replicas", 1)
+        ready = (dep["status"] or {}).get("readyReplicas") or 0
+        if ready >= expected:
+            match += 1
+        else:
+            short.append(f"{_name(dep)} {ready}/{expected}")
+    text = f"기대 수와 일치 {match}"
+    if short:
+        text += f" · 부족 {len(short)} ({', '.join(short)})"
+    if unknown:
+        text += f" · 확인 불가 {unknown}"
+    return text, _limited([_name(d) for d in deployments])
+
+
+def collect_summary(snapshot: ClusterSnapshot | None) -> list[CollectRow]:
+    """저장된 스냅샷에서 종류별 건수·상태 요약·이름을 만든다. 내용의 정확성을 검증하지 않는다."""
+    if snapshot is None:
+        return []
+    kinds = set(snapshot.resources) | set(snapshot.failed)
+    rows = []
+    for kind in sorted(
+        kinds,
+        key=lambda k: (
+            k not in _PRIMARY_KINDS,
+            _PRIMARY_KINDS.index(k) if k in _PRIMARY_KINDS else 0,
+            k,
+        ),
+    ):
+        if kind in snapshot.failed:
+            rows.append(CollectRow(kind, 0, "", (), snapshot.failed[kind], kind in _PRIMARY_KINDS))
+            continue
+        items = snapshot.resources[kind]
+        primary = kind in _PRIMARY_KINDS
+        status, names = "", ()
+        if kind == "Pod":
+            status, names = _pod_row(items)
+        elif kind == "Deployment":
+            status, names = _deployment_row(items)
+        elif kind == "Service":
+            no_selector = sum(1 for s in items if not (s.get("spec") or {}).get("selector"))
+            status = f"selector 없음 {no_selector}" if no_selector else ""
+            names = _limited([_name(s) for s in items])
+        elif kind == "Node":
+            ready = sum(1 for n in items if _condition(n, "Ready"))
+            status = f"Ready {ready}"
+            names = _limited([_name(n) for n in items])
+        rows.append(CollectRow(kind, len(items), status, names, None, primary))
+    return rows
+
+
 def _phase_view(d: _Loaded, result: CheckResult, p: Phase, title: str) -> StepView:
     time = _phase_time(p)
     if p.name == "collect":
@@ -644,16 +769,10 @@ def _phase_view(d: _Loaded, result: CheckResult, p: Phase, title: str) -> StepVi
         lines = []
         if snapshot is None:
             lines.append("저장된 스냅샷 없음")
-        else:
-            for kind in sorted(set(snapshot.resources) | set(snapshot.failed)):
-                if kind in snapshot.failed:
-                    lines.append(f"{kind}: 수집 실패 — {snapshot.failed[kind]}")
-                else:
-                    lines.append(f"{kind}: {len(snapshot.resources[kind])}개 · 수집 성공")
-            if snapshot.items("Pod") == []:
-                lines.append("주의: Pod가 0개입니다. 대상 네임스페이스와 수집 권한을 확인하세요.")
+        elif snapshot.items("Pod") == []:
+            lines.append("주의: Pod가 0개입니다. 대상 네임스페이스와 수집 권한을 확인하세요.")
         lines.append("건수는 저장된 스냅샷 기준이며 내용의 정확성을 검증한 결과가 아닙니다.")
-        return StepView(title, p.summary, time, lines=lines)
+        return StepView(title, p.summary, time, lines=lines, collect=collect_summary(snapshot))
     if p.name == "rules":
         lines, mono = [], []
         for rule in result.verdicts:

@@ -553,9 +553,10 @@ def test_collection_uses_saved_counts_and_failure_reasons(client, engine):
     CheckResultStore(engine).phase(run, "collect", at(0), at(1), "수집 완료")
     html = detail(client, run).text
     assert "정보 수집" in html
-    assert "Pod: 0개" in html
-    assert "Service: 1개" in html
-    assert "ConfigMap: 수집 실패 — Forbidden" in html
+    assert "Pod" in html and "0개" in html
+    assert "Service" in html and "1개" in html
+    assert "수집 실패 — Forbidden" in html
+    assert "그 밖의 수집 항목" in html
     assert "Pod가 0개" in html
     assert "내용의 정확성" in html
 
