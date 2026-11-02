@@ -2,6 +2,9 @@
 
 - 규칙 목록(catalog)의 모든 ID에 감지기가 있어야 한다. 없으면 시작하지 않는다.
 - 감지기가 예외를 내거나 잘못된 결과를 내면 그 규칙을 "확인하지 못함"으로 둔다 (메시지는 마스킹).
+- 끈 규칙은 돌리지 않고 관측 기록을 모두 지운다. 꺼 둔 동안 낡은 기록으로 다시 켠 첫 점검이
+  보류 시간(hold)을 건너뛰고 바로 적발하지 않게 한다
+  (W01의 updatedReplicas_changed_at도 기록과 함께 지워진다).
 - 판정 뒤 이번에 판정한 대상 밖의 관측 기록을 지운다(prune). 규칙 전체를 확인하지 못했으면
   기록을 그대로 둔다 (판정 보류, 05-rules §0.2).
 """
@@ -26,11 +29,15 @@ def load_detectors() -> None:
         raise RuntimeError(f"감지기가 없는 규칙: {', '.join(missing)}")
 
 
-def run_detectors(ctx: DetectorContext) -> list[Signal]:
+def run_detectors(ctx: DetectorContext, excluded: frozenset[str] = frozenset()) -> list[Signal]:
+    """excluded(끈 규칙)는 돌리지 않고 관측 기록을 지운다 (다시 켜면 보류 시간을 처음부터 센다)."""
     load_detectors()
     detectors = registered()
     signals: list[Signal] = []
     for rule_id in CATALOG:
+        if rule_id in excluded:
+            ctx.observations.prune(rule_id, set())
+            continue
         result = _run_one(rule_id, detectors[rule_id], ctx)
         if not _rule_unknown(result, ctx):
             ctx.observations.prune(rule_id, {s.subject for s in result})

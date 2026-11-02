@@ -8,20 +8,32 @@ http가 있고 설정에 API 시나리오가 있으면 규칙 점검 뒤에 증�
 화면·CLI 점검은 CronJob처럼 시간 제한으로 잘리지 않으므로 단계마다 잠금 만료를 늘린다.
 """
 
+from collections import Counter
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from core.config import KubeGuardianConfig
-from core.db import CheckLockStore, CheckRunStore, EvidenceStore, SqliteObservationStore
-from core.db.check_lock import CheckLock
+from core.db import (
+    CheckLockStore,
+    CheckResultStore,
+    CheckRunStore,
+    EvidenceStore,
+    RuleSelectionStore,
+    SqliteObservationStore,
+)
+from core.db.check_lock import CHECK_LOCK_TTL, CheckLock
+from core.db.investigations import INTERRUPTED
 from core.error.service_exception import ErrorCode, ServiceException
+from core.log.logging import get_logging
 from service.alerts.incidents import IncidentChange, track
 from service.checks.detectors.base import DetectorContext
+from service.checks.detectors.catalog import CATALOG
 from service.checks.gate import decide_gate
 from service.checks.runner import run_detectors
 from service.checks.signal_board import build_signal_board
@@ -38,9 +50,7 @@ from service.model import (
 from service.sensors.collector import KubeReader, collect
 from service.tools.base import ToolContext
 
-# 점검 잠금 만료. CronJob activeDeadlineSeconds(270)와 같게 둬서
-# 잘린 점검의 잠금이 다음 회차(300초) 전에 풀린다
-CHECK_LOCK_TTL = timedelta(seconds=270)
+logger = get_logging()
 
 
 def _wall_now() -> datetime:
@@ -56,6 +66,94 @@ class _HeldLock:
     def renew(self) -> None:
         with suppress(SQLAlchemyError):  # 못 늘리면 원래 만료를 따른다
             self.locks.renew(self.token, _wall_now(), CHECK_LOCK_TTL)
+
+
+def _excluded_rules(engine: Engine) -> frozenset[str]:
+    """끈 규칙 (규칙 선택, #116). 못 읽으면 전부 켠 채로 점검한다."""
+    try:
+        return frozenset(RuleSelectionStore(engine).disabled() & set(CATALOG))
+    except SQLAlchemyError as e:
+        logger.warning(f"규칙 선택 읽기 실패: {type(e).__name__}")
+        return frozenset()
+
+
+class _Recorder:
+    """점검 결과(check_result) 기록. 부가 작업이라 실패는 로그만 남기고 점검을 막지 않는다 (#116).
+
+    시각은 점검 기준 시각 now에서 실제 흐른 시간만큼 더한 값이다 (평가의 고정 now와도 맞는다).
+    """
+
+    def __init__(self, engine: Engine, now: datetime):
+        self._store = CheckResultStore(engine)
+        self._now = now
+        self._t0 = _wall_now()
+        self._run_id: int | None = None
+        self._phase_start = now
+        self.gate: GateResult | None = None
+        self.signals: list[Signal] = []
+        self.symptoms: list[Symptom] = []
+        self.rules: list[str] = []  # 돌린 규칙 (규칙 목록 순서)
+
+    def clock(self) -> datetime:
+        return self._now + (_wall_now() - self._t0)
+
+    def start(self, run_id: int, excluded: frozenset[str]) -> None:
+        self._run_id = run_id
+        self._record(lambda: self._store.start(run_id, self._now, sorted(excluded)))
+        self._phase_start = self.clock()
+
+    def phase(self, name: str, summary: Callable[[], str]) -> None:
+        ended = self.clock()
+        started, self._phase_start = self._phase_start, ended
+        if self._run_id is not None:
+            run_id = self._run_id
+            self._record(lambda: self._store.phase(run_id, name, started, ended, summary()))
+
+    def finish(self, status: str, error: str | None = None) -> None:
+        if self._run_id is not None:
+            run_id = self._run_id
+            self._record(
+                lambda: self._store.finish(
+                    run_id,
+                    status,
+                    self.clock(),
+                    self.gate,
+                    self.signals,
+                    self.symptoms,
+                    rules=self.rules,
+                    error=error,
+                )
+            )
+
+    @staticmethod
+    def _record(write) -> None:
+        try:
+            write()
+        except Exception as e:  # 기록 결함(요약 계산 포함)이 점검을 막거나 원래 예외를 가리지 않게
+            logger.warning(f"점검 결과 기록 실패: {type(e).__name__}")
+
+
+def _rules_summary(signals: list[Signal]) -> str:
+    n = Counter(
+        "적발"
+        if s.verdict == "detected" and CATALOG[s.rule_id].grade == "signal"
+        else "개선 권고"
+        if s.verdict == "detected"
+        else s.verdict
+        for s in signals
+    )
+    text = f"적발 {n['적발']} · 관찰 중 {n['observing']} · 개선 권고 {n['개선 권고']}"
+    return text + (f" · 확인하지 못함 {n['unknown']}" if n["unknown"] else "")
+
+
+def _symptoms_summary(symptoms: list[Symptom]) -> str:
+    if not symptoms:
+        return "실행한 시나리오 없음"
+    parts = [f"{x.scenario} {x.failed_step}단계 실패" for x in symptoms if x.status == "failed"]
+    unknown = sum(x.status == "unknown" for x in symptoms)
+    if unknown:
+        parts.append(f"확인하지 못함 {unknown}")
+    return ", ".join(parts) or "모두 통과"
 
 
 def clean_symptom(text: str | None) -> str | None:
@@ -135,9 +233,12 @@ def _run_locked(
     http: Any,
     user_symptom: str | None,
 ) -> CheckOutcome:
+    rec = _Recorder(engine, now)
     try:
         runs = CheckRunStore(engine)
         run_id = runs.create(trigger, now)
+        excluded = _excluded_rules(engine)
+        rec.start(run_id, excluded)
         lock.locks.attach_run(lock.token, run_id)
         snapshot = collect(reader, now=now)
         runs.save_snapshot(run_id, snapshot)
@@ -150,7 +251,10 @@ def _run_locked(
             now=now,
         )
         evidence = EvidenceStore(engine, run_id)
-        signals = _store_evidence(evidence, snapshot, run_detectors(ctx))
+        signals = _store_evidence(evidence, snapshot, run_detectors(ctx, excluded))
+        rec.signals = signals
+        rec.rules = [r for r in CATALOG if r not in excluded]
+        rec.phase("rules", lambda: _rules_summary(signals))
         lock.renew()
         symptoms = []
         if http is not None and config.api_scenarios:
@@ -162,7 +266,11 @@ def _run_locked(
                 http=http,
             )
             symptoms = detect_symptoms(config, tool_ctx)
+        rec.symptoms = symptoms
+        rec.phase("symptoms", lambda: _symptoms_summary(symptoms))
         gate = decide_gate(signals, symptoms, clean_symptom(user_symptom))
+        rec.gate = gate
+        rec.phase("gate", lambda: gate.reason)
         # 이슈 상태도 잠금 안에서 정한다 (두 점검이 같은 이슈를 동시에 열지 않게)
         incidents = track(
             engine,
@@ -173,6 +281,7 @@ def _run_locked(
             gate=gate,
             signals=signals,
             symptoms=symptoms,
+            excluded_rules=excluded,
         )
         outcome = CheckOutcome(
             run_id=run_id,
@@ -183,8 +292,14 @@ def _run_locked(
             symptoms=symptoms,
             incidents=incidents,
         )
-    except SQLAlchemyError as e:
-        raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
+    except BaseException as e:  # SIGTERM(SystemExit)도 행을 running으로 남기지 않는다
+        # 끝을 기록하지 못한 조사와 같은 값 (investigate.py)
+        interrupted = isinstance(e, SystemExit | KeyboardInterrupt)
+        rec.finish("failed", error=INTERRUPTED if interrupted else type(e).__name__)
+        if isinstance(e, SQLAlchemyError):
+            raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
+        raise
+    rec.finish("done")
     return outcome
 
 

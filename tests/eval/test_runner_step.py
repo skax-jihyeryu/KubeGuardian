@@ -292,3 +292,24 @@ def test_investigate_passes_account_http_to_run_investigation(tmp_path, capsys, 
     )
 
     assert seen["http"]._accounts == ACCOUNTS
+
+
+def test_check_output_keeps_its_fields_and_runs_every_rule(tmp_path, capsys):
+    """점검 결과 기록(#116)은 check 출력을 바꾸지 않고, 규칙 선택이 없으면 전부 켠다."""
+    from core.db import CheckResultStore, create_db_engine
+
+    code, out, db = _check(tmp_path, capsys, "s01/detected")
+
+    payload = json.loads(out)
+    assert code == 0
+    assert set(payload) == {
+        "run_id",
+        "gate_path",
+        "gate",
+        "signals",
+        "snapshot_failed",
+        "symptoms",
+    }
+    assert {"S01", "W02", "H01"} <= {s["rule_id"] for s in payload["signals"]}
+    assert CheckResultStore(create_db_engine(db)).get(payload["run_id"]).excluded_rules == []
+    assert payload["gate_path"] == "A"

@@ -1,6 +1,6 @@
 """SQLite 테이블. W1: 점검 이력·Evidence·관측 기록. W3: 점검 잠금·건너뜀, 이슈·알림 이력.
 
-W4: 조사·단계·보고서 (#98).
+W4: 조사·단계·보고서 (#98), 점검 결과·규칙 선택 (#116).
 """
 
 from datetime import UTC, datetime
@@ -211,3 +211,36 @@ class AgentStepRow(Base):
     args: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # 마스킹된 값
     evidence_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     detail: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # 마스킹된 값
+
+
+class CheckResultRow(Base):
+    """점검 하나의 결과 (점검 상세 §6.4, #116). check_run에 열을 더하지 않고 따로 둔다.
+
+    행은 run id를 얻은 직후 running으로 만들고 끝나면 채운다. 목록이 스냅샷 JSON을 읽지 않게
+    판정·조사 판단·소요 시간을 여기 둔다. JSON 값은 저장 전에 마스킹한다.
+    """
+
+    __tablename__ = "check_result"
+
+    run_id: Mapped[int] = mapped_column(ForeignKey("check_run.id"), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))  # running / done / failed
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime)  # check_run.started_at과 같다
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    gate_path: Mapped[str | None] = mapped_column(String(1))  # A / B / C
+    gate_reason: Mapped[str | None] = mapped_column(String(512))
+    first_severity: Mapped[str | None] = mapped_column(String(16))
+    verdicts: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    symptoms: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    phases: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    excluded_rules: Mapped[list[str]] = mapped_column(JSON, default=list)
+    error: Mapped[str | None] = mapped_column(String(64))  # 실패한 점검의 예외 종류 이름
+
+
+class RuleSelectionRow(Base):
+    """점검 규칙 켜기·끄기. 행이 없는 규칙은 켜진 것이다 (#116)."""
+
+    __tablename__ = "rule_selection"
+
+    rule_id: Mapped[str] = mapped_column(String(8), primary_key=True)
+    enabled: Mapped[bool] = mapped_column()
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime)

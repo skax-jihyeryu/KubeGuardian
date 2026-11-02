@@ -15,7 +15,7 @@
 run_check가 점검 잠금 안에서 부른다.
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
@@ -55,6 +55,7 @@ def track(
     gate: GateResult,
     signals: list[Signal],
     symptoms: list[Symptom],
+    excluded_rules: frozenset[str] = frozenset(),
 ) -> list[IncidentChange]:
     store = IncidentStore(engine)
     open_incidents = store.open_incidents()
@@ -66,20 +67,42 @@ def track(
         matched = (
             overlapping[-1] if overlapping else None
         )  # 겹치는 것이 여럿이면 가장 최근을 따른다
+        if matched is not None and excluded_rules:
+            fp = _with_excluded(fp, matched, excluded_rules)
         change = _follow(store, matched, fp, gate, trigger, run_id, now)
         if change:
             changes.append(change)
         # 나머지 겹치는 이슈는 이 점검에 연결만 한다 (조사·알림 없음). 대상이 사라지면 따로 해결된다
         for other in overlapping[:-1]:
-            if not _gone(other, signals, symptoms):
+            if not _gone(other, signals, symptoms, excluded_rules):
                 action = "continued" if trigger == "schedule" else "seen"
                 store.touch(other.id, run_id, now, action)
                 changes.append(IncidentChange(other.id, action, other.first_severity))
     for incident in open_incidents:
-        if incident is not matched and _gone(incident, signals, symptoms):
+        if incident is not matched and _gone(incident, signals, symptoms, excluded_rules):
             store.resolve(incident.id, run_id, now)
             changes.append(IncidentChange(incident.id, "resolved", incident.first_severity))
     return changes
+
+
+def _with_excluded(
+    fp: Fingerprint, matched: Incident, excluded_rules: frozenset[str]
+) -> Fingerprint:
+    """끈 규칙의 대상·서비스를 지문에 되돌린다. 끈 규칙은 이번 점검이 확인하지 않은 것이라
+    그 때문에 생긴 차이는 상황 변화가 아니다 (재조사·대상 덮어쓰기·잘못된 해결을 막는다).
+    서비스는 규칙별로 기록하지 않아 이슈의 서비스를 모두 되돌린다. 경로(지문 키에 든다)와
+    영향 기능도 이슈 것을 되돌려, 끈 규칙의 기능이 사라져 다시 켤 때 이슈가 갈라지지 않게 한다."""
+    kept = tuple(t for t in matched.targets if t[0] in excluded_rules)
+    if not kept:
+        return fp
+    return replace(
+        fp,
+        path=matched.path,
+        features=tuple(sorted({*fp.features, *matched.features})),
+        rule_ids=tuple(sorted({*fp.rule_ids, *(rule for rule, _ in kept)})),
+        services=tuple(sorted({*fp.services, *matched.services})),
+        targets=tuple(sorted({*fp.targets, *kept})),
+    )
 
 
 def _follow(
@@ -107,14 +130,23 @@ def _follow(
     return IncidentChange(matched.id, "changed", gate.severity)
 
 
-def _gone(incident: Incident, signals: list[Signal], symptoms: list[Symptom]) -> bool:
+def _gone(
+    incident: Incident,
+    signals: list[Signal],
+    symptoms: list[Symptom],
+    excluded_rules: frozenset[str] = frozenset(),
+) -> bool:
     """이번 점검이 그 이슈의 규칙·증상을 모두 확인했고 하나도 남지 않았으면 True.
+
+    끈 규칙(excluded_rules)은 확인하지 않은 것이라 그 규칙이 있는 이슈는 해결하지 않는다.
 
     확인할 대상이 없는 이슈(사용자 증상만)는 해결을 판단할 수 없어 True가 되지 않는다.
     """
     if not incident.targets and not incident.scenarios:
         return False
     rules = {rule for rule, _ in incident.targets}
+    if rules & excluded_rules:
+        return False
     for s in signals:
         if s.rule_id not in rules or s.verdict == "passed":
             continue

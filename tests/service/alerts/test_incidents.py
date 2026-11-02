@@ -41,7 +41,7 @@ class Checks:
     def __init__(self, engine):
         self.engine, self.n = engine, 0
 
-    def run(self, signals=(), symptoms=(), trigger="schedule", user=None):
+    def run(self, signals=(), symptoms=(), trigger="schedule", user=None, excluded=frozenset()):
         self.n += 1
         return track(
             self.engine,
@@ -52,6 +52,7 @@ class Checks:
             gate=decide_gate(list(signals), list(symptoms), user),
             signals=list(signals),
             symptoms=list(symptoms),
+            excluded_rules=frozenset(excluded),
         )
 
 
@@ -238,3 +239,69 @@ def test_change_clears_old_final_severity(engine):
     checks.run([_sig("S01", "agent"), _sig("P03", "agent", subject="dev/Pod/a/agent")])
 
     assert store.get(c.incident_id).final_severity is None  # 새 지문의 조사가 다시 정한다
+
+
+def test_turning_a_rule_off_keeps_its_target_so_the_incident_is_not_wrongly_resolved(engine):
+    checks = Checks(engine)
+    [opened] = checks.run([_sig("S01", "agent"), _sig("S02", "agent")])
+
+    # S02를 끄고 S01만 남음: 지문이 달라 보이지만 끈 규칙 때문이다
+    [kept] = checks.run([_sig("S01", "agent")], excluded={"S02"})
+    assert (kept.action, kept.needs_investigation) == ("continued", False)
+    assert ("S02", "dev/Service/agent") in IncidentStore(engine).get(opened.incident_id).targets
+
+    # S01이 사라져도 S02는 다시 확인하지 않았으므로 해결이 아니다
+    assert checks.run([_sig("S01", "agent", verdict="passed")], excluded={"S02"}) == []
+    assert IncidentStore(engine).get(opened.incident_id).status == "open"
+
+
+def test_turning_the_rule_back_on_continues_the_same_incident(engine):
+    checks = Checks(engine)
+    [opened] = checks.run([_sig("S01", "agent"), _sig("S02", "agent")])
+    checks.run([_sig("S01", "agent")], excluded={"S02"})
+
+    [back] = checks.run([_sig("S01", "agent"), _sig("S02", "agent")])
+
+    assert (back.action, back.incident_id) == ("continued", opened.incident_id)
+
+
+def test_new_signal_on_same_feature_keeps_the_off_rules_target(engine):
+    checks = Checks(engine)
+    [opened] = checks.run([_sig("S01", "agent")])
+
+    [changed] = checks.run([_sig("P03", "agent", subject="dev/Pod/a/agent")], excluded={"S01"})
+
+    assert (changed.action, changed.incident_id) == ("changed", opened.incident_id)
+    assert set(IncidentStore(engine).get(opened.incident_id).targets) == {
+        ("S01", "dev/Service/agent"),
+        ("P03", "dev/Pod/a/agent"),
+    }
+
+
+def test_turning_a_rule_off_while_the_symptom_stays_continues_without_reinvestigation(engine):
+    checks = Checks(engine)
+    [opened] = checks.run([_sig("S02", "agent")], [_sym()])  # 경로 A
+
+    # S02를 끄면 게이트는 증상만 남아 경로 B가 된다: 경로가 달라 보여도 상황 변화가 아니다
+    [kept] = checks.run([], [_sym()], excluded={"S02"})
+
+    assert (kept.action, kept.incident_id, kept.needs_investigation) == (
+        "continued",
+        opened.incident_id,
+        False,
+    )
+    assert ("S02", "dev/Service/agent") in IncidentStore(engine).get(opened.incident_id).targets
+
+
+def test_features_of_the_off_rule_are_kept_so_re_enabling_does_not_open_a_second_incident(engine):
+    checks = Checks(engine)
+    [opened] = checks.run([_sig("S01", "agent"), _sig("S02", "admin")])  # chat + login
+    pod = _sig("P03", "agent", subject="dev/Pod/a/agent")
+    checks.run([_sig("S01", "agent"), pod], excluded={"S02"})
+    store = IncidentStore(engine)
+    assert store.get(opened.incident_id).features == ("chat", "login")
+
+    [back] = checks.run([_sig("S02", "admin")])
+
+    assert back.incident_id == opened.incident_id
+    assert len(store.open_incidents()) == 1
