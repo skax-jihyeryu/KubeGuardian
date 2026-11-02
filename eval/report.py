@@ -129,25 +129,20 @@ def _ci(k: int, n: int) -> str:
 
 
 def batch_drift(results: list[tuple[str, dict]]) -> list[str]:
-    """묶음 도중 이미지·설정이 바뀐 구간을 문장으로 돌려준다.
-
-    in_cluster는 시나리오 시작 때만 기록되므로 변경 시점은 두 시작 사이다.
-    값이 없는 결과는 건너뛴다.
-    """
+    """묶음의 시작·종료 관측값 사이 이미지·설정 변경을 찾는다. 없는 값은 건너뛴다."""
     out = []
     for key in ("image_id", "config_resource_version"):
-        prev = prev_sid = None
+        prev = prev_label = None
         for _, result in results:
-            value = (result.get("in_cluster") or {}).get(key)
-            if not value:
-                continue
-            if prev is not None and value != prev:
-                show = (lambda v: str(v)[-12:]) if key == "image_id" else str
-                out.append(
-                    f"{key}: {show(prev)} → {show(value)} "
-                    f"({prev_sid} 시작~{result['scenario']} 시작 사이)"
-                )
-            prev, prev_sid = value, result["scenario"]
+            for field, phase in (("in_cluster", "시작"), ("in_cluster_end", "종료")):
+                value = (result.get(field) or {}).get(key)
+                if not value:
+                    continue
+                label = f"{result['scenario']} {phase}"
+                if prev is not None and value != prev:
+                    show = (lambda v: str(v)[-12:]) if key == "image_id" else str
+                    out.append(f"{key}: {show(prev)} → {show(value)} ({prev_label}~{label} 사이)")
+                prev, prev_label = value, label
     return out
 
 
