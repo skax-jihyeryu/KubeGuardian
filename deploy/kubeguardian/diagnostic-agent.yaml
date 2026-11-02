@@ -3,6 +3,8 @@
 # 알림(M1)을 원인으로 갱신하며, 설정 주기 3회 동안 점검이 없으면 M7을 보낸다.
 # web 컨테이너(#23): 보고서 화면(FastAPI, :8080). 같은 점검 DB를 읽고, 외부 노출 없이 ClusterIP Service와
 # `make kg-web`(kubectl port-forward)으로만 연다 (UI 정의서 §6.8). Slack 명령(#96)은 뒤에 붙인다.
+# listener 컨테이너(`kg slack-listen`, #156): Socket Mode로 긴급 알림의 확인 버튼 클릭을 받아 DB에 기록한다.
+# SLACK_APP_TOKEN이 없으면 연결 없이 대기한다.
 # CronJob과 같은 점검 DB(PVC kubeguardian-data, cronjob.yaml)를 쓴다. PVC가 RWO라 단일 노드를 전제하고,
 # 두 Pod가 같은 노드에서 함께 연다. 교체 때 두 작업자가 겹치지 않게 Recreate로 둔다
 # (겹쳐도 대기열 집기가 같은 이슈를 두 번 조사하지 않게 막는다).
@@ -81,6 +83,27 @@ spec:
           resources:
             requests: { cpu: 50m, memory: 128Mi }
             limits: { cpu: 500m, memory: 512Mi }
+          volumeMounts: *mounts
+        - name: listener
+          image: kubeguardian:local
+          imagePullPolicy: Never
+          command: ["python", "/kg/app/cli.py", "slack-listen", "--db", "/data/kubeguardian.db"]
+          envFrom:  # SLACK_BOT_TOKEN, SLACK_APP_TOKEN(선택)
+            - secretRef: { name: kubeguardian-env }
+          env:
+            - { name: KG_CONFIG_PATH, value: /etc/kubeguardian/config/kubeguardian.yaml }
+            - { name: KG_ACCOUNTS_DIR, value: /etc/kubeguardian/accounts }
+            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://phoenix.kubeguardian.svc:6006/v1/traces" }
+            - { name: SSL_CERT_FILE, value: /etc/kubeguardian/ca/ca-bundle.pem }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
           volumeMounts: *mounts
       volumes:
         - name: config

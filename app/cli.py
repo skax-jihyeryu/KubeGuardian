@@ -37,6 +37,7 @@ from service.agent.base import AgentResult
 from service.chat import answer_question, format_answer
 from service.checks.detectors.catalog import CATALOG
 from service.model import JUDGEMENT_LABEL
+from service.notify import ack_listener
 from service.notify.notifier import Notifier
 from service.notify.sender import Sender, build_sender
 from service.pipeline.check import CheckOutcome, clean_symptom, run_check
@@ -232,6 +233,32 @@ def worker(
             time.sleep(WORKER_POLL_S)
 
 
+def slack_listen(
+    args: argparse.Namespace,
+    make_sender: SenderFactory,
+    listen: Callable[..., None],
+    wait: Callable[[], None],
+) -> int:
+    """Slack 확인 버튼을 받는다 (#156). 앱 토큰이 없으면 연결 없이 대기한다 (재시작 반복 방지)."""
+    config = _load_config(args.config)
+    token = get_setting().SLACK_APP_TOKEN
+    if not token:
+        print("확인 버튼 수신 안 함: SLACK_APP_TOKEN이 비어 있습니다 (대기)", flush=True)
+        wait()
+        return 0
+    engine = _open_db(args.db)
+    sender = make_sender(config)
+    print("확인 버튼 수신 시작 (Socket Mode)", flush=True)
+
+    def handle(payload: dict[str, Any]) -> bool:
+        return ack_listener.handle_ack(
+            payload, engine=engine, config=config, sender=sender, now=_now()
+        )
+
+    listen(token, handle, wait=wait)
+    return 0
+
+
 # kg slack-test에서 자주 나는 Slack 오류와 해결 방법
 SLACK_HINTS = {
     "not_in_channel": "알림 채널에서 /invite @앱이름 으로 앱을 초대하세요",
@@ -380,6 +407,8 @@ def main(
     make_http: HttpFactory = _http,
     make_llm: LlmFactory = build_chat_model,
     make_sender: SenderFactory | None = None,
+    listen: Callable[..., None] = ack_listener.listen,
+    wait: Callable[[], None] = ack_listener.wait_forever,
 ) -> int:
     make_sender = make_sender or (lambda cfg: build_sender(get_setting(), cfg))
     parser = argparse.ArgumentParser(prog="kg", description="KubeGuardian CLI")
@@ -421,8 +450,17 @@ def main(
     )
     p_slack.add_argument("--config", default=get_setting().KG_CONFIG_PATH, help="kubeguardian.yaml")
     p_slack.add_argument("--db", default=DEFAULT_DB, help="알림 이력을 남길 SQLite 파일")
+    p_listen = sub.add_parser(
+        "slack-listen", help="Slack 확인 버튼 클릭을 받는다 (diagnostic-agent, Socket Mode)"
+    )
+    p_listen.add_argument(
+        "--config", default=get_setting().KG_CONFIG_PATH, help="kubeguardian.yaml"
+    )
+    p_listen.add_argument("--db", default=DEFAULT_DB, help="SQLite 파일 (CronJob과 같은 파일)")
     args = parser.parse_args(argv)
     try:
+        if args.command == "slack-listen":
+            return slack_listen(args, make_sender, listen, wait)
         if args.command == "slack-test":
             return slack_test(args, make_sender)
         if args.command == "worker":

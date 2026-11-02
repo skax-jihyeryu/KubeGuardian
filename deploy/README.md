@@ -13,7 +13,7 @@ KubeGuardian을 클러스터 안에서 실행하는 Pod다. 클러스터 주소(
 
 | 명령 | 하는 일 |
 |---|---|
-| `make kg-up` | 이미지를 minikube 노드에 빌드(`kubeguardian:local`) → 네임스페이스·RBAC(조회 전용) → Secret `kubeguardian-env`(`.env`의 LLM 키 4개만, 값 비출력) → ConfigMap `kubeguardian-config`(`kubeguardian.yaml`, 없으면 예시)·`kubeguardian-ca`(사내 CA 번들) → runner 기동·Ready 대기 |
+| `make kg-up` | 이미지를 minikube 노드에 빌드(`kubeguardian:local`) → 네임스페이스·RBAC(조회 전용) → Secret `kubeguardian-env`(`.env`의 LLM 키 4개와 있으면 Slack 토큰, 값 비출력) → ConfigMap `kubeguardian-config`(`kubeguardian.yaml`, 없으면 예시)·`kubeguardian-ca`(사내 CA 번들) → runner 기동·Ready 대기 |
 | `make kg-down` | runner·Secret·ConfigMap 삭제 (RBAC·Phoenix는 남김) |
 
 - runner는 `sleep infinity`로 떠 있고 점검 DB는 emptyDir(`/data`)다. Pod가 다시 뜨면 DB가 사라진다.
@@ -33,6 +33,13 @@ KubeGuardian을 클러스터 안에서 실행하는 Pod다. 클러스터 주소(
 - PVC는 RWO(단일 노드 minikube 전제)다. runner의 emptyDir DB와 분리돼 평가 이력과 섞이지 않는다.
 - 평가 중에는 `make kg-cron-suspend`로 멈추고 `make kg-cron-resume`으로 재개한다. `make kg-cron-run`은 지금 1회 실행한다.
 
+## Slack 확인 버튼 수신기 (`kubeguardian/diagnostic-agent.yaml`의 `listener`)
+
+긴급 이슈 알림의 `확인` 버튼 클릭을 받는다. `kg slack-listen`이 Socket Mode로 Slack에 연결해 확인을 DB(`incident_ack`)에 기록하고, 알림 메시지에 확인 표시와 스레드 답글을 단다 (#156).
+
+- `.env`의 `SLACK_APP_TOKEN`(xapp-)을 `make kg-up`이 Secret `kubeguardian-env`에 넣는다. 값이 없으면 listener는 연결하지 않고 대기하며, 알림에는 버튼이 없고 긴급 리마인드는 3회로 제한된다.
+- 리마인드 판단은 같은 Pod의 `worker`가 한다 (점검 실행과 무관하게 30분마다).
+- 사내 SSL 프록시 CA(`SSL_CERT_FILE`)를 worker와 같이 마운트한다.
 
 ## 운영 화면과 로컬 개발 서버
 
