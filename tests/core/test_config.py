@@ -35,11 +35,11 @@ def test_target_namespace_is_required(tmp_path):
 @pytest.mark.parametrize(
     "snippet",
     [
-        "slack: {alert_target: a, bot_token_secret: b, app_token_secret: c,"
+        "slack: {alert_target: C0123456789, bot_token_secret: b, app_token_secret: c,"
         " reminders: {critcal: {first_after: 30m, max: 3}}}",
-        "slack: {alert_target: a, bot_token_secret: b, app_token_secret: c,"
+        "slack: {alert_target: C0123456789, bot_token_secret: b, app_token_secret: c,"
         " reminders: {critical: {first_after: 30분, max: 3}}}",
-        "slack: {alert_target: a, bot_token_secret: b, app_token_secret: c,"
+        "slack: {alert_target: C0123456789, bot_token_secret: b, app_token_secret: c,"
         " reminders: {critical: {first_after: 30m, max: 0}}}",
         "schedule: nope",
     ],
@@ -124,7 +124,7 @@ def test_example_config_hides_chaos_mesh_events():
 def test_slack_needs_only_alert_target():
     # 10/31: Slack은 알림만. 명령용 앱 토큰·허용 채널은 선택 (예전 설정도 거부하지 않음)
     config = KubeGuardianConfig.model_validate(
-        {"target": {"namespace": "dev"}, "slack": {"alert_target": "#ops"}}
+        {"target": {"namespace": "dev"}, "slack": {"alert_target": "C0123456789"}}
     )
     assert config.slack.app_token_secret is None and config.slack.bot_token_secret is None
 
@@ -132,10 +132,26 @@ def test_slack_needs_only_alert_target():
         {
             "target": {"namespace": "dev"},
             "slack": {
-                "alert_target": "#ops",
+                "alert_target": "C0123456789",
                 "app_token_secret": "kg-slack-app",
                 "allowed_users": [],
             },
         }
     )
     assert old.slack.app_token_secret == "kg-slack-app"
+
+
+@pytest.mark.parametrize("target", ["#ops", "ops", "c0123456789", "C123"])
+def test_alert_target_rejects_channel_name(target):
+    with pytest.raises(ValidationError, match="채널 ID"):
+        KubeGuardianConfig.model_validate(
+            {"target": {"namespace": "dev"}, "slack": {"alert_target": target}}
+        )
+
+
+@pytest.mark.parametrize("target", ["C0123456789", "G0123456789", "D0123456789"])
+def test_alert_target_accepts_channel_id(target):
+    config = KubeGuardianConfig.model_validate(
+        {"target": {"namespace": "dev"}, "slack": {"alert_target": target}}
+    )
+    assert config.slack.alert_target == target

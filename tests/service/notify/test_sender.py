@@ -72,7 +72,11 @@ def test_persistent_error_becomes_notify_failed_with_slack_reason():
 def _config(slack=True):
     data = {"target": {"namespace": "dev"}}
     if slack:
-        data["slack"] = {"alert_target": "#ops", "bot_token_secret": "b", "app_token_secret": "a"}
+        data["slack"] = {
+            "alert_target": "C0123456789",
+            "bot_token_secret": "b",
+            "app_token_secret": "a",
+        }
     return KubeGuardianConfig.model_validate(data)
 
 

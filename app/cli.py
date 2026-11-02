@@ -227,7 +227,7 @@ def worker(
 # kg slack-test에서 자주 나는 Slack 오류와 해결 방법
 SLACK_HINTS = {
     "not_in_channel": "알림 채널에서 /invite @앱이름 으로 앱을 초대하세요",
-    "channel_not_found": "slack.alert_target(채널 이름·ID)을 확인하세요",
+    "channel_not_found": "slack.alert_target(채널 ID)과 앱 초대 여부를 확인하세요",
     "invalid_auth": "SLACK_BOT_TOKEN(xoxb-)이 맞는지 확인하세요",
     "not_authed": "SLACK_BOT_TOKEN이 비어 있습니다",
     "missing_scope": "앱의 Bot Token Scopes에 chat:write를 추가하고 다시 설치하세요",

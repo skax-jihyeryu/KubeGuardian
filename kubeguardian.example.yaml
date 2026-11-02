@@ -43,7 +43,7 @@ app_apis: {}
 # 장애 주입 도구가 없는 운영 클러스터에서는 비워 둔다
 exclude_event_api_groups: [chaos-mesh.org]
 slack:
-  alert_target: "#pr-service-ops"
+  alert_target: "C0123456789"  # 채널 ID (채널 정보 맨 아래). 이름은 메시지 수정이 실패한다
   report_url: http://localhost:8000/p/default   # 알림 링크의 보고서 화면 주소 (port-forward 기준)
   # 봇 토큰(chat:write)은 여기 적지 않는다. .env의 SLACK_BOT_TOKEN → make kg-up → kubeguardian-env
   reminders:
