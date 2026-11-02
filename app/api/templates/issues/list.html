@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "_icons.html" import ic, badge %}
+{% block title %}이슈 · KubeGuardian{% endblock %}
+{% block body %}
+<section class="list{% if d %} with-detail{% endif %}" aria-label="이슈 목록">
+  <div class="lhead"><h1>이슈</h1><div class="sub">장애 신호·기능 점검 실패가 이어지는 동안 하나로 묶입니다</div></div>
+  <form class="filters" action="/{{ p }}/issues" method="get">
+    <div class="frow"><select class="pill" name="status" aria-label="이슈 상태">
+      {% for value, label in [("", "모든 상태"), ("open", "열림"), ("resolved", "해결")] %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select><select class="pill" name="severity" aria-label="심각도">
+      {% for value, label in [("", "모든 심각도"), ("crit", "긴급"), ("warn", "주의"), ("risk", "잠재 위험"), ("tip", "개선 권고")] %}<option value="{{ value }}"{% if severity == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select><select class="pill" name="days" aria-label="기간">{% for value, label in [(0,"전체 기간"),(1,"최근 하루"),(7,"최근 7일"),(30,"최근 30일")] %}<option value="{{ value }}"{% if days|default(0) == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="frow"><input class="search" type="search" name="q" value="{{ q }}" placeholder="서비스·점검 규칙 ID·이슈 제목" aria-label="이슈 검색"><button class="btn" type="submit">검색</button><a href="/{{ p }}/issues">초기화</a></div>
+  </form>
+  {% for row in rows %}{% set inc = row.incident %}
+  <a class="irow bar c-{{ row.severity.key }}{% if inc.status == 'resolved' %} done{% endif %}{% if d and d.row.incident.id == inc.id %} sel{% endif %}" href="/{{ p }}/issues/{{ inc.id }}?{{ filter_query }}">
+    <div class="l1">{{ badge(row.severity, "sm") }}<span class="mono s13">#{{ inc.id }}</span><span class="rel">{% if inc.status == "open" %}<span class="open">OPEN</span>{% else %}✓ 해결{% endif %}</span></div>
+    <div class="ttl">{{ row.title }}</div><div class="meta">{{ inc.opened_at|md_hm }} ~ {% if inc.resolved_at %}{{ inc.resolved_at|hm }}{% else %}계속{% endif %}</div>
+  </a>
+  {% else %}<p class="muted" style="padding:16px">조건에 맞는 이슈가 없습니다.</p>{% endfor %}
+</section>
+{% block issue_body %}<section class="detail empty"><p>이슈를 선택하면 보고서와 타임라인을 볼 수 있습니다.</p></section>{% endblock %}
+{% endblock %}

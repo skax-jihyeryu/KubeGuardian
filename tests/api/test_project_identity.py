@@ -10,8 +10,10 @@ from api.viewmodels.shell import build_shell
 from core.config import KubeGuardianConfig, ProjectConfig, load_kubeguardian_config
 from core.db import CheckRunStore
 from service.chat import answer_question
+from service.notify.notifier import Notifier
 from tests.api.seed import at, finish_check, make_run
 from tests.service.agent.history_qa.fakes import ScriptedLLM
+from tests.service.notify.test_notifier import FakeSender, _sig
 
 CONFIG = KubeGuardianConfig(project={"id": "llm-gateway"}, target={"namespace": "dev"})
 
@@ -32,7 +34,7 @@ def test_routes_use_project_id_and_shell_displays_namespace(client, engine):
     run = make_run(engine)
     finish_check(engine, run, path="C")
     assert client.get("/").headers["location"] == "/llm-gateway/checks"
-    for path in ["checks", f"checks/{run}"]:
+    for path in ["checks", f"checks/{run}", "issues"]:
         assert client.get(f"/llm-gateway/{path}").status_code == 200
         assert client.get(f"/dev/{path}").status_code == 404
     page = client.get("/llm-gateway/checks").text
@@ -50,6 +52,30 @@ def test_manual_check_keeps_namespace_when_project_differs(client):
     config = start.call_args.args[1]
     assert config.target.namespace == "dev"
     assert config.project.id == "llm-gateway"
+
+
+def test_notification_links_use_project_id_and_keep_namespace_label(engine):
+    from service.alerts.incidents import track
+    from service.checks.gate import decide_gate
+
+    run = make_run(engine)
+    gate = decide_gate([_sig()])
+    changes = track(
+        engine,
+        CONFIG,
+        run_id=run,
+        trigger="schedule",
+        now=at(0),
+        gate=gate,
+        signals=[_sig()],
+        symptoms=[],
+    )
+    sender = FakeSender()
+    Notifier(engine, CONFIG, sender).after_check(run, gate, changes, at(0))
+    text = sender.posts[0]["text"]
+    assert f"http://localhost:8080/llm-gateway/issues/{changes[0].incident_id}" in text
+    assert "/dev/" not in text
+    assert "dev" in text
 
 
 def test_chat_default_project_uses_config_for_latest_check_link(engine):

@@ -86,7 +86,8 @@ class Notifier:
                 self._incidents.set_slack_ts(incident.id, ts)
             return
         self._update("M1u", incident, thread, text, now)
-        self._post("M9", incident.id, messages.cause_reply(status, report), now, thread=thread)
+        reply = messages.cause_reply(status, report) + f"\n이슈: {self._url}/issues/{incident.id}"
+        self._post("M9", incident.id, reply, now, thread=thread)
 
     def connection_test(self, now: datetime) -> str | None:
         """실제 알림처럼 새 메시지, 스레드·채널 답글, 수정을 보낸다. 실패 사유나 None."""

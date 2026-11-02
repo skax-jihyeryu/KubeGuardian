@@ -47,7 +47,7 @@ def first_alert(
         f"{_head(namespace, incident.first_severity)} — {subject(incident)}에 장애가 있습니다\n"
         f"감지: {hhmm(at)} 점검 · {reason}\n"
         "🔍 원인을 조사하고 있습니다. 조사가 끝나면 이 메시지를 갱신합니다.\n"
-        f"점검 결과: {url}/checks/{run_id}"
+        f"이슈: {url}/issues/{incident.id}"
     )
 
 
@@ -59,7 +59,7 @@ def changed_alert(
         f"{_head(namespace, incident.first_severity)} — {subject(incident)}에 장애가 있습니다\n"
         f"감지: {hhmm(at)} 점검 · {reason}\n"
         "🔍 상황이 바뀌어(새 신호·다른 실패 단계) 원인을 다시 조사하고 있습니다.\n"
-        f"점검 결과: {url}/checks/{run_id}"
+        f"이슈: {url}/issues/{incident.id}"
     )
 
 
@@ -74,7 +74,7 @@ def cause_update(
 ) -> str:
     """M1 원인 갱신. 조사 미완·실패면 제목 앞에 표시하고 아는 데까지만 담는다."""
     mark = _MARK.get(status, "")
-    link = f"보고서: {url}/checks/{run_id}"
+    link = f"보고서: {url}/issues/{incident.id}"
     top = report.top_issue if report else None
     if report is None or top is None:
         why = f" ({error})" if error else ""

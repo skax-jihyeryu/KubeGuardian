@@ -1,0 +1,16 @@
+{% extends "issues/list.html" %}
+{% block title %}이슈 #{{ d.row.incident.id }} · KubeGuardian{% endblock %}
+{% block issue_body %}
+{% set inc = d.row.incident %}
+<section class="detail" aria-label="이슈 상세"{% if d.live %} hx-get="{{ request.url }}" hx-trigger="every 3s" hx-select=".detail" hx-target="this" hx-swap="outerHTML"{% endif %}>
+<div class="doc"><div class="crumb"><a href="/{{ p }}/issues?{{ filter_query }}">이슈 목록</a> › #{{ inc.id }}</div>
+<h1 class="title">이슈 #{{ inc.id }}</h1>
+<nav class="jump" aria-label="절 바로가기"><a href="#s-report">보고서</a> · <a href="#s-timeline">타임라인</a> · <a href="#s-previous">이전 보고서</a></nav>
+<div class="paper"><div class="sec"><div class="hdrow">{{ badge(d.row.severity, "lg") }}{% if inc.status == "open" %}<span class="open">OPEN</span>{% else %}<span class="calm">{{ ic("check-circle", "ok-ic") }}해결 {{ inc.resolved_at|hm }}</span>{% endif %}</div>
+<div class="meta">{{ inc.opened_at|md_hm }} 시작 · 마지막 확인 {{ inc.last_seen_at|hm }}</div></div>
+<div class="sec" id="s-report"><h2>보고서</h2>{% include "issues/_report.html" %}</div>
+<div class="sec" id="s-timeline"><h2>타임라인</h2>{% include "issues/_timeline.html" %}</div>
+<div class="sec" id="s-previous"><h2>이전 보고서</h2>{% for inv in d.previous %}<details><summary>R-{{ '%04d'|format(inv.id) }} · {{ inv.started_at|md_hm }}</summary><p>{% if inv.report %}{{ inv.report.conclusion }}{% else %}보고서 없음 · {{ inv.status }}{% endif %}</p><a href="?{{ filter_query }}&report={{ inv.id }}">이 보고서 보기</a></details>{% else %}<p class="muted s14">이전 보고서가 없습니다.</p>{% endfor %}</div>
+</div></div></section>
+<script src="/static/issues.js" defer></script>
+{% endblock %}
