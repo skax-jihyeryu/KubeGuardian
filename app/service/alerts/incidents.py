@@ -55,6 +55,7 @@ def track(
     gate: GateResult,
     signals: list[Signal],
     symptoms: list[Symptom],
+    excluded_rules: frozenset[str] = frozenset(),
 ) -> list[IncidentChange]:
     store = IncidentStore(engine)
     open_incidents = store.open_incidents()
@@ -71,12 +72,12 @@ def track(
             changes.append(change)
         # 나머지 겹치는 이슈는 이 점검에 연결만 한다 (조사·알림 없음). 대상이 사라지면 따로 해결된다
         for other in overlapping[:-1]:
-            if not _gone(other, signals, symptoms):
+            if not _gone(other, signals, symptoms, excluded_rules):
                 action = "continued" if trigger == "schedule" else "seen"
                 store.touch(other.id, run_id, now, action)
                 changes.append(IncidentChange(other.id, action, other.first_severity))
     for incident in open_incidents:
-        if incident is not matched and _gone(incident, signals, symptoms):
+        if incident is not matched and _gone(incident, signals, symptoms, excluded_rules):
             store.resolve(incident.id, run_id, now)
             changes.append(IncidentChange(incident.id, "resolved", incident.first_severity))
     return changes
@@ -107,14 +108,23 @@ def _follow(
     return IncidentChange(matched.id, "changed", gate.severity)
 
 
-def _gone(incident: Incident, signals: list[Signal], symptoms: list[Symptom]) -> bool:
+def _gone(
+    incident: Incident,
+    signals: list[Signal],
+    symptoms: list[Symptom],
+    excluded_rules: frozenset[str] = frozenset(),
+) -> bool:
     """이번 점검이 그 이슈의 규칙·증상을 모두 확인했고 하나도 남지 않았으면 True.
+
+    끈 규칙(excluded_rules)은 확인하지 않은 것이라 그 규칙이 있는 이슈는 해결하지 않는다.
 
     확인할 대상이 없는 이슈(사용자 증상만)는 해결을 판단할 수 없어 True가 되지 않는다.
     """
     if not incident.targets and not incident.scenarios:
         return False
     rules = {rule for rule, _ in incident.targets}
+    if rules & excluded_rules:
+        return False
     for s in signals:
         if s.rule_id not in rules or s.verdict == "passed":
             continue

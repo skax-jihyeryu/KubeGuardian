@@ -26,11 +26,14 @@ def load_detectors() -> None:
         raise RuntimeError(f"감지기가 없는 규칙: {', '.join(missing)}")
 
 
-def run_detectors(ctx: DetectorContext) -> list[Signal]:
+def run_detectors(ctx: DetectorContext, excluded: frozenset[str] = frozenset()) -> list[Signal]:
+    """excluded(끈 규칙)는 돌리지 않고, 관측 기록도 그대로 둔다 (판정 보류)."""
     load_detectors()
     detectors = registered()
     signals: list[Signal] = []
     for rule_id in CATALOG:
+        if rule_id in excluded:
+            continue
         result = _run_one(rule_id, detectors[rule_id], ctx)
         if not _rule_unknown(result, ctx):
             ctx.observations.prune(rule_id, {s.subject for s in result})

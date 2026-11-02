@@ -325,3 +325,176 @@ def test_direct_check_does_not_open_an_incident(engine):
     out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="check", now=NOW)
 
     assert out.gate.path == "A" and out.incidents == []
+
+
+# ── 점검 결과·규칙 선택 (#116) ──
+
+
+def _all_rules_except(*off):
+    from service.checks.detectors.catalog import CATALOG
+
+    return set(CATALOG) - set(off), set(CATALOG)
+
+
+def test_check_result_has_verdicts_gate_and_phase_times(engine):
+    from core.db import CheckResultStore
+
+    out = run_check(_reader("h01/detected"), CONFIG, engine, trigger="check", now=NOW)
+
+    got = CheckResultStore(engine).get(out.run_id)
+    assert (got.status, got.gate_path, got.first_severity) == ("done", "C", None)
+    assert [p.name for p in got.phases] == ["rules", "symptoms", "gate"]
+    assert got.phases[0].summary == "적발 0 · 관찰 중 0 · 개선 권고 2"
+    assert got.phases[0].started_at >= NOW and got.finished_at >= got.phases[-1].ended_at
+    by_rule = {v["rule_id"]: v for v in got.verdicts}
+    assert by_rule["S01"]["passed"] > 0 and by_rule["S01"]["items"] == []
+    assert {i["verdict"] for i in by_rule["H01"]["items"]} == {"detected"}
+    assert by_rule["H01"]["items"][0]["evidence_id"].startswith("ev-")
+
+
+def test_check_result_keeps_symptoms_and_failed_step(engine):
+    from core.db import CheckResultStore
+
+    out = run_check(_reader(), _symptom_config(), engine, trigger="check", now=NOW, http=_http(500))
+
+    got = CheckResultStore(engine).get(out.run_id)
+    [x] = got.symptoms
+    assert (x["scenario"], x["status"], x["failed_step"]) == ("chat", "failed", 1)
+    assert x["evidence_id"].startswith("ev-")
+    assert (got.gate_path, got.first_severity) == ("B", "critical")
+    assert got.phases[1].summary == "chat 1단계 실패"
+
+
+def test_result_is_running_with_phases_appearing_one_by_one(engine, monkeypatch):
+    from core.db import CheckResultStore
+    from service.pipeline import check as pipeline
+
+    seen = []
+    real_gate = pipeline.decide_gate
+
+    def spy(*args, **kw):
+        seen.append(CheckResultStore(engine).get(1))
+        return real_gate(*args, **kw)
+
+    monkeypatch.setattr(pipeline, "decide_gate", spy)
+    run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
+
+    assert seen[0].status == "running"
+    assert [p.name for p in seen[0].phases] == ["rules", "symptoms"]
+
+
+def test_exception_in_the_flow_marks_the_result_failed(engine, monkeypatch):
+    from core.db import CheckResultStore
+    from service.pipeline import check as pipeline
+
+    def boom(*a, **kw):
+        raise RuntimeError("gate 결함")
+
+    monkeypatch.setattr(pipeline, "decide_gate", boom)
+    with pytest.raises(RuntimeError):
+        run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
+
+    store = CheckResultStore(engine)
+    got = store.get(1)
+    assert got.status == "failed" and got.finished_at is not None
+    assert got.verdicts  # 규칙 단계까지 본 판정은 남는다
+
+
+def test_a_dead_process_leaves_running_that_is_shown_halted_after_the_lock_ttl(engine, monkeypatch):
+    from core.db import CheckResultStore
+
+    monkeypatch.setattr(CheckResultStore, "finish", lambda *a, **kw: None)  # 끝을 못 쓰고 죽음
+    out = run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
+
+    store = CheckResultStore(engine)
+    got = store.get(out.run_id)
+    assert got.status == "running"
+    assert store.display_status(got, NOW + timedelta(seconds=10)) == "running"
+    assert store.display_status(got, NOW + timedelta(minutes=10)) == "halted"
+
+
+def test_result_recording_failure_does_not_stop_the_check(engine, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    from core.db import CheckResultStore
+
+    def broken(*a, **kw):
+        raise OperationalError("insert", {}, Exception("locked"))
+
+    for name in ("start", "phase", "finish"):
+        monkeypatch.setattr(CheckResultStore, name, broken)
+
+    out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="check", now=NOW)
+
+    assert out.gate.path == "A"
+
+
+def test_values_are_masked_before_storing(engine, monkeypatch):
+    from core.db import CheckResultStore
+    from service.model import Signal
+    from service.pipeline import check as pipeline
+
+    def fake(ctx, excluded=frozenset()):
+        return [
+            Signal(
+                rule_id="H01",
+                verdict="detected",
+                subject="dev/Deployment/agent",
+                severity="info",
+                values={"db_password": "hunter2"},
+            )
+        ]
+
+    monkeypatch.setattr(pipeline, "run_detectors", fake)
+    out = run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
+
+    [item] = CheckResultStore(engine).get(out.run_id).verdicts[0]["items"]
+    assert item["values"]["db_password"] == "***"
+
+
+def test_disabled_rule_does_not_run_and_is_recorded(engine):
+    from core.db import CheckResultStore, RuleSelectionStore
+
+    RuleSelectionStore(engine).save(*_all_rules_except("W02", "S01"), NOW)
+
+    out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="check", now=NOW)
+
+    assert not {s.rule_id for s in out.signals} & {"W02", "S01"}
+    assert out.gate.path == "C"
+    got = CheckResultStore(engine).get(out.run_id)
+    assert got.excluded_rules == ["S01", "W02"]
+    assert {v["rule_id"] for v in got.verdicts}.isdisjoint({"S01", "W02"})
+
+
+def test_disabling_the_rule_of_an_open_incident_does_not_resolve_it(engine):
+    from core.db import IncidentStore, RuleSelectionStore
+
+    first = run_check(_reader("s01/detected"), CONFIG, engine, trigger="schedule", now=NOW)
+    RuleSelectionStore(engine).save(*_all_rules_except("S01"), NOW)
+
+    later = run_check(_reader(), CONFIG, engine, trigger="schedule", now=NOW + timedelta(minutes=5))
+
+    assert later.incidents == []
+    assert IncidentStore(engine).get(first.incidents[0].incident_id).status == "open"
+
+    RuleSelectionStore(engine).save(*_all_rules_except(), NOW)
+    healed = run_check(
+        _reader(), CONFIG, engine, trigger="schedule", now=NOW + timedelta(minutes=10)
+    )
+    assert [c.action for c in healed.incidents] == ["resolved"]
+
+
+def test_unknown_rule_is_counted_in_the_rules_summary(engine, monkeypatch):
+    from core.db import CheckResultStore
+    from service.checks.detectors.base import registered
+
+    def boom(ctx):
+        raise ValueError("실패")
+
+    monkeypatch.setitem(registered(), "S01", boom)
+    out = run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
+
+    got = CheckResultStore(engine).get(out.run_id)
+    assert got.phases[0].summary.endswith("확인하지 못함 1")
+    [v] = [v for v in got.verdicts if v["rule_id"] == "S01"]
+    assert "감지기 오류 ValueError" in v["items"][0]["message"]
