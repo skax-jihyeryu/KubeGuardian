@@ -1,0 +1,245 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Chat.dc.html": {
+      "expand": "fill",
+      "h": 1200,
+      "title": "08 이력 질의 채팅 패널",
+      "w": 1440,
+      "x": 6080,
+      "y": 11880
+    },
+    "Check-Running.dc.html": {
+      "expand": "fill",
+      "h": 1900,
+      "title": "02 점검 상세 — 조사 진행 중",
+      "w": 1440,
+      "x": 0,
+      "y": 11880,
+      "is_interactive": true
+    },
+    "Checks-Calm.dc.html": {
+      "expand": "fill",
+      "h": 1160,
+      "title": "03 점검 이력 — 모두 정상 (조사 안 함)",
+      "w": 1440,
+      "x": 1520,
+      "y": 11880
+    },
+    "Checks-Halt.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "title": "04 점검 이력 — 점검 중단",
+      "w": 1440,
+      "x": 3040,
+      "y": 11880
+    },
+    "Components.dc.html": {
+      "expand": "fill",
+      "h": 2120,
+      "title": "10 공통 컴포넌트",
+      "w": 1440,
+      "x": 1520,
+      "y": 14080
+    },
+    "Drawer.dc.html": {
+      "expand": "fill",
+      "h": 1000,
+      "title": "09 근거 서랍 (?ev=14)",
+      "w": 1440,
+      "x": 0,
+      "y": 14080
+    },
+    "Issue-Resolved.dc.html": {
+      "expand": "fill",
+      "h": 2500,
+      "title": "06 이슈 상세 — 해결됨",
+      "w": 1440,
+      "x": 1520,
+      "y": 3020,
+      "is_interactive": true
+    },
+    "Issues-v2.dc.html": {
+      "expand": "fill",
+      "h": 2700,
+      "title": "이슈 상세 · 열림",
+      "w": 1440,
+      "x": 0,
+      "y": 3020,
+      "is_interactive": true
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 1900,
+      "title": "① 점검 이력 + 점검 상세 (점검 과정 접힘)",
+      "w": 1440,
+      "x": 0,
+      "y": 180,
+      "is_interactive": true
+    },
+    "Narrow-Detail.dc.html": {
+      "h": 1100,
+      "title": "12 960px 이하 — 상세 전체 화면",
+      "w": 900,
+      "x": 4020,
+      "y": 14080
+    },
+    "Narrow-List.dc.html": {
+      "h": 1100,
+      "title": "11 960px 이하 — 목록",
+      "w": 900,
+      "x": 3040,
+      "y": 14080
+    },
+    "Setup-Features-v2.dc.html": {
+      "expand": "fill",
+      "h": 1000,
+      "title": "기능 점검",
+      "w": 1440,
+      "x": 0,
+      "y": 10440,
+      "is_interactive": true
+    },
+    "Setup-Rules-v2.dc.html": {
+      "expand": "fill",
+      "h": 2400,
+      "title": "① 단계별",
+      "w": 1440,
+      "x": 0,
+      "y": 7600,
+      "is_interactive": true
+    },
+    "Setup-Services-v2.dc.html": {
+      "expand": "fill",
+      "h": 1100,
+      "title": "대상 서비스",
+      "w": 1440,
+      "x": 0,
+      "y": 6060,
+      "is_interactive": true
+    },
+    "Setup-Rules-Kind-A.dc.html": {
+      "x": 1520,
+      "y": 7600,
+      "w": 1440,
+      "h": 1900,
+      "title": "② 구성별",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Check-Unknown-v2.dc.html": {
+      "x": 3040,
+      "y": 180,
+      "w": 1440,
+      "h": 1800,
+      "title": "③ 확인하지 못함 (상단 띠 칩의 도착점)",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Main-v2-Steps.dc.html": {
+      "x": 1520,
+      "y": 180,
+      "w": 1440,
+      "h": 2400,
+      "title": "② 점검 과정 펼침",
+      "expand": "fill",
+      "is_interactive": true
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-27T06:30:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "t1": {
+      "kind": "title1",
+      "maxW": 3000,
+      "text": "KubeGuardian AI — 보고서 화면",
+      "w": 240,
+      "x": 0,
+      "y": -420
+    },
+    "r2": {
+      "x": 0,
+      "y": 0,
+      "text": "① 점검 이력 · 점검 상세 — 점검 과정 접힘 → 펼침 → 확인하지 못함",
+      "kind": "title1",
+      "maxW": 3000,
+      "w": 240
+    },
+    "r3": {
+      "x": 0,
+      "y": 2840,
+      "text": "② 이슈 상세",
+      "kind": "title1",
+      "maxW": 3000,
+      "w": 240
+    },
+    "r4": {
+      "x": 0,
+      "y": 5880,
+      "text": "③-a 점검 구성 · 대상 서비스",
+      "kind": "title1",
+      "maxW": 3000,
+      "w": 240
+    },
+    "r5": {
+      "x": 0,
+      "y": 7420,
+      "text": "③-b 점검 구성 · 점검 규칙 — 단계별 → 구성별 (점검할 규칙 선택)",
+      "kind": "title1",
+      "maxW": 3000,
+      "w": 240
+    },
+    "r6": {
+      "x": 0,
+      "y": 10260,
+      "text": "③-c 점검 구성 · 기능 점검",
+      "kind": "title1",
+      "maxW": 3000,
+      "w": 240
+    },
+    "r7": {
+      "x": 0,
+      "y": 11700,
+      "text": "④ 그 밖의 화면 (1/2) — 새 구조에 맞춰 갱신",
+      "kind": "title1",
+      "maxW": 3000,
+      "w": 240
+    },
+    "r8": {
+      "x": 0,
+      "y": 13900,
+      "text": "④ 그 밖의 화면 (2/2) — 새 구조에 맞춰 갱신",
+      "kind": "title1",
+      "maxW": 3000,
+      "w": 240
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Check-Running.dc.html",
+    "Checks-Calm.dc.html",
+    "Checks-Halt.dc.html",
+    "Chat.dc.html",
+    "Drawer.dc.html",
+    "Components.dc.html",
+    "Narrow-List.dc.html",
+    "Narrow-Detail.dc.html",
+    "Issues-v2.dc.html",
+    "Setup-Services-v2.dc.html",
+    "Setup-Rules-v2.dc.html",
+    "Setup-Features-v2.dc.html",
+    "Setup-Rules-Kind-A.dc.html",
+    "Check-Unknown-v2.dc.html",
+    "Main-v2-Steps.dc.html",
+    "Issue-Resolved.dc.html"
+  ],
+  "pages": [],
+  "title": "KubeGuardian AI 보고서 화면"
+}

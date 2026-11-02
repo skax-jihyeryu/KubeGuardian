@@ -34,7 +34,7 @@ test:  ## 단위 테스트
 check: lint test  ## PR 올리기 전 확인
 
 run:  ## API 서버 로컬 실행
-	cd app && uv run --env-file ../.env python main.py
+	uv run --env-file .env python app/main.py
 
 check-run:  ## 규칙 점검 한 번 실행 (kg check). 예: make check-run ARGS="--config kubeguardian.yaml"
 	uv run python app/cli.py check $(ARGS)

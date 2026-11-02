@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>점검 규칙 · 구성별 2안 (변경 후)</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./kg.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app" style="min-height: 1300px; width: 100%">
+
+<aside class="rail" aria-label="메뉴">
+  <a class="logo" href="Main-v2.dc.html" aria-label="점검 이력 (홈)">KG</a>
+  <nav class="rnav">
+    <a class="rbtn" href="Main-v2.dc.html" aria-label="점검 이력"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></a>
+    <a class="rbtn" href="Issues-v2.dc.html" aria-label="이슈"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg></a>
+    <a class="rbtn on" href="Setup-Services-v2.dc.html" aria-label="점검 구성" aria-current="page"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg></a>
+  </nav>
+  <div class="rail-foot"><button class="rbtn" aria-label="메뉴 펼치기"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg></button></div>
+</aside>
+
+<div class="main">
+  <header class="gnb">
+    <span class="proj">dev · minikube</span>
+    <span class="sp"></span>
+    <span class="lastchk"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>마지막 점검 <span class="t">14:05</span> · 다음 <span class="t">14:10</span></span>
+    <button class="btn btn-primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>지금 점검</button>
+    <button class="btn btn-ghost"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>질문</button>
+    <span class="avatar" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+  </header>
+  <div class="band"><span>열린 이슈 없음</span><span class="sp"></span><a class="cfgchip" href="Check-Unknown-v2.dc.html"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>확인하지 못함 2</a></div>
+  <nav class="tabs" aria-label="점검 구성"><a href="Setup-Services-v2.dc.html" class="">대상 서비스 <span class="n">4</span></a><a href="Setup-Rules-v2.dc.html" class="on">점검 규칙 <span class="n">13</span></a><a href="Setup-Features-v2.dc.html" class="">기능 점검 <span class="n">2</span></a><span class="sp"></span><span class="s13 muted" style="align-self:center">읽기 전용 · 원본 <span class="mono">kubeguardian.yaml</span></span></nav>
+  <div class="body">
+    <section class="list" aria-label="점검 규칙 목록">
+      <div class="lhead"><h1>점검 규칙</h1><div class="sub">13개 · 정의만 · 확장 후보는 접어 둠</div></div>
+<div style="padding:10px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center"><div class="seg"><a href="Setup-Rules-v2.dc.html" class="">단계별</a><a href="Setup-Rules-Kind-A.dc.html" class="on">구성별</a></div><span class="s13 muted" style="margin-left:14px">확장 후보 안: <a href="Setup-Rules-Kind-A.dc.html" style="font-weight:400">1안</a> · <a href="Setup-Rules-Kind-B.dc.html" style="font-weight:700">2안</a></span></div><div class="sgrp"><span class="no"></span>Node<span class="on">N01</span></div><a class="mrow" href="#"><span class="mono s13">N01</span><span class="nm">노드 NotReady</span><span class="mono s13 muted">15분</span></a><div class="sgrp"><span class="no"></span>Pod<span class="on">P03·P06·P07</span></div><a class="mrow" href="#"><span class="mono s13">P03</span><span class="nm">이미지 받기 실패</span><span class="mono s13 muted">1시간</span></a><a class="mrow" href="#"><span class="mono s13">P06</span><span class="nm">CrashLoop (재시작 반복)</span><span class="mono s13 muted">15분</span></a><a class="mrow" href="#"><span class="mono s13">P07</span><span class="nm">OOMKilled</span><span class="mono s13 muted">즉시</span></a><div class="sgrp"><span class="no"></span>Workload<span class="on">W01·W02</span></div><a class="mrow" href="#"><span class="mono s13">W01</span><span class="nm">가용 replicas 부족</span><span class="mono s13 muted">15분</span></a><a class="mrow sel" href="#"><span class="mono s13">W02</span><span class="nm">롤아웃 정체</span><span class="mono s13 muted">15분</span></a><div class="sgrp"><span class="no"></span>Service<span class="on">S01·S02·S03·S04</span></div><a class="mrow" href="#"><span class="mono s13">S01</span><span class="nm">selector에 맞는 Pod 없음</span><span class="mono s13 muted">즉시</span></a><a class="mrow" href="#"><span class="mono s13">S02</span><span class="nm">Ready 엔드포인트 없음·일부</span><span class="mono s13 muted">15분</span></a><a class="mrow" href="#"><span class="mono s13">S03</span><span class="nm">targetPort 불일치</span><span class="mono s13 muted">즉시</span></a><a class="mrow" href="#"><span class="mono s13">S04</span><span class="nm">서비스 주소 오류</span><span class="mono s13 muted">즉시</span></a><div class="sgrp"><span class="no"></span>Config<span class="on">C01·C05</span></div><a class="mrow" href="#"><span class="mono s13">C01</span><span class="nm">설정 참조 누락</span><span class="mono s13 muted">즉시</span></a><a class="mrow" href="#"><span class="mono s13">C05</span><span class="nm">필수 설정 선언 누락</span><span class="stt">계획됨</span></a><div class="sgrp"><span class="no"></span>개선 권고<span class="on">H01·H02</span></div><a class="mrow" href="#"><span class="mono s13">H01</span><span class="nm">readinessProbe 없음·TCP만</span><span class="mono s13 muted">즉시</span></a><a class="mrow" href="#"><span class="mono s13">H02</span><span class="nm">requests·limits 미설정</span><span class="mono s13 muted">즉시</span></a><a class="mrow cand" href="#" style="border-top:1px solid var(--line)"><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><span class="nm">확장 후보 11개 보기</span><span class="stt">기본 접힘</span></a>
+    </section>
+    <section class="detail" aria-label="점검 규칙 상세">
+      <div class="doc"><div class="crumb"><a href="#">dev</a>›<a href="#">점검 구성</a>›<a href="#">점검 규칙</a>›<span>W02</span></div>
+<h1 class="title"><span class="mono" style="font-weight:500">W02</span> 롤아웃 정체</h1><div class="s13 muted">장애 신호 · 점검 지도 3 배포 · Workload · 정의만 보여 줍니다. 결과는 점검 이력에서 봅니다.</div>
+<div class="paper">
+<div class="sec"><h2>무엇을 보나</h2><p class="s14">새 버전 배포가 진행되지 않고 멈춰 있는지 봅니다.</p></div>
+<div class="sec"><h2>판정 기준</h2><div class="dl"><span class="k">조건</span><div>Deployment의 Progressing 조건이 False</div><span class="k">지속 시간</span><div><span class="mono">15분</span> 이상 (5분 주기 네 번째 점검에 적발)</div><span class="k">대상</span><div>dev 네임스페이스의 Deployment 전체</div><span class="k">1차 심각도</span><div><span class="bdg sm c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>주의</span> <span class="muted">/</span> <span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span></div></div></div>
+<div class="sec"><h2>최근 적발 점검<span class="hint">누르면 그 점검 상세로 이동</span></h2>
+<div style="display:flex;flex-direction:column;gap:2px;font-size:14px;line-height:24px">
+<a href="#" class="plain" style="display:flex;gap:10px;align-items:center"><span class="t">10/26 11:55</span><span class="bdg sm c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>주의</span><span>신규 배포가 뜨지 않음 · 이슈 #11 이어짐</span><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>
+<a href="#" class="plain" style="display:flex;gap:10px;align-items:center"><span class="t">10/26 11:25</span><span class="bdg sm c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>주의</span><span>신규 배포가 뜨지 않음 · 이슈 #11 열림</span><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a></div></div>
+</div></div>
+    </section>
+  </div>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

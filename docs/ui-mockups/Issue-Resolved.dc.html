@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>이슈 — 해결</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./kg.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app" style="min-height: 2500px; width: 100%">
+
+<aside class="rail" aria-label="메뉴">
+  <a class="logo" href="Main.dc.html" aria-label="점검 이력 (홈)">KG</a>
+  <nav class="rnav">
+    <a class="rbtn" href="Main.dc.html" aria-label="점검 이력"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></a>
+    <a class="rbtn on" href="Issues-v2.dc.html" aria-label="이슈" aria-current="page"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg></a>
+    <a class="rbtn" href="Setup-Services-v2.dc.html" aria-label="점검 구성"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg></a>
+  </nav>
+  <div class="rail-foot"><button class="rbtn" aria-label="메뉴 펼치기"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg></button></div>
+</aside>
+
+<div class="main">
+  <header class="gnb">
+    <span class="proj">dev · minikube</span>
+    <span class="sp"></span>
+    <span class="lastchk"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>마지막 점검 <span class="t">14:45</span> · 다음 <span class="t">14:50</span></span>
+    <button class="btn btn-primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>지금 점검</button>
+    <button class="btn btn-ghost"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>질문</button>
+    <span class="avatar" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+  </header>
+  <div class="band"><span>열린 이슈 없음</span></div>
+  
+  <div class="body">
+    <section class="list" aria-label="이슈 목록">
+      <div class="lhead"><h1>이슈</h1><div class="sub">장애 신호·기능 점검 실패가 이어지는 동안 하나로 묶입니다</div></div>
+      <div class="filters">
+        <div class="frow"><label class="search"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>서비스·점검 규칙 ID·이슈 제목</label></div>
+        <div class="frow">
+          <span class="pill sel">상태: 열림 외 1<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="pill">심각도<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="pill">기간<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+        </div>
+      </div>
+      <div class="empty1" style="padding:12px 16px">열린 이슈 없음</div>
+      <div class="divider">해결됨</div>
+      <a class="irow done sel" href="#" aria-current="true">
+        <div class="l1"><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span class="mono s13">#12</span><span class="rel"><span class="resolved"><svg class="ic ic14 ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>해결 <span class="t">14:41</span></span></span></div>
+        <div class="ttl">채팅 실패 — llm-gateway 할당량 소진</div>
+        <div class="meta"><span class="t">14:05~14:41</span>, 36분 · 보고서 1</div>
+      </a>
+      <a class="irow done" href="#">
+        <div class="l1"><span class="bdg sm c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>주의</span><span class="mono s13">#11</span><span class="rel"><span class="resolved"><svg class="ic ic14 ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>해결 <span class="t">12:05</span></span></span></div>
+        <div class="ttl">신규 배포가 뜨지 않음 — 존재하지 않는 이미지 tag</div>
+        <div class="meta"><span class="t">11:25~12:05</span>, 40분 · 보고서 1</div>
+      </a>
+      <a class="irow done" href="#">
+        <div class="l1"><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span class="mono s13">#10</span><span class="rel"><span class="resolved"><svg class="ic ic14 ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>해결 <span class="t">09:25</span></span></span></div>
+        <div class="ttl">agent 관련 기능 전부 실패 — Service 대상 Pod 조건 오타</div>
+        <div class="meta"><span class="t">09:05~09:25</span>, 20분 · 보고서 1</div>
+      </a>
+    </section>
+
+    <section class="detail" aria-label="이슈 상세">
+      <div class="doc">
+        <div class="crumb"><a href="#">dev</a>›<a href="Issues-v2.dc.html">이슈</a>›<span>#12</span></div>
+        <h1 class="title">이슈 #12</h1>
+        <nav class="jump" aria-label="절 바로가기"><a href="#">결론·조치</a><span>·</span><a href="#">근거</a><span>·</span><a href="#">가설 판정</a><span>·</span><a href="#">확인한 범위</a><span>·</span><a href="#">타임라인</a><span>·</span><a href="#">이전 보고서</a></nav>
+        <div class="paper">
+          <div class="sec">
+            <div class="hdrow"><span class="bdg lg c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span class="resolved" style="font-size:14px"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>해결 <span class="t">14:41</span></span><span class="conf"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>확신도 높음</span></div>
+            <div style="font:600 20px/28px var(--sans);margin-top:12px">채팅 실패 — llm-gateway 할당량 소진</div>
+            <div class="meta" style="font-size:14px;line-height:22px;color:var(--ink)">영향 기능: 채팅·보도자료 초안 생성 전체</div>
+            <div class="meta"><span class="t">14:05~14:41</span>, 36분 · 해결한 점검: 직접(화면) · 리마인더 1/3 (<span class="t">14:35</span>) · 보고서 1건</div>
+          </div>
+          <div class="sec" id="s-now">
+            <h2>최신 보고서 R-0412<span class="chg">변경</span><span class="hint">14:12 · 점검 <a href="Main.dc.html">10/26 14:05</a>에서 나옴 · <span class="mono">?report=R-0412</span> · 해결됨</span></h2>
+            <h3 class="sub" style="margin-top:0">결론</h3>
+            <p class="concl" style="margin-top:0">llm-gateway가 429(요청 한도 초과)를 반환해 gateway가 502로 응답하던 문제입니다. 할당량 조치 뒤 직접 점검에서 채팅 실패가 사라졌습니다.<a class="ev" href="#">근거 14, 15</a></p>
+            <h3 class="sub">문제 <span class="muted" style="font-weight:400">(최대 3건, 순위순)</span></h3>
+            <div class="rep-issue c-crit" style="border-top:1px solid var(--line)"><span class="rk">1</span><div style="flex:1"><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span> <b>채팅 실패 — llm-gateway 할당량 소진</b></div><span class="conf"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>높음</span><a class="ev" href="#">근거 12, 14, 15</a></div>
+            <h3 class="sub">권장 조치 <span style="font-weight:400">(자동 실행하지 않음)</span></h3>
+            <ol class="act">
+              <li><span>llm-gateway 관리 화면 → 할당량 설정에서 한도 상향 또는 일일 사용량 초기화</span></li>
+              <li><span>반복되면 사용량이 급증한 사용자·기능을 llm-gateway 감사 로그에서 확인</span></li>
+            </ol>
+            <p class="verify"><b>재검증 방법</b>다음 주기 점검(5분 이내)에서 자동 확인합니다. 바로 확인하려면 상단의 지금 점검 또는 Slack <span class="mono">/kg check</span>.</p>
+
+            <h3 class="sub">근거</h3>
+            <div class="s13 b muted" style="margin-bottom:6px">사전 확인 <span style="font-weight:400">(가설 없이 확인한 사실)</span></div>
+            <ul class="facts">
+              <li><span>채팅 API 호출: 로그인 성공, 채팅 요청 502 (3회 중 3회)<a class="ev" href="#">근거 12</a></span></li>
+              <li><span>dev 네임스페이스 Pod 전체 Running·Ready, 재시작 없음, Service Endpoint 정상<a class="ev" href="#">근거 10</a></span></li>
+            </ul>
+            <div class="s13 b muted" style="margin:14px 0 6px">가설 검증</div>
+            <ul class="facts">
+              <li><span>agent 로그: <span class="mono" style="font-size:13.5px">llm-gateway returned 429 Too Many Requests</span><a class="ev" href="#">근거 14</a></span></li>
+              <li><span>llm-gateway 할당량 API: 오늘 사용량이 한도의 100%<a class="ev" href="#">근거 15</a></span></li>
+            </ul>
+
+            <h3 class="sub">가설 판정</h3>
+            <table class="tbl">
+              <thead><tr><th>가설</th><th>판정</th><th>이유</th><th>근거</th></tr></thead>
+              <tbody>
+                <tr><td>① agent 자체 오류</td><td class="verd">✕ 배제</td><td>agent Pod 3개 모두 상태 확인 200, 오류는 하위 호출의 429뿐</td><td><a class="ev" href="#">근거 13</a></td></tr>
+                <tr><td>② llm-gateway 할당량</td><td class="verd">✓ 지지</td><td>429(insufficient_quota) 반환, 오늘 사용량이 한도의 100%</td><td><a class="ev" href="#">근거 14, 15</a></td></tr>
+                <tr><td>③ DB·Redis 연결 문제</td><td class="verd">✕ 배제</td><td>로그인이 성공해 DB·Redis 경로는 정상</td><td><a class="ev" href="#">근거 12</a></td></tr>
+              </tbody>
+            </table>
+
+            <h3 class="sub">확인한 범위</h3>
+            <div class="scope">
+              <div class="h"></div><div class="h">확인함</div><div class="h">확인하지 못함</div>
+              <div class="ar">구동</div><div>채팅 경로 서비스 4개 Pod·Endpoint 상태 ✓</div><div class="ng muted">—</div>
+              <div class="ar">설정</div><div class="muted">해당 없음 (원인이 설정값과 무관)</div><div class="ng muted">—</div>
+              <div class="ar">연결</div><div>agent Pod 3개 직접 호출, llm-gateway 할당량 ✓</div><div class="ng">⊘ Azure OpenAI 쪽 할당량 (외부 서비스)</div>
+              <div class="ar">로그</div><div>agent 로그 발췌 ✓</div><div class="ng muted">—</div>
+              <div class="ar">조사 도구</div><div class="muted">허용 API 5개 중 5개 사용 가능</div><div class="ng muted">—</div>
+            </div>
+
+            <h3 class="sub">개선 권고 <span class="muted" style="font-weight:400">(지금 장애와 무관)</span></h3>
+            <div class="muted" style="font-size:14px;line-height:22px">
+              <div style="display:flex;gap:10px;align-items:center;padding:4px 0"><span class="bdg sm c-tip"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>개선 권고</span><span class="mono" style="font-size:13px">H01</span>준비 상태 확인이 포트 연결만 봄 · 6개 서비스</div>
+              <div style="display:flex;gap:10px;align-items:center;padding:4px 0"><span class="bdg sm c-tip"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>개선 권고</span><span class="mono" style="font-size:13px">H02</span>CPU·메모리 요청·제한값 미설정 · 2개 서비스</div>
+            </div>
+            <div class="hr"></div>
+            <div class="rep-foot" style="margin-top:12px">에이전트 <span class="mono">investigator:v1</span> · 모델 <span class="mono">gpt-6.1-sol</span> · 조사 48초 · 도구 호출 9회 · 2.1만 토큰 · 참고한 지침 <span class="mono">app-layer-failure.md</span> · <a href="Main-v2-Steps.dc.html">조사 과정 보기 →</a> <span class="muted">(점검 상세로 이동)</span></div>
+          </div>
+          <div class="sec" id="s-tl">
+            <h2>타임라인<span class="chg">변경</span><span class="hint">위가 오래된 것 · Slack 링크는 이슈 상세로 연결</span></h2>
+            <div class="tl">
+              <div class="tli">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:05</span><a href="#" class="k">점검 · 이슈 열림</a></div>
+                <div class="sub">주기 점검 · 기능 점검 chat 2단계 실패 · <a href="Main.dc.html">점검 상세 보기</a></div>
+              </div>
+              <div class="tli">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:05</span><span class="k">Slack 1차 알림</span><span class="sent">보냄</span><a href="#" class="s13">메시지 본문 보기 ▾</a></div>
+              </div>
+              <div class="tli">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:12</span><a href="#" class="k">조사 완료 · 보고서 R-0412</a></div>
+                <div class="sub" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">원인 갱신 알림 <span class="sent">보냄</span> 원인 확인 답글 <span class="sent">보냄</span> <a href="#">메시지 본문 보기 ▾</a></div>
+              </div>
+              <div class="tli mu">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:10~14:40</span><a href="#" class="k" style="font-weight:400">이어짐 7회 ▸</a></div>
+                <div class="sub">14:35 리마인더 <span class="sent">보냄</span> 포함</div>
+              </div>
+              <div class="tli ok">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:41</span><a href="#" class="k">점검 · 해결</a><span class="pillm" style="color:var(--ink)">직접</span></div>
+                <div class="sub">운영자가 상단의 지금 점검을 눌렀습니다. 이 이슈의 점검 규칙·기능 점검을 모두 확인했고 지문이 사라졌습니다. 주기 점검(14:45)을 기다리지 않았습니다.</div>
+              </div>
+              <div class="tli ok">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:41</span><svg class="ic ic14 ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><span class="k">복구 알림</span><span class="sent">보냄</span><a href="#" class="s13">메시지 본문 접기 ▴</a></div>
+                <div class="msgbody">✅ [KubeGuardian] dev — 채팅이 정상으로 돌아왔습니다 (14:41 점검, 장애 지속 약 36분)</div>
+                <div class="sub">1차 알림 스레드의 답글로 달리고 채널에도 표시됩니다.</div>
+              </div>
+            </div>
+            <div class="ban tipb" style="margin-top:4px">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <div>직접 점검은 결과를 화면에서만 보여줍니다. 열린 이슈를 <b>해결</b>로 바꾸고 복구 알림을 보내는 것 외에는 새 이슈를 열거나 리마인더를 보내지 않습니다. 일부를 확인하지 못했거나 중단된 점검은 이슈를 해결하지 않습니다.</div>
+            </div>
+          
+          </div>
+          <div class="sec" id="s-prev">
+            <h2>이전 보고서<span class="chg">변경</span><span class="hint">접힘</span></h2>
+            <div class="fold" style="border:0;background:var(--surface-2);border-radius:3px"><span class="l"><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>이전 보고서 0건</span><span class="s13 muted">문제 지문이 바뀌어 재조사하면 이전 보고서가 여기에 접혀 쌓입니다</span></div>
+          </div></div></div>
+    </section>
+  </div>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2500}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

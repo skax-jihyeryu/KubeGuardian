@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>공통 컴포넌트</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./kg.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="sheet" style="min-height: 2120px; width: 100%">
+  <h1>공통 컴포넌트</h1>
+  <p class="lead">톤 보드 확정안(2026-10-22) · 라이트 전용. 심각도·상태는 선형 SVG 아이콘 + 라벨을 함께 쓰고, 한 배지에 두 축의 뜻을 싣지 않습니다.</p>
+
+  <div class="sgrid">
+
+    <!-- 1 심각도 -->
+    <div class="card">
+      <h2>심각도 배지 <span>주 배지 · 각진 배지 24px · 아이콘 + 라벨</span></h2>
+      <div class="cap">lg · md · sm</div>
+      <div class="cwrap">
+        <span class="bdg lg c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span>
+        <span class="bdg lg c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>주의</span>
+        <span class="bdg lg c-risk"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>잠재 위험</span>
+        <span class="bdg lg c-tip"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>개선 권고</span>
+      </div>
+      <div class="cwrap" style="margin-top:12px">
+        <span class="bdg c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span>
+        <span class="bdg c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>주의</span>
+        <span class="bdg c-risk"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>잠재 위험</span>
+        <span class="bdg c-tip"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>개선 권고</span>
+      </div>
+      <div class="cwrap" style="margin-top:12px">
+        <span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span>
+        <span class="bdg sm c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>주의</span>
+        <span class="bdg sm c-risk"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>잠재 위험</span>
+        <span class="bdg sm c-tip"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>개선 권고</span>
+        <span class="calm"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>이상 없음</span>
+      </div>
+      <div class="cap">1차 → 최종 심각도</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="cwrap"><span class="bdg c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span class="stage">1차 주의 → 긴급</span></div>
+        <div class="cwrap"><span class="bdg c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>주의</span><span class="stage">1차 주의 (Service 수집 실패로 낮춤)</span></div>
+        <div class="cwrap"><span class="bdg c-risk"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>잠재 위험</span><span class="stage">1차 참고 → 잠재 위험</span></div>
+      </div>
+    </div>
+
+    <!-- 2 보조 표시 -->
+    <div class="card">
+      <h2>보조 표시 <span>점검·조사·설정 상태 · 심각도 색을 쓰지 않음</span></h2>
+      <div style="display:grid;grid-template-columns:140px 1fr;gap:10px 12px;align-items:center;font-size:13px">
+        <span class="muted">점검 상태 · 진행 중</span><span class="aux run"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>진행 중</span>
+        <span class="muted">일부 확인하지 못함</span><span class="aux"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>일부 확인하지 못함</span>
+        <span class="muted">중단</span><span class="aux st"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>중단</span>
+        <span class="muted">조사 상태 · 조사 중</span><span class="aux run"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>조사 중 <span class="mono">4/8</span></span>
+        <span class="muted">조사 미완 (상한)</span><span class="aux st"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>조사 미완</span>
+        <span class="muted">조사 실패</span><span class="aux st"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>조사 실패</span>
+        <span class="muted">설정 정상</span><span class="aux mu"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>설정 정상 · 마지막 확인 <span class="t">14:05</span></span>
+        <span class="muted">확인하지 못함</span><span class="cfgchip" style="width:max-content"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>확인하지 못함 1</span>
+      </div>
+      <div class="cap" style="margin-top:18px">이슈 상태 · 확신도</div>
+      <div class="cwrap">
+        <span class="open">OPEN</span>
+        <span class="resolved"><svg class="ic ic14 ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>해결 <span class="t">14:45</span></span>
+        <span class="conf"><span class="dots"><i></i><i></i><i></i></span>높음</span>
+        <span class="conf"><span class="dots"><i></i><i></i><i class="e"></i></span>중간</span>
+        <span class="conf"><span class="dots"><i></i><i class="e"></i><i class="e"></i></span>낮음</span>
+      </div>
+    </div>
+
+    <!-- 3 근거 칩 -->
+    <div class="card">
+      <h2>근거 칩 · 추정 표기</h2>
+      <div class="cwrap">
+        <span class="ev" style="margin:0">근거 14</span>
+        <span class="ev" style="margin:0">근거 14, 15</span>
+        <span class="ev" style="margin:0">근거 22~25</span>
+        <span class="ev act" style="margin:0">근거 14</span>
+        <span class="ev none" style="margin:0">근거 99</span>
+      </div>
+      <div class="cap">기본 · 복수 · 범위 · 서랍이 열려 있는 칩 · 존재하지 않는 번호</div>
+      <p style="margin-top:12px">llm-gateway가 429를 반환해 gateway가 502로 응답하고 있습니다.<a class="ev" href="#">근거 14, 15</a></p>
+      <p style="margin-top:4px">다음 주에도 같은 원인이 반복될 가능성이 있습니다 <span class="est">(추정)</span></p>
+      <div class="cap">범위 칩에서 열면 서랍 헤더에 번호 알약</div>
+      <div class="evn" style="margin-top:0"><span>22</span><span class="on">23</span><span>24</span><span>25</span></div>
+    </div>
+
+    <!-- 4 규칙 판정 -->
+    <div class="card">
+      <h2>점검 규칙 판정 칩 <span>적발 · 관찰 중 · 통과 · 확인하지 못함</span></h2>
+      <div style="display:grid;grid-template-columns:90px 1fr;gap:12px;align-items:center;font-size:14px">
+        <span class="muted s13">적발</span><span><span class="bdg c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>적발 <span class="mono" style="font-weight:500">W02</span></span> <span class="muted" style="margin-left:6px">롤아웃 정체 · Progressing=False</span></span>
+        <span class="muted s13">관찰 중</span><span style="display:flex;align-items:center;gap:10px"><span class="obs">관찰 중 <span class="mono" style="font-weight:500">W02</span></span><span class="prog" style="--p:67%"><i></i></span><span class="s13 muted">15분 중 10분째</span></span>
+        <span class="muted s13">통과</span><span class="aux mu" style="font-size:14px"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>통과 · Endpoint Ready 3/3</span>
+        <span class="muted s13">확인하지 못함</span><span><span class="bdg c-tip"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>확인하지 못함</span> <span class="muted" style="margin-left:6px"><span class="mono" style="font-size:13px">EndpointSlice</span> — Kubernetes API 응답 없음</span></span>
+      </div>
+      <div class="cap" style="margin-top:18px">가설 판정 — 색 없이 글자 + 기호</div>
+      <div class="cwrap s14"><b>✓ 지지</b><b>✕ 배제</b><b>? 판단 보류</b></div>
+    </div>
+
+    <!-- 5 버튼 -->
+    <div class="card">
+      <h2>버튼 · 지금 점검 3상태</h2>
+      <div class="cwrap">
+        <button class="btn btn-primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>지금 점검</button>
+        <button class="btn btn-sec"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>링크 복사</button>
+        <button class="btn btn-dis" disabled>점검이 진행 중입니다</button>
+        <button class="btn btn-ghost"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>질문</button>
+        <button class="btn btn-ghost on" aria-pressed="true"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>질문 (열림)</button>
+      </div>
+      <div class="cap">지금 점검 — 가능 · 진행 중 · 쿨다운</div>
+      <div class="cwrap">
+        <button class="btn btn-primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>지금 점검</button>
+        <span style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px"><button class="btn btn-dis" disabled>점검이 진행 중입니다</button><a href="#" class="s13">진행 중인 점검 보기 ›</a></span>
+        <button class="btn btn-dis" disabled><span class="mono num">0:42</span> 뒤 실행 가능</button>
+      </div>
+      <div class="cap">레일 메뉴 — 현재 · 기본 · 확인하지 못함 점</div>
+      <div class="cwrap" style="gap:24px">
+        <span class="rbtn on" style="margin-left:8px"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></span>
+        <span class="rbtn"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg></span>
+        <span class="rbtn"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg><span class="dot"></span></span>
+      </div>
+    </div>
+
+    <!-- 6 경고 배너 -->
+    <div class="card">
+      <h2>경고 배너 <span>점검·조사 상태는 심각도 색을 쓰지 않음</span></h2>
+      <div class="ban" style="margin-top:0"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><div><b>조사 미완</b> 상한에 도달해 조사를 마치지 못했습니다 (도구 20/20). 확인하지 못한 가설은 "확인하지 못함"에 있습니다.</div></div>
+      <div class="ban"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><div><b>조사 실패</b> 조사 중 오류가 발생했습니다: Azure OpenAI 응답 없음. 점검 규칙·기능 점검 결과만 표시합니다.</div></div>
+      <div class="ban tipb"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg><div><b>일부 확인하지 못함</b> 일부 항목을 확인하지 못했습니다 (Kubernetes API 응답 없음). 확인한 결과만 표시합니다. <span class="mono" style="font-size:13px">EndpointSlice</span></div></div>
+      <div class="ban"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><div>결론이 인용한 근거 없음 <span class="est">(추정)</span></div></div>
+    </div>
+
+    <!-- 7 알림 이력 + 단계 -->
+    <div class="card">
+      <h2>알림 이력 · 접이식 단계</h2>
+      <div style="display:flex;flex-direction:column;gap:10px;font-size:14px">
+        <div style="display:flex;align-items:center;gap:10px"><span class="t">14:05</span><b>최초 감지</b><span class="sent">보냄</span><a href="#" class="s13">메시지 본문 보기 ▾</a></div>
+        <div style="display:flex;align-items:center;gap:10px;color:var(--muted)"><span class="t">14:12</span><b>원인 갱신</b><span class="sent dry">dry-run 기록</span><a href="#" class="s13">메시지 본문 보기 ▾</a></div>
+      </div>
+      <div class="cap" style="margin-top:16px">단계 — 완료(접힘) · 펼침 · 현재 단계 카드 · 아직 안 함</div>
+      <div class="steps" style="margin-top:4px">
+        <div class="stp"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>점검 규칙 점검</b><span class="sum">적발 0 · 관찰 중 0 · 개선 권고 2</span><span class="tm">14:05:01 · 1s</span></div></div>
+        <div class="stp"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><b>조사 판단</b><span class="sum">조사 시작 · 1차 심각도 긴급</span><span class="tm">14:05:05 · 0s</span></div><div class="sbody muted">신호판 agent 0 · llm-gateway 0 · gateway 0</div></div>
+        <div class="stp cur"><span class="pt"></span><div class="curcard"><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><b>도구 호출</b><span class="sum"><span class="aux run"><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>조사 중</span></span><span class="mono s13" style="font-weight:600">4/8</span></div><div class="pbar" style="--p:50%"><i></i></div></div></div>
+        <div class="stp todo"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>가설 판정</b><span class="sum">아직 하지 않음</span></div></div>
+      </div>
+    </div>
+
+    <!-- 8 채팅 요소 -->
+    <div class="card">
+      <h2>채팅 요소 <span>맥락 칩 · 예시 질문 · 답변 중 · 안내 · 오류</span></h2>
+      <div class="cwrap" style="gap:8px">
+        <span class="ctx">이슈 #12 <svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+        <span class="ctx">점검 14:05 <svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+        <span class="ctx">필터: 오늘 · 긴급 <svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+        <span class="ctx mu">전체 이력</span>
+      </div>
+      <div style="margin-top:14px;text-align:center;color:var(--muted);font-size:14px">저장된 이력에 대해 질문해 보세요.</div>
+      <div class="cwrap" style="gap:8px;margin-top:10px;justify-content:center">
+        <span class="exq">이번 주 긴급 이슈 몇 건?</span><span class="exq">llm-gateway 관련 이슈 모아줘</span><span class="exq">이 장애 전에 비슷한 일 있었나?</span>
+      </div>
+      <div class="cap" style="margin-top:16px">답변 중 · 안내 · 오류</div>
+      <div class="q" style="margin-left:auto;width:max-content;margin-bottom:8px">지금 llm-gateway 괜찮아?</div>
+      <div class="s13 muted" style="margin-bottom:10px">이력을 찾는 중… ● ● ●</div>
+      <div class="tipblock">저장된 이력만으로는 지금 상태를 답할 수 없습니다. 지금 상태가 궁금하면 Slack에서 <span class="mono" style="font-size:13px">/kg investigate</span>로 요청하세요. 마지막 점검(15:05)은 이상 없음이었습니다.</div>
+      <div class="tipblock" style="margin-top:8px">답변하지 못했습니다: 응답 시간 초과 <a href="#" style="margin-left:6px">다시 시도</a></div>
+    </div>
+
+    <!-- 9 빈 상태 + 마스킹 -->
+    <div class="card">
+      <h2>빈 상태 · 마스킹</h2>
+      <div style="display:flex;flex-direction:column;gap:10px;font-size:14px;line-height:22px;color:var(--muted)">
+        <div>점검 기록이 없습니다. 주기 점검은 5분마다 실행됩니다.<br><span class="s13">상단의 지금 점검으로 바로 실행할 수 있습니다.</span></div>
+        <div>조건에 맞는 점검이 없습니다. <a href="#">필터 지우기</a></div>
+        <div>근거를 찾을 수 없습니다.</div>
+        <div>보낸 알림이 없습니다 (잠재 위험·개선 권고는 알림 없이 화면에만 표시됩니다).</div>
+      </div>
+      <div class="cap" style="margin-top:16px">마스킹 — 키 이름은 보이고 값만 가려짐</div>
+      <div class="mask">LLM_API_KEY=****
+Authorization: Bearer ****
+postgres://app:****@postgres:5432/app</div>
+    </div>
+
+    <!-- 10 조치 코드 블록 · 설정 상태 -->
+    <div class="card wide">
+      <h2>권장 조치 명령 블록 · 확인하지 못함 항목</h2>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start">
+        <div>
+          <ol class="act">
+            <li><span>Deployment 이미지를 존재하는 tag로 수정</span></li>
+            <li><span>급하면 아래 명령으로 이전 버전으로 되돌립니다</span></li>
+          </ol>
+          <div class="code" style="margin-top:8px"><span>kubectl rollout undo deployment/agent -n dev</span><button class="btn btn-sec btn-sm cp"><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>복사</button></div>
+          <p class="s13 muted" style="margin-top:6px">명령은 복사만 되고 화면에서 실행하지 않습니다.</p>
+        </div>
+        <div class="cfgitem">
+          <div class="h1"><svg class="ic ic18" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>기능 점검 <span class="mono" style="font-weight:500">chat</span> — 대상 API 문서에 없는 경로를 호출</div>
+          <div class="rows"><span class="k">언제부터</span><span><span class="t">14:05</span>부터</span><span class="k">수정 제안</span><div class="code" style="display:block;font-size:13px">설정   POST /v1/chat
+문서   POST /api/v1/chat</div></div>
+          <div class="s13 muted" style="margin-top:10px"><span class="mono">kubeguardian.yaml</span>에서 수정하세요.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2120}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

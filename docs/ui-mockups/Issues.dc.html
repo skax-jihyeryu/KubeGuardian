@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>이슈 · 열림</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./kg.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app" style="min-height: 1680px; width: 100%">
+
+<aside class="rail" aria-label="메뉴">
+  <a class="logo" href="#" aria-label="점검 이력 (홈)">KG</a>
+  <nav class="rnav">
+    <a class="rbtn" href="#" aria-label="점검 이력"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></a>
+    <a class="rbtn on" href="#" aria-label="이슈" aria-current="page"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg></a>
+    <a class="rbtn" href="#" aria-label="점검 구성"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg></a>
+  </nav>
+  <div class="rail-foot"><button class="rbtn" aria-label="메뉴 펼치기"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg></button></div>
+</aside>
+
+<div class="main">
+  <header class="gnb">
+    <span class="proj">dev · minikube</span>
+    <span class="sp"></span>
+    <span class="lastchk"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>마지막 점검 <span class="t">14:40</span> · 다음 <span class="t">14:45</span></span>
+    <button class="btn btn-primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>지금 점검</button>
+    <button class="btn btn-ghost"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>질문</button>
+    <span class="avatar" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+  </header>
+
+  <div class="band">
+    <span>열린 이슈</span>
+    <a class="plain" href="#"><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급 1</span></a>
+    <span class="zero">주의 0</span>
+    <span class="zero">잠재 위험 0</span>
+  </div>
+
+  <div class="body">
+    <section class="list" aria-label="이슈 목록">
+      <div class="lhead"><h1>이슈</h1><div class="sub">장애 신호·증상이 이어지는 동안 하나로 묶입니다</div></div>
+      <div class="filters">
+        <div class="frow"><label class="search"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>서비스·규칙 ID·이슈 제목</label></div>
+        <div class="frow">
+          <span class="pill sel">상태: 열림 외 1<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="pill">심각도<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="pill">기간<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+        </div>
+      </div>
+
+      <a class="irow bar c-crit sel" href="#" aria-current="true">
+        <div class="l1"><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span class="mono s13">#12</span><span class="rel"><span class="open">OPEN</span></span></div>
+        <div class="ttl">채팅 실패 — llm-gateway 할당량 소진</div>
+        <div class="meta">최초 감지 <span class="t">14:05</span> · 지속 35분 · 리마인더 1/3 · 보고서 1</div>
+      </a>
+      <div class="divider">해결됨</div>
+      <a class="irow done" href="#">
+        <div class="l1"><span class="bdg sm c-warn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>주의</span><span class="mono s13">#11</span><span class="rel"><span class="resolved"><svg class="ic ic14 ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>해결 <span class="t">12:05</span></span></span></div>
+        <div class="ttl">신규 배포가 뜨지 않음 — 존재하지 않는 이미지 tag</div>
+        <div class="meta"><span class="t">11:25~12:05</span>, 40분 · 보고서 1</div>
+      </a>
+      <a class="irow done" href="#">
+        <div class="l1"><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span class="mono s13">#10</span><span class="rel"><span class="resolved"><svg class="ic ic14 ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>해결 <span class="t">09:25</span></span></span></div>
+        <div class="ttl">agent 관련 기능 전부 실패 — Service 대상 Pod 조건 오타</div>
+        <div class="meta"><span class="t">09:05~09:25</span>, 20분 · 보고서 1</div>
+      </a>
+    </section>
+
+    <section class="detail" aria-label="이슈 상세">
+      <div class="doc">
+        <div class="crumb"><a href="#">dev</a>›<a href="#">이슈</a>›<span>#12</span></div>
+        <h1 class="title">이슈 #12</h1>
+        <nav class="jump" aria-label="절 바로가기"><a href="#s-now">결론</a><span>·</span><a href="#s-tl">타임라인</a><span>·</span><a href="#s-rep">보고서</a></nav>
+
+        <div class="paper">
+          <!-- ① 상태 머리 -->
+          <div class="sec">
+            <div class="hdrow">
+              <span class="bdg lg c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span>
+              <span class="open">OPEN</span>
+              <span class="conf"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>확신도 높음</span>
+            </div>
+            <div style="font:600 20px/28px var(--sans);margin-top:12px">채팅 실패 — llm-gateway 할당량 소진</div>
+            <div class="meta" style="font-size:14px;line-height:22px;color:var(--ink)">영향 기능: 채팅·보도자료 초안 생성 전체</div>
+            <div class="meta">최초 감지 <span class="t">14:05</span> · 지속 35분 (<span class="t">14:40</span> 기준) · 리마인더 1/3 (<span class="t">14:35</span>) · 보고서 1건</div>
+          </div>
+
+          <!-- ② 지금 결론 -->
+          <div class="sec" id="s-now">
+            <h2>지금 결론<span class="hint">최신 보고서 R-0412</span></h2>
+            <p class="concl" style="margin-top:0">front-chat → gateway → agent → llm-gateway 경로에서 llm-gateway가 429(요청 한도 초과)를 반환해 gateway가 502로 응답하고 있습니다.<a class="ev" href="#">근거 14, 15</a></p>
+            <h3 class="sub">권장 조치 <span style="font-weight:400">(자동 실행하지 않음)</span></h3>
+            <ol class="act">
+              <li><span>llm-gateway 관리 화면 → 할당량 설정에서 한도 상향 또는 일일 사용량 초기화</span></li>
+              <li><span>반복되면 사용량이 급증한 사용자·기능을 llm-gateway 감사 로그에서 확인</span></li>
+            </ol>
+            <p class="verify"><b>재검증 방법</b>다음 주기 점검(5분 이내)에서 자동 확인합니다. 바로 확인하려면 상단의 지금 점검 또는 Slack <span class="mono">/kg check</span>.</p>
+          </div>
+
+          <!-- ③ 타임라인 -->
+          <div class="sec" id="s-tl">
+            <h2>타임라인<span class="hint">위가 오래된 것</span></h2>
+            <div class="tl">
+              <div class="tli">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:05</span><a href="#" class="k">점검 · 이슈 열림</a></div>
+                <div class="sub">주기 점검 · 증상 chat 2단계 실패 · 점검 상세 보기</div>
+              </div>
+              <div class="tli">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:05</span><span class="k">Slack 1차 알림</span><span class="sent">보냄</span><a href="#" class="s13">메시지 본문 접기 ▴</a></div>
+                <div class="msgbody">🔴 긴급 [KubeGuardian] dev — 채팅이 실패하고 있습니다
+감지: 14:05 점검 · 로그인 성공, 채팅 단계 실패 (규칙 점검은 모두 통과)
+🔍 원인을 조사하고 있습니다. 조사가 끝나면 이 메시지를 갱신합니다.
+점검 결과: &lt;점검 상세 링크&gt;</div>
+              </div>
+              <div class="tli">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:12</span><a href="#" class="k">조사 완료 · 보고서 R-0412</a></div>
+                <div class="sub" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">원인 갱신 알림 <span class="sent">보냄</span> 원인 확인 답글 <span class="sent">보냄</span> <a href="#">메시지 본문 보기 ▾</a></div>
+              </div>
+              <div class="tli mu">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:10~14:30</span><a href="#" class="k" style="font-weight:400">이어짐 5회 ▸</a></div>
+                <div class="sub">같은 문제라 AI 조사는 생략했습니다.</div>
+              </div>
+              <div class="tli">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:35</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/><path d="M6.38 18.7 4 21"/><path d="M17.64 18.67 20 21"/></svg><span class="k">리마인더</span><span class="sent">보냄</span><a href="#" class="s13">메시지 본문 접기 ▴</a></div>
+                <div class="sub">이어짐 점검과 함께 · 긴급 리마인더 1/3</div>
+                <div class="msgbody">⏰ 🔴 긴급 [KubeGuardian] dev — 채팅 실패가 30분째 이어지고 있습니다 (14:35 기준)
+이슈: &lt;이슈 상세 링크&gt;</div>
+              </div>
+              <div class="tli mu">
+                <span class="pt"></span>
+                <div class="ln"><span class="t">14:40</span><a href="#" class="k" style="font-weight:400">점검 · 이어짐</a></div>
+              </div>
+              <div class="tli dash">
+                <span class="pt"></span>
+                <div class="ln muted"><span>열림 · 지속 35분</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ④ 보고서 -->
+          <div class="sec" id="s-rep">
+            <h2>보고서</h2>
+            <table class="tbl">
+              <thead><tr><th>ID</th><th>제목</th><th>시각</th><th>심각도</th><th>확신도</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><a class="mono" href="#">R-0412</a></td>
+                  <td>채팅 실패 — llm-gateway 할당량 소진</td>
+                  <td><span class="t">14:12</span></td>
+                  <td><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span></td>
+                  <td><span class="conf"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>높음</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="s13 muted" style="margin-top:8px">문제 지문이 바뀌어 재조사하면 보고서가 하나 더 붙고, 최신이 위로 옵니다.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1680}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>점검 상세 · 조사 진행 중</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./kg.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app" style="min-height: 1760px; width: 100%">
+
+<aside class="rail" aria-label="메뉴">
+  <a class="logo" href="Main.dc.html" aria-label="점검 이력 (홈)">KG</a>
+  <nav class="rnav">
+    <a class="rbtn on" href="Main.dc.html" aria-label="점검 이력" aria-current="page"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></a>
+    <a class="rbtn" href="Issues-v2.dc.html" aria-label="이슈"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg></a>
+    <a class="rbtn" href="Setup-Services-v2.dc.html" aria-label="점검 구성"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg></a>
+  </nav>
+  <div class="rail-foot"><button class="rbtn" aria-label="메뉴 펼치기"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg></button></div>
+</aside>
+
+<div class="main">
+  <header class="gnb">
+    <span class="proj">dev · minikube</span>
+    <span class="sp"></span>
+    <span class="lastchk"><svg class="ic spin" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>마지막 점검 <span class="t">14:05</span> · 다음 <span class="t">14:10</span></span>
+    <a class="s13" href="#">진행 중인 점검 보기 ›</a>
+    <button class="btn btn-dis" disabled>점검이 진행 중입니다</button>
+    <button class="btn btn-ghost"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>질문</button>
+    <span class="avatar" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+  </header>
+
+  <div class="band">
+    <span>열린 이슈</span>
+    <a class="plain" href="#"><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급 1</span></a>
+    <span class="zero">주의 0</span>
+    <span class="zero">잠재 위험 0</span>
+  </div>
+
+  <div class="body">
+    <section class="list" aria-label="점검 목록">
+      <div class="lhead"><h1>점검 이력</h1></div>
+      <div class="filters">
+        <div class="frow"><label class="search"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>서비스·점검 규칙 ID·이슈 제목·실패한 기능</label></div>
+        <div class="frow">
+          <span class="pill sel">기간: 오늘<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="pill">심각도<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="pill">이슈 관계<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="pill">실행 방식<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+          <span class="pill">점검 상태<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+        </div>
+      </div>
+      <a class="crow bar c-crit sel" href="#" aria-current="true"><div class="l1"><span class="t">14:05</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span class="rel">이슈 열림 #12</span></div><div class="l2"><span class="sum">채팅 실패 · 기능 점검 chat 2단계</span><span class="pillm">주기</span><span class="aux run"><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>조사 중</span></div></a>
+      <div class="fold"><span class="l"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>이상 없음 2회 · <span class="t">13:55~14:00</span></span><a href="#">펼치기<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a></div>
+      <div class="gaprow"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span>점검 중단 <span class="t">13:25~13:55</span> (점검이 실행되지 않음)</span></div>
+      <div class="fold"><span class="l"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>이상 없음 4회 · <span class="t">13:05~13:20</span></span><a href="#">펼치기<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a></div>
+      <a class="crow" href="#"><div class="l1"><span class="t">12:05</span><span class="calm"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>이상 없음</span><span class="rel"><svg class="ic ic14 ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>해결 #11</span></div><div class="l2"><span class="sum">권고 2</span><span class="pillm">주기</span></div></a>
+    </section>
+
+    <section class="detail" aria-label="점검 상세">
+      <div class="doc">
+        <div class="crumb"><a href="#">dev</a>›<a href="#">점검 이력</a>›<span>10/26 14:05</span></div>
+        <h1 class="title">점검 10/26 14:05<span class="aux run" style="font-weight:400"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>조사 중</span></h1>
+        <nav class="jump" aria-label="절 바로가기"><a href="#s-judge">판정</a><span>·</span><a href="#s-inv">점검 과정</a><span>·</span><a href="#s-ev">근거</a></nav>
+
+        <div class="paper">
+          <div class="sec">
+            <div class="hdrow">
+              <span class="bdg lg c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span>
+              <span class="stage">1차 판정 (조사 전)</span>
+              <a class="mono s14" href="Issues-v2.dc.html">이슈 #12 열림 →</a><span class="open">OPEN</span>
+            </div>
+            <div class="meta">10/26 <span class="t">14:05</span> · 주기 점검 · 감지 후 21초 경과 · Slack 1차 알림 <span class="t">14:05</span> 보냄</div>
+            <div class="concl" style="max-width:520px">
+              <div class="aux run" style="font-size:15px;font-weight:500"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>조사 중: 도구 호출 <span class="mono">4/8</span></div>
+              <div class="pbar" style="--p:50%"><i></i></div>
+              <div class="s13 muted" style="font-weight:400;margin-top:6px">조사가 끝나면 결론과 권장 조치는 <a href="Issues-v2.dc.html">이슈 #12의 보고서</a>에 나타납니다. (분모 8은 문제당 도구 호출 예산)</div>
+            </div>
+          </div>
+
+          <div class="sec" id="s-judge">
+            <h2>점검 판정</h2>
+            <div class="jr c-crit">
+              <span class="mark"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+              <div><span class="nm">기능 점검 chat</span> 실패 <span class="muted">— login 성공, chat 2단계 실패 (HTTP 200 + 오류 문구)</span><a class="ev" href="#">근거 11</a></div>
+            </div>
+            <div class="pass"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>점검 규칙 통과 11건 (장애 신호 점검 규칙 전부) <a href="#" class="plain" style="display:inline-flex;align-items:center">펼치기<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a></div>
+            <div class="gate">조사 판단 <b class="ink">조사 시작 — 기능 점검 실패</b> · 1차 심각도 긴급 · 새 문제</div>
+          </div>
+
+          <div class="sec" id="s-inv">
+            <h2>점검 과정<span class="hint">진행 중에는 단계 목록이 수 초마다 갱신됩니다</span></h2>
+            <div class="invhead"><b>조사 과정 — 10/26 14:05 점검 (주기)</b><span class="aux run"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>조사 중</span></div>
+            <div class="pillm" style="display:inline-block;padding:3px 12px;font-size:12.5px">에이전트 investigator:v1 · 모델 gpt-6.1-sol · 도구 4/20 · 21s/150s · 9k tokens</div>
+
+            <div class="cap" style="margin-top:12px">점검</div>
+            <div class="steps">
+              <div class="stp"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>점검 규칙 점검</b><span class="sum">적발 0 · 관찰 중 0 · 개선 권고 2</span><span class="tm">14:05:01 · 1s</span></div></div>
+              <div class="stp"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>기능 점검</b><span class="sum">채팅 API 점검 실패<a class="ev" href="#">근거 11</a></span><span class="tm">14:05:02 · 3s</span></div></div>
+              <div class="stp"><span class="pt"></span>
+                <div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><b>조사 판단</b><span class="sum">조사 시작 — 기능 점검 실패 · 1차 심각도 긴급 · 새 문제</span><span class="tm">14:05:05 · 0s</span></div>
+                <div class="sbody">
+                  <div class="sigtbl">
+                    <span class="k">신호판</span><span>agent 0 · llm-gateway 0 · gateway 0 <span class="muted">(서비스별 묶음, 점검 규칙 신호 없음)</span></span>
+                    <span class="k">토폴로지</span><span>gateway → agent <span class="decl">declared</span>&nbsp; agent → llm-gateway <span class="decl">declared</span></span>
+                  </div>
+                </div>
+              </div>
+              </div>
+            <div class="cap">조사 <span class="muted" style="font-weight:400">· 조사 판단에서 조사를 시작한 점검에만 붙습니다</span></div>
+            <div class="steps">
+              <div class="stp"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>사전 확인</b><span class="sum">Pod 전체 Ready · Endpoint 정상 · 채팅 502<a class="ev" href="#">근거 10, 12</a></span><span class="tm">14:05:08 · 12s</span></div></div>
+              <div class="stp"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>계획</b><span class="sum">① agent 로그 ② Pod 직접 호출 ③ llm-gateway 응답·할당량</span><span class="tm">14:05:20 · 4s</span></div></div>
+
+              <div class="stp cur"><span class="pt"></span>
+                <div class="curcard">
+                  <div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><b>도구 호출</b><span class="sum"><span class="aux run"><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>조사 중</span></span><span class="mono s13" style="font-weight:600">4/8</span></div>
+                  <div class="pbar" style="--p:50%"><i></i></div>
+                  <div style="margin-top:8px">
+                    <div class="tcall"><span class="fn">get_pod_logs<span>(agent-7c9f-x2k, previous=false, tail=200, grep="429")</span></span><span class="arr">→</span><span>429 응답 로그 발췌</span><a class="ev" href="#">근거 14</a><a href="#" class="s13">원문 ›</a></div>
+                    <div class="tcall"><span class="fn">probe<span>(agent, /health, via=pod, times=3)</span></span><span class="arr">→</span><span>Pod 3개 모두 200</span><a class="ev" href="#">근거 13</a><a href="#" class="s13">원문 ›</a></div>
+                    <div class="tcall"><span class="fn">query_app_api<span>(llm-gateway, /api/v1/quota)</span></span><span class="arr">→</span><span>오늘 사용량 한도의 100%</span><a class="ev" href="#">근거 15</a><a href="#" class="s13">원문 ›</a></div>
+                    <div class="tcall runn" style="border-bottom:0"><span class="fn">get_pod_logs<span>(llm-gateway-5d8c-p4m, tail=200)</span></span><span class="arr">→</span><span class="aux run"><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>호출 중…</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="stp todo"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>가설 판정</b><span class="sum">아직 하지 않음</span></div></div>
+              <div class="stp todo"><span class="pt"></span><div class="hd"><svg class="ic ic14 chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b>보고서·검증</b><span class="sum">아직 하지 않음</span></div></div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:8px"><a href="#" class="s13" style="display:inline-flex;gap:4px;align-items:center">Phoenix 추적 열기<svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a></div>
+            <p class="s13 muted" style="margin-top:8px">프롬프트·LLM 응답 원문은 이 화면에 없고 Phoenix에서 봅니다.</p>
+          </div>
+
+          <div class="sec" id="s-ev">
+            <h2>근거</h2>
+            <p class="s14 muted">지금까지 수집된 근거 6건 중 5건이 위 단계에서 인용되었습니다. 근거 번호를 누르면 오른쪽에 원문이 열립니다.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1760}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

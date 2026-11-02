@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>점검 구성 · 기능 점검 (변경 후)</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./kg.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="app" style="min-height: 1000px; width: 100%">
+
+<aside class="rail" aria-label="메뉴">
+  <a class="logo" href="Main.dc.html" aria-label="점검 이력 (홈)">KG</a>
+  <nav class="rnav">
+    <a class="rbtn" href="Main.dc.html" aria-label="점검 이력"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></a>
+    <a class="rbtn" href="Issues-v2.dc.html" aria-label="이슈"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg></a>
+    <a class="rbtn on" href="Setup-Services-v2.dc.html" aria-label="점검 구성" aria-current="page"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg></a>
+  </nav>
+  <div class="rail-foot"><button class="rbtn" aria-label="메뉴 펼치기"><svg class="ic ic20" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg></button></div>
+</aside>
+
+<div class="main">
+  <header class="gnb">
+    <span class="proj">dev · minikube</span>
+    <span class="sp"></span>
+    <span class="lastchk"><svg class="ic ok-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>마지막 점검 <span class="t">14:05</span> · 다음 <span class="t">14:10</span></span>
+    <button class="btn btn-primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>지금 점검</button>
+    <button class="btn btn-ghost"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>질문</button>
+    <span class="avatar" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+  </header>
+  <div class="band"><span>열린 이슈 없음</span><span class="sp"></span><a class="cfgchip" href="Check-Unknown-v2.dc.html"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>확인하지 못함 2</a></div>
+  <nav class="tabs" aria-label="점검 구성"><a href="Setup-Services-v2.dc.html" class="">대상 서비스 <span class="n">4</span></a><a href="Setup-Rules-v2.dc.html" class="">점검 규칙 <span class="n">25</span></a><a href="Setup-Features-v2.dc.html" class="on">기능 점검 <span class="n">2</span></a><span class="sp"></span><span class="s13 muted" style="align-self:center">읽기 전용 · 원본 <span class="mono">kubeguardian.yaml</span></span></nav>
+  <div class="body">
+    <section class="list" aria-label="기능 점검 목록">
+      <div class="lhead"><h1>기능 점검</h1><div class="sub">2개 · 정의만 · 이름 · 지키는 기능 · 단계 수</div></div>
+<a class="irow sel" href="#" aria-current="true"><div class="l1"><span class="mono s13">chat</span><span class="rel muted s13">단계 2</span></div><div class="ttl">채팅</div><div class="meta">login → chat</div></a><a class="irow" href="#"><div class="l1"><span class="mono s13">login</span><span class="rel muted s13">단계 1</span></div><div class="ttl">로그인</div><div class="meta">login</div></a>
+    </section>
+    <section class="detail" aria-label="기능 점검 상세">
+      <div class="doc"><div class="crumb"><a href="#">dev</a>›<a href="#">점검 구성</a>›<a href="#">기능 점검</a>›<span>chat</span></div>
+<h1 class="title"><span class="mono" style="font-weight:500">chat</span> 채팅</h1><div class="s13 muted">지키는 기능: 채팅 · 단계 2 · 정의만 보여 줍니다. 결과는 점검 이력에서 봅니다.</div>
+<div class="paper">
+<div class="sec"><h2>흐름</h2><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="pillm">1 login</span><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg><span class="pillm">2 chat</span><span class="s13 muted" style="margin-left:6px">어느 단계에서 멈췄는지는 점검 상세에 표시</span></div></div>
+<div class="sec"><h2>최근 실패 점검<span class="hint">누르면 그 점검 상세로 이동</span></h2>
+<div style="display:flex;flex-direction:column;gap:2px;font-size:14px;line-height:24px">
+<a href="Main.dc.html" class="plain" style="display:flex;gap:10px;align-items:center"><span class="t">10/26 14:05</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span>2단계 실패 · 이슈 #12 열림</span><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>
+<a href="#" class="plain" style="display:flex;gap:10px;align-items:center"><span class="t">10/26 14:10</span><span class="bdg sm c-crit"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>긴급</span><span>2단계 실패 · 이슈 #12 이어짐</span><svg class="ic ic14" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a></div></div>
+<div class="sec"><h2>원본 정의<span class="hint">읽기 전용 · kubeguardian.yaml</span></h2><div class="yaml">api_scenarios:
+  - name: chat
+    feature: 채팅
+    account_secret: kg-chat-account
+    steps:
+      - {name: login, method: POST, path: /api/v1/login}
+      - {name: chat,  method: POST, path: /api/v1/chat}</div><div class="s13 muted" style="margin-top:8px"><a href="#">작성 가이드 →</a></div></div>
+</div></div>
+    </section>
+  </div>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
