@@ -1380,3 +1380,84 @@ def test_successful_recheck_records_no_failure():
     result, _, _ = _run(script)
 
     assert result.status == "done" and _recheck_failures(result) == []
+
+
+class _ProbeInput(BaseModel):
+    target: str = "gateway"
+    path: str = "/health"
+    via: str = "service"
+
+
+def _fake_probe():
+    class FakeProbe(Tool):
+        name = "probe"
+        description = "probe 테스트 도구"
+        Input = _ProbeInput
+
+        def collect(self, args, ctx: ToolContext) -> ToolObservation:
+            return ToolObservation(
+                kind="probe_result",
+                subject="dev/Service/gateway",
+                source="GET /health",
+                summary="probe 결과",
+                data={"ok": True},
+            )
+
+    return FakeProbe()
+
+
+_PF_TRIAGE = json.dumps({**json.loads(TRIAGE), "runbook": "partial-failure"})
+
+
+def _run_partial_failure(script: list):
+    llm = ScriptedLLM(script=script, calls=[])
+    ctx = RunContext(
+        run_id="r1",
+        namespace="dev",
+        evidence=MemoryEvidence(),
+        budget=BudgetTracker(Budget()),
+        now=lambda: NOW,
+    )
+    agent = InvestigatorV1(llm_factory=lambda model: llm, tools=[*TOOLS, _fake_probe()], ctx=ctx)
+    return build_graph(agent).invoke({"request": REQ}, {"recursion_limit": 100}), llm
+
+
+def test_observations_record_probe_via():
+    script = [
+        _PF_TRIAGE,
+        PLAN,
+        _tool_call(1, "probe", {"target": "gateway", "path": "/health", "via": "pod"}),
+        _tool_call(2, "probe", {"target": "gateway", "path": "/health"}),
+        AIMessage(content="조사 완료"),
+        _report(
+            ["ev-3"],
+        ),
+    ]
+    state, _ = _run_partial_failure(script)
+
+    probes = [(o.tool, o.via) for o in state["observations"] if o.tool == "probe"]
+    assert probes == [("probe", "pod"), ("probe", "service")]
+    assert all(o.via is None for o in state["observations"] if o.tool != "probe")
+
+
+def test_partial_failure_without_pod_probe_triggers_recheck():
+    deployment = _tool_call(1, args={"kind": "Deployment", "name": "gateway"})
+    pod_probe = _tool_call(2, "probe", {"target": "gateway", "path": "/health", "via": "pod"})
+    script = [
+        _PF_TRIAGE,
+        PLAN,
+        deployment,
+        AIMessage(content="조사 완료"),
+        _report(["ev-3"], **_cause(), **_checked_config()),
+        pod_probe,
+        AIMessage(content="조사 완료"),
+        _report(["ev-3"], **_cause(), **_checked_config()),
+    ]
+    state, llm = _run_partial_failure(script)
+
+    recheck = next(
+        m.content for call in llm.calls for m in call if str(m.content).startswith("[재조사]")
+    )
+    assert "Pod별 probe(via=pod)" in recheck
+    assert state["rechecked"] is True
+    assert state["observations"][-1].via == "pod"

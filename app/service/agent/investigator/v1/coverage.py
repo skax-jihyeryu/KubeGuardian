@@ -25,6 +25,7 @@ AREA_BY_KIND: dict[str, set[Area]] = {
     "Service": {"wiring"},
     "EndpointSlice": {"wiring"},
 }
+PARTIAL_FAILURE = "partial-failure"  # 조사 지침 이름
 _UNRESOLVED_MAX = 5  # 재조사 메시지에 싣는 미확인 가설 수
 _REASON_MAX = 200
 _STATEMENT_MAX = 200
@@ -79,7 +80,18 @@ def _unresolved_gap(report: Report) -> str | None:
     return "\n".join([f"{head} 다음 미확인 항목을 확인하세요:", *lines])
 
 
-def find_gaps(report: Report, observations: list[Observation]) -> list[str]:
+def _pod_probe_gap(runbook: str | None, observations: list[Observation]) -> str | None:
+    """간헐 실패 지침인데 Pod별 probe(via=pod)가 성공한 적이 없으면 그 사유."""
+    if runbook != PARTIAL_FAILURE:
+        return None
+    if any(o.ok and o.tool == "probe" and o.via == "pod" for o in observations):
+        return None
+    return "간헐 실패 지침인데 Pod별 probe(via=pod)를 호출하지 않았습니다"
+
+
+def find_gaps(
+    report: Report, observations: list[Observation], runbook: str | None = None
+) -> list[str]:
     gaps = []
     if cause_gap := _cause_gap(report, observations):
         gaps.append(cause_gap)
@@ -87,6 +99,8 @@ def find_gaps(report: Report, observations: list[Observation]) -> list[str]:
     for area in AREAS:
         if area not in seen and getattr(report.coverage, area).status != "not_applicable":
             gaps.append(f"{_LABEL[area]} 영역을 확인하지 않았습니다")
+    if pod_probe := _pod_probe_gap(runbook, observations):
+        gaps.append(pod_probe)
     if unresolved := _unresolved_gap(report):
         gaps.append(unresolved)
     return gaps

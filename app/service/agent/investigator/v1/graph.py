@@ -101,6 +101,10 @@ def build_graph(agent: "InvestigatorV1"):
                 name=args.get("name"),
                 ok=ok,
             )
+        if name == "probe":
+            return Observation(
+                evidence_id=evidence_id, tool=name, via=args.get("via", "service"), ok=ok
+            )
         return Observation(evidence_id=evidence_id, tool=name, ok=ok)
 
     def run_tool(name: str, args: dict):
@@ -394,7 +398,7 @@ def build_graph(agent: "InvestigatorV1"):
         """보고서 뒤 코드 검사: 빈틈이 있으면 1회만 재조사하고, 아니면 못 본 영역을 내려 끝낸다."""
         report, obs = state["report"], state["observations"]
         with agent.step("stop_check") as s:
-            gaps = find_gaps(report, obs)
+            gaps = find_gaps(report, obs, state["triage"].runbook)
             recheck = (
                 bool(gaps)
                 and not state["rechecked"]

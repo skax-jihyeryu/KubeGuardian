@@ -89,7 +89,7 @@ make eval S=A1 ARGS="--in-cluster"                  # 규칙 조건
 make eval S=A1 ARGS="--in-cluster --condition ai"   # AI 조건
 ```
 
-- 러너가 `kubectl exec <pod> -- python -m runner_step check|investigate ... --json`을 부르고, Pod는 결과를 stdout 한 줄 JSON으로 낸다 (`runner_step.py`). 점검 DB는 Pod의 `/data/<실행 이름>/kg.db`에 쌓이고, 실행이 끝나면 `kubectl cp`로 `eval/history/<실행 이름>/kg.db`에 가져온다. `result.json`·`report-<i>.json`·`steps-<i>.json` 형식은 로컬 실행과 같고, `result.json`에 `in_cluster.pod`가 더해진다
+- 러너가 `kubectl exec <pod> -- python -m runner_step check|investigate ... --json`을 부르고, Pod는 결과를 stdout 한 줄 JSON으로 낸다 (`runner_step.py`). 점검 DB는 Pod의 `/data/<실행 이름>/kg.db`에 쌓이고, 실행이 끝나면 `kubectl cp`로 `eval/history/<실행 이름>/kg.db`에 가져온다. `result.json`·`report-<i>.json`·`steps-<i>.json` 형식은 로컬 실행과 같고, `result.json`에 시작 시 `in_cluster`, 원복·DB 가져오기·채점 후 `in_cluster_end`로 Pod 이름·이미지 ID·설정 resourceVersion을 기록한다. 종료 조회 실패 시 결과를 저장하고 `in_cluster_end_failed`를 남기며 실행을 무효로 처리한다
 - 점검 설정은 ConfigMap `kubeguardian-config`(`make kg-up` 때의 `kubeguardian.yaml`)를 쓴다. `--config`는 Mac 쪽 읽기에만 쓰이므로 설정을 바꾸면 `make kg-up`을 다시 한다
 - 무효(2): runner Pod가 없거나 실행 중 **Pod가 바뀜**(emptyDir DB가 사라져 지속 시간 규칙을 이어 볼 수 없음), exec 비정상 종료, 출력이 JSON이 아님. 사유는 마스킹해 `result.json`의 `invalid`에 남는다. 점검 DB를 가져오지 못하면 `db_fetch_failed`에 남는다
 - `ai.trace_id`는 Pod 안 조사의 추적 id다. 추적은 클러스터 안 주소로 Phoenix에 보내므로 port-forward 없이 남는다
@@ -136,8 +136,8 @@ make eval-report B=w4-new BASE=w4-base     # baseline 대비 회귀 표 포함
 - 리포트 통과 = 규칙 채점 통과(`score.passed`) + 회차 분류 pass/skip이다. 분류 분포는 에이전트 분류 그대로 두고, 시나리오 표의 "규칙 실패" 열이 규칙 채점이 실패한 회차 수를 따로 보여 준다. KPI·비율·시간·토큰의 분모는 조사가 돈 유효 회차(skip·not_run 제외, gate_fail 포함)다. `--ai-repeats`가 2 이상이면 `--condition ai`가 필요하다
 - 리포트 내용: 시나리오별 표(통과 k/N, 실패 분류 분포, `cause_match`·`judge_match`·`key_all_found` 비율, `support_rate` 평균, 시간·토큰 중앙값), 레벨별(L1~L3)·경로별(A·B) 통과율과 Wilson 95% 신뢰구간, 일관성(N회가 모두 같은 분류인 시나리오 비율), KPI(원인 정확도, 원인 규명 커버리지, 근거 일치율, 조사 시간·토큰 중앙값)
   - 오확정률(회차 `judgement`가 confirmed인데 분류가 pass가 아닌 비율)과 과소 확정 수(pass인데 confirmed가 아닌 회차, `judgement`가 없는 옛 결과는 제외)도 KPI 표에 함께 낸다. 규칙 실패는 반영하지 않고 회차 분류만 본다
-  - 묶음 도중 결과의 `in_cluster`에서 `image_id`·`config_resource_version`이 바뀌면 리포트 맨 위에 어느 두 시나리오 시작 사이에 바뀌었는지(`A3 시작~A5 시작 사이`) 경고한다. baseline 묶음도 같은 방식으로 검사해 경고한다 (묶음을 멈추거나 종료 코드를 바꾸지는 않는다)
-  - 한계: `in_cluster`는 시나리오 시작 때만 기록되므로 변경은 두 시나리오 시작 사이로만 표시되고, 마지막 시나리오 도중의 변경과 시나리오 1개짜리 묶음의 변경은 잡히지 않는다
+  - 묶음 도중 결과의 `in_cluster`·`in_cluster_end`에서 `image_id`·`config_resource_version`이 바뀌면 리포트 맨 위에 어느 시작·종료 관측 사이에 바뀌었는지(`A3 시작~A3 종료 사이`, `A3 종료~A5 시작 사이`) 경고한다. baseline 묶음도 같은 방식으로 검사해 경고한다 (묶음을 멈추거나 종료 코드를 바꾸지는 않는다)
+  - 종료 메타데이터가 있는 결과는 마지막 시나리오와 시나리오 1개짜리 묶음의 실행 중 변경도 검사한다. 예전 결과처럼 종료 메타데이터가 없으면 기존처럼 시작 관측끼리 비교한다. 관측 사이에 바뀌었다 원래 값으로 돌아온 변경은 잡히지 않는다
 - `--baseline`: 시나리오별 통과 수 변화와 실패 분류 분포 변화를 회귀 표로 낸다. 통과 수가 2 이상 줄면 회귀로 표시한다
 - 상한에 닿아 끝난(`limited`) 실패 회차 수를 시나리오별 표에 따로 센다
 

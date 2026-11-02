@@ -451,3 +451,22 @@ def test_label_reclassified_to_pass_counts_as_underconfirmed(tmp_path):
     }
     k = summarize(results, {("t0-A1", 0): label}, scen)["kpi"]
     assert k["underconfirmed"] == 1
+
+
+def test_batch_drift_detects_single_scenario_end_change(tmp_path):
+    results = _drift_batch(tmp_path, [("A1", _cluster("1"), {"in_cluster_end": _cluster("2")})])
+    assert batch_drift(results) == ["config_resource_version: 1 → 2 (A1 시작~A1 종료 사이)"]
+
+
+def test_batch_drift_compares_end_to_next_start_and_last_end(tmp_path):
+    results = _drift_batch(
+        tmp_path,
+        [
+            ("A1", _cluster("1"), {"in_cluster_end": _cluster("1")}),
+            ("A3", _cluster("2"), {"in_cluster_end": _cluster("3")}),
+        ],
+    )
+    assert batch_drift(results) == [
+        "config_resource_version: 1 → 2 (A1 종료~A3 시작 사이)",
+        "config_resource_version: 2 → 3 (A3 시작~A3 종료 사이)",
+    ]

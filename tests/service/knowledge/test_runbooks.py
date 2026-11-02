@@ -95,3 +95,18 @@ def test_service_unreachable_warns_missing_edge_is_not_normal():
     text = (RUNBOOKS / "service-unreachable.md").read_text()
 
     assert "엣지 없음은 정상이 아니다" in text
+
+
+def test_partial_failure_puts_pod_probe_before_pod_logs():
+    text = (RUNBOOKS / "partial-failure.md").read_text()
+    facts = text.split("## 먼저 확인할 사실")[1].split("## 원인 후보")[0]
+
+    assert "`probe` (via=pod)" in facts
+    assert facts.index("`probe` (via=pod)") < facts.index("`get_pod_logs`")
+
+
+def test_partial_failure_says_log_success_does_not_rule_out_a_pod():
+    text = (RUNBOOKS / "partial-failure.md").read_text()
+
+    assert "로그에 성공만 있어도 배제 근거가 아니다" in text
+    assert "상태 확인이 성공해도 업무 API가 정상이라는 뜻은 아니다" in text

@@ -197,3 +197,13 @@ def test_service_shows_authenticated_api_reference_without_credentials(setup_cli
     assert "/api/v1/auth/login" in response.text
     assert "/models/${org_id}" in response.text
     assert "Authorization" not in response.text
+
+
+def test_rule_details_show_catalog_input_fields(setup_client):
+    from service.checks.detectors.catalog import CATALOG
+
+    html = setup_client.get("/dev/setup/rules?rule=S04").text
+    assert "입력 정보" in html
+    for kind, fields in CATALOG["S04"].inputs:
+        assert kind in html
+        assert fields in html
