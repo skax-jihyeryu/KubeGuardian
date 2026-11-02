@@ -171,3 +171,37 @@ def test_list_title_falls_back_without_issues_or_report(client, engine):
     row = issue_row(engine, incident)
     assert row.title == fallback
     assert client.get(f"/dev/issues/{inc}").status_code == 200
+
+
+def _done_issue(engine, **kw):
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    inv = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, inv, report(**kw))
+    return inc
+
+
+def test_report_sections_in_order_with_numbers(client, engine):
+    inc = _done_issue(engine, verification="/kg check 로 확인")
+    text = client.get(f"/dev/issues/{inc}").text
+    titles = [
+        "1. 결론",
+        "2. 문제",
+        "3. 사전 확인",
+        "4. 가설 판정",
+        "5. 확인한 범위",
+        "6. 권장 조치",
+        "7. 재검증",
+    ]
+    positions = [text.index(t) for t in titles]
+    assert positions == sorted(positions)
+    assert text.index("영향:") > text.index("1. 결론")
+    assert text.index("영향:") < text.index("2. 문제")
+    assert text.index("점검 과정 보기") > text.index("7. 재검증")
+
+
+def test_report_without_verification_has_no_seventh_section(client, engine):
+    inc = _done_issue(engine)
+    text = client.get(f"/dev/issues/{inc}").text
+    assert "6. 권장 조치" in text
+    assert "7. 재검증" not in text

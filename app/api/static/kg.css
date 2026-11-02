@@ -149,7 +149,7 @@ ul,ol{list-style:none}
 .sec>h2{font:600 18px/26px var(--sans);margin:0 0 12px;display:flex;align-items:center;gap:10px}
 .sec>h2::before{content:"";width:10px;height:10px;background:var(--ink);flex:none}
 .sec>h2 .hint{font:400 13px/18px var(--sans);color:var(--muted)}
-h3.sub{font:600 14px/20px var(--sans);color:var(--muted);margin:16px 0 8px}
+h3.sub{font:600 16px/24px var(--sans);color:var(--ink);margin:20px 0 8px}
 .hdrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .concl{font:500 15px/24px var(--sans);margin-top:12px;max-width:70ch}
 .meta{font-size:13px;line-height:18px;color:var(--muted);margin-top:8px}
