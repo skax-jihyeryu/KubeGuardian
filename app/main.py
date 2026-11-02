@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from api.router import api_router
-from api.routes import checks, issues, pages, setup
+from api.routes import chat_pages, checks, issues, pages, setup
 from api.web import STATIC_DIR
 from core.config import get_setting
 from core.error.error_handler import set_error_handlers
@@ -22,6 +22,7 @@ def create_app() -> FastAPI:
     app.include_router(checks.router)
     app.include_router(issues.router)
     app.include_router(setup.router)
+    app.include_router(chat_pages.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     set_error_handlers(app)
     return app

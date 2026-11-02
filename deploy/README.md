@@ -33,3 +33,11 @@ KubeGuardian을 클러스터 안에서 실행하는 Pod다. 클러스터 주소(
 - PVC는 RWO(단일 노드 minikube 전제)다. runner의 emptyDir DB와 분리돼 평가 이력과 섞이지 않는다.
 - 평가 중에는 `make kg-cron-suspend`로 멈추고 `make kg-cron-resume`으로 재개한다. `make kg-cron-run`은 지금 1회 실행한다.
 
+
+## 운영 화면과 로컬 개발 서버
+
+기능 점검은 클러스터 내부 Service 주소와 마운트된 `kg-test-user` 계정을 사용한다.
+실제 점검은 `diagnostic-agent`의 `web` 컨테이너에서 실행하고, `make kg-web`으로 접속한다.
+`make run`은 로컬 개발 서버라 클러스터 계정 마운트와 내부 DNS를 자동으로 제공하지 않는다.
+규칙 점검이 완료돼도 로그인·채팅 기능 점검은 `확인하지 못함`이 될 수 있다.
+프로젝트 URL ID와 대상 네임스페이스는 별개이며 현재 설정 파일과 DB 하나가 프로젝트 하나를 담당한다.

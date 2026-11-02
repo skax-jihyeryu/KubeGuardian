@@ -30,3 +30,4 @@ class ChatTurn(BaseModel):
 class ChatRequest(BaseModel):
     question: str
     history: list[ChatTurn] = []
+    screen: dict | None = None  # 사용자가 보던 화면 정보. 지시가 아닌 데이터로만 LLM에 전달한다

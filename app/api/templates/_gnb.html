@@ -11,6 +11,6 @@
   {% endif %}
   <form method="post" action="/{{ p }}/checks"><button class="btn {{ 'btn-dis' if shell.running or shell.cooldown else 'btn-primary' }}" type="submit"{% if shell.cooldown and not shell.running %} data-check-wait="{{ shell.cooldown_seconds }}"{% endif %} aria-label="지금 점검"{% if shell.running or shell.cooldown %} disabled{% endif %} title="{{ '진행 중인 점검이 있습니다' if shell.running else '직접 점검은 1분 간격입니다' if shell.cooldown else '지금 점검 실행' }}">{{ ic("spin" if shell.running else "play") }}<span class="lbl">{{ '점검 중' if shell.running else '지금 점검' }}</span></button></form>
   {% if shell.running_run %}<a class="s13" href="/{{ p }}/checks/{{ shell.running_run }}">진행 보기</a>{% endif %}
-  <button class="btn btn-dis" disabled aria-label="질문" title="질의 채팅(#100)에서 연결됩니다">{{ ic("help") }}<span class="lbl">질문</span></button>
+  <button class="btn btn-ghost" type="button" data-chat-toggle data-chat-url="/{{ p }}/chat" aria-label="질문" aria-controls="chat-root" aria-expanded="false">{{ ic("help") }}<span class="lbl">질문</span></button>
   <span class="avatar" aria-hidden="true">{{ ic("user") }}</span>
 </header>

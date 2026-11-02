@@ -1,0 +1,5 @@
+{% if not error %}<div id="chat-empty" hx-swap-oob="delete"></div><div id="chat-pending-context" hx-swap-oob="delete"></div>{% if context_changed %}<div class="divider" role="separator">맥락: {{ context }}</div>{% endif %}{% endif %}
+<div class="q">{{ question }}</div>
+{% if error %}<div class="tipblock" role="alert">{{ error }}</div>{% else %}
+{% set answer = reply.answer %}{% include "chat/_answer.html" %}
+{% endif %}

@@ -48,6 +48,28 @@ docs/       # 기획·계획·규칙 명세·산출물·ADR·학습 노트
 
 브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](.github/CONTRIBUTING.md). 기본 브랜치는 `develop`이다.
 
+## 보고서 화면
+
+`make run`으로 로컬 서버를 실행한 뒤 `http://localhost:8000/`에서 연다.
+클러스터 배포는 `make kg-up` 후 `make kg-web`으로 `http://localhost:8080/`에 연결한다.
+화면은 같은 SQLite 점검 DB와 `kubeguardian.yaml`의 대상 네임스페이스를 사용한다.
+
+- **점검 이력**: 기간·심각도·이슈 관계·실행 방식·상태·검색 필터, 점검 상세·과정·근거 원문
+- **이슈**: 최신·이전 보고서, 근거 링크, 점검·조사·Slack 알림 타임라인
+- **점검 구성**: 대상 서비스·점검 규칙·기능 점검 정의, 점검 규칙 선택 저장
+- **자동 점검**: 매시 정각(1시간 주기), Kubernetes CronJob에서 실행
+- **지금 점검**: 백그라운드 실행, 동시 1건·직접 실행 1분 간격
+- **질문**: 저장된 이력만 읽는 질의 패널, 선택한 이슈·점검·필터 맥락과 검증된 근거 인용
+
+Slack 링크에 사용할 외부 접근 주소는 `web.base_url`로 설정한다(기본 `http://localhost:8080`).
+인증 없는 PoC이므로 기존 배포처럼 ClusterIP와 port-forward로 접근한다.
+화면 목업 사본은 [docs/ui-mockups](docs/ui-mockups/README.md)에 보존한다.
+
+보고서 화면의 프로젝트 ID는 `kubeguardian.yaml`의 `project.id`로 정한다. 예시 설정은
+`llm-gateway`를 사용하므로 `http://localhost:8080/llm-gateway/checks`로 연다.
+Kubernetes 진단 대상은 별도의 `target.namespace: dev` 설정이며, 프로젝트 ID를 바꿔도
+수집 범위는 바뀌지 않는다. `project`를 생략하면 ID는 `default`다.
+
 앱 상태 API는 `app_apis`의 GET 허용 목록으로 등록하고, 인증이 필요하면 같은 Service 키의
 `app_api_auth`에 로그인 경로·계정 Secret 참조를 설정한다. 현재 예시는 gateway 로그인 후
 계정의 자기 조직 모델 할당을 조회한다. `${org_id}`는 로그인 응답에서 얻은 양의 정수로만 바인딩한다.

@@ -10,14 +10,16 @@ from langchain_core.tools import StructuredTool
 
 from service.agent._common.prompts import load_prompt
 from service.agent._common.structured import invoke_structured
-from service.agent._common.tool_adapter import wrap_tool_output
+from service.agent._common.tool_adapter import escape_angle, wrap_tool_output
 from service.agent.base import AgentResult, AgentSpec, BaseAgent, LlmFactory, RunContext
 from service.agent.history_qa.v1.config import SPEC
 from service.agent.history_qa.v1.tools import HistoryTool
 from service.agent.registry import register
 from service.model import ChatAnswer, ChatRequest, InvestigationRequest
+from service.notify.messages import DISPLAY_TZ
 
 MAX_ROUNDS = 10
+WEEKDAYS = "월화수목금토일"
 FINAL_ASK = "지금까지 확인한 것으로 ChatAnswer 형식의 JSON 하나로 답하세요. 스키마: " + json.dumps(
     ChatAnswer.model_json_schema(), ensure_ascii=False
 )
@@ -50,9 +52,21 @@ class Seen:
             case "list_issues":
                 self._add_as_of(result)
                 self.issues.update(i["id"] for i in result.get("issues", []))
+            case "search_reports":
+                self._add_as_of(result)
+                for report in result.get("reports", []):
+                    self._report_ids(report)
+            case "get_report":
+                self._report_ids(result)
             case "list_alerts":
                 self._add_as_of(result)
                 self.issues.update(a["issue_id"] for a in result.get("alerts", []))
+
+    def _report_ids(self, result: dict) -> None:
+        self.runs.add(result["run_id"])
+        if result.get("issue_id") is not None:
+            self.issues.add(result["issue_id"])
+        self.evidence.update(result.get("evidence_ids", []))
 
     def _add_as_of(self, result: dict) -> None:
         if result.get("as_of_run") is not None:
@@ -77,12 +91,19 @@ class HistoryQaV1(BaseAgent):
             for t in self.tools
         ]
         llm = self.llm("answer")
-        messages: list = [SystemMessage(load_prompt(self.spec.prompts_dir, "system"))]
+        messages: list = [
+            SystemMessage(load_prompt(self.spec.prompts_dir, "system")),
+            SystemMessage(self._now_text()),
+        ]
         for turn in request.history:
             messages.append(
                 HumanMessage(turn.text) if turn.role == "user" else AIMessage(turn.text)
             )
-        messages.append(HumanMessage(request.question))
+        question = request.question
+        if request.screen:
+            screen = escape_angle(json.dumps(request.screen, ensure_ascii=False))
+            question = f"<screen_context>{screen}</screen_context>\n{question}"
+        messages.append(HumanMessage(question))
 
         limited = True
         for _ in range(MAX_ROUNDS):
@@ -104,6 +125,11 @@ class HistoryQaV1(BaseAgent):
         )
         answer.partial = limited
         return AgentResult(status="incomplete" if limited else "done", answer=answer)
+
+    def _now_text(self) -> str:
+        now = self.ctx.now().astimezone(DISPLAY_TZ)
+        day = WEEKDAYS[now.weekday()]
+        return f"현재 시각: {now:%Y-%m-%d %H:%M} ({day}요일, KST, UTC+9)"
 
     def _call_tool(self, tool: HistoryTool | None, args: dict, name: str) -> dict:
         with self.step("tool") as s:

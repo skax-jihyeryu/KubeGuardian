@@ -15,8 +15,12 @@ from core.guard.redact import redact_text
 from service.tools.base import Tool, ToolContext
 
 
+def escape_angle(json_text: str) -> str:
+    return json_text.replace("<", "\\u003c").replace(">", "\\u003e")
+
+
 def wrap_tool_output(json_text: str) -> str:
-    return f"<tool_output>{json_text.replace('<', '\\u003c').replace('>', '\\u003e')}</tool_output>"
+    return f"<tool_output>{escape_angle(json_text)}</tool_output>"
 
 
 def to_langchain_tool(tool: Tool, ctx: ToolContext) -> StructuredTool:
