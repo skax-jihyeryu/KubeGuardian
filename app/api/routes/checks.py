@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from api.viewmodels.checks import build_check_detail, build_steps
+from api.viewmodels.checks import build_check_detail, build_drawer, build_steps
 from api.viewmodels.shell import build_shell
 from api.web import ConfigDep, EngineDep, NowDep, ProjectDep, parse_id, render, templates
 
@@ -18,13 +18,19 @@ def check_detail(
     engine: EngineDep,
     config: ConfigDep,
     now: NowDep,
+    ev: str | None = None,
 ):
     run_id = parse_id(run)
     detail = build_check_detail(engine, project, run_id, now)
     if detail is None:
         raise HTTPException(404)
+    drawer = None
+    if ev is not None:  # 이 점검의 근거만 연다. 다른 점검·없는 번호는 404
+        drawer = build_drawer(engine, run_id, parse_id(ev))
+        if drawer is None:
+            raise HTTPException(404)
     return render(
-        request, "checks/detail.html", build_shell(engine, config, now), d=detail
+        request, "checks/detail.html", build_shell(engine, config, now), d=detail, drawer=drawer
     )
 
 

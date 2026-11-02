@@ -1,4 +1,4 @@
-"""점검 상세 (UI 정의서 §6.4): 네 상황, 이스케이프·마스킹, 404, 폴링."""
+"""점검 상세 (UI 정의서 §6.4): 네 상황, 근거 서랍, 이스케이프·마스킹, 404, 폴링."""
 
 from datetime import timedelta
 
@@ -308,6 +308,61 @@ def test_missing_check_is_404_not_500(client, path):
     assert client.get(path).status_code == 404
 
 
+# ── 근거 서랍 ───────────────────────────────────────────────────
+
+
+def test_evidence_drawer_opens_with_masked_source(client, engine):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    ev = add_evidence(
+        engine,
+        run,
+        subject="dev/Pod/agent-x",
+        source="GET /api/v1/namespaces/dev/pods/agent-x/log",
+        data={"log": "WARN Authorization: Bearer abcdefgh12345678", "db_password": "hunter2"},
+    )
+    n = int(ev[3:])
+    res = detail(client, run, f"?ev={n}")
+    assert res.status_code == 200
+    assert 'class="drawer"' in res.text
+    assert f"근거 {n}" in res.text
+    assert "log_excerpt" in res.text
+    assert "dev/Pod/agent-x" in res.text
+    assert "hunter2" not in res.text and "abcdefgh12345678" not in res.text
+    assert "***" in res.text  # 원문은 마스킹되어 보인다
+    assert f"/p/dev/checks/{run}?ev={n}" in res.text  # 단독 페이지 링크
+
+
+def test_page_without_ev_has_no_open_drawer(client, engine):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    assert 'class="drawer"' not in detail(client, run).text
+
+
+@pytest.mark.parametrize("ev", ["999", "0", "abc", "-1", "1.5", "ev-0001", "99999999999999999999"])
+def test_bad_or_unknown_ev_is_404(client, engine, ev):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    assert detail(client, run, f"?ev={ev}").status_code == 404
+
+
+def test_other_checks_evidence_is_404(client, engine):
+    a = make_run(engine)
+    finish_check(engine, a, path="C")
+    b = make_run(engine)
+    finish_check(engine, b, path="C")
+    other = int(add_evidence(engine, b)[3:])
+    assert detail(client, b, f"?ev={other}").status_code == 200
+    assert detail(client, a, f"?ev={other}").status_code == 404
+
+
+def test_evidence_without_a_check_is_404(client, engine):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    orphan = int(add_evidence(engine, None)[3:])
+    assert detail(client, run, f"?ev={orphan}").status_code == 404
+
+
 # ── 이스케이프·마스킹 ────────────────────────────────────────────
 
 XSS = "<script>alert(1)</script>"
@@ -358,8 +413,10 @@ def test_untrusted_strings_are_escaped_everywhere(client, engine):
         ],
         gate_reason=XSS,
     )
+    n = int(ev[3:])
     for page in (
         detail(client, run),
+        detail(client, run, f"?ev={n}"),
         client.get(f"/p/dev/checks/{run}/steps"),
     ):
         assert page.status_code == 200

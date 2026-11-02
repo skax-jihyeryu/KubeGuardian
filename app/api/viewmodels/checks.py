@@ -23,6 +23,7 @@ from core.db import (
     InvestigationStore,
 )
 from core.db.check_results import CheckResult, Phase
+from core.db.evidence import format_evidence_id
 from core.db.incidents import Incident
 from core.db.investigations import Investigation
 from core.guard.redact import redact_mapping, redact_text
@@ -48,6 +49,7 @@ ACTION_LABEL = {
 GATE_REASON = {"A": "장애 신호", "B": "기능 점검 실패"}
 JUDGEMENT_DOTS = {"confirmed": 3, "candidate": 2, "guess": 1}
 EVIDENCE_LIMIT = 100
+RAW_LIMIT = 50_000  # 서랍에 보이는 원문 길이 상한
 
 
 @dataclass(frozen=True)
@@ -156,6 +158,17 @@ class CheckDetail:
     error: str | None
 
 
+@dataclass(frozen=True)
+class DrawerView:
+    n: int
+    kind: str
+    subject: str
+    source: str
+    collected: str
+    raw: str
+    truncated: bool
+
+
 # ── 읽기 ────────────────────────────────────────────────────────
 
 
@@ -246,6 +259,27 @@ def build_steps(engine: Engine, run_id: int, now: datetime) -> tuple[StepsView, 
     if d is None:
         return None
     return _steps(d, now), d.live, d.state
+
+
+def build_drawer(engine: Engine, run_id: int, n: int) -> DrawerView | None:
+    """이 점검에 묶인 근거만 연다. 다른 점검·점검에 묶이지 않은 근거는 없는 것으로 본다."""
+    store = EvidenceStore(engine)
+    ev_id = format_evidence_id(n)
+    if store.check_run_of(ev_id) != run_id:
+        return None
+    ev = store.get(ev_id)
+    if ev is None:
+        return None
+    raw = json.dumps(redact_mapping(ev.data), ensure_ascii=False, indent=2, default=str)
+    return DrawerView(
+        n=n,
+        kind=ev.kind,
+        subject=redact_text(ev.subject),
+        source=redact_text(ev.source),
+        collected=hms(ev.collected_at),
+        raw=raw[:RAW_LIMIT],
+        truncated=len(raw) > RAW_LIMIT,
+    )
 
 
 # ── 머리 ────────────────────────────────────────────────────────
