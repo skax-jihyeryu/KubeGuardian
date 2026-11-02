@@ -672,7 +672,7 @@ def test_recheck_time_over_does_not_make_incomplete():
         PLAN,
         AIMessage(content="조사 완료"),
         _report(["ev-1"], **_checked_config()),
-        lambda: (setattr(clock, "t", 200), _tool_call(1))[1],
+        lambda: (setattr(clock, "t", 250), _tool_call(1))[1],
         _report(["ev-1"], **_checked_config()),
     ]
     result, _, _ = _run(script, clock=clock)
@@ -687,9 +687,9 @@ def test_no_recheck_when_remaining_time_is_short():
         TRIAGE,
         PLAN,
         AIMessage(content="조사 완료"),
-        lambda: (setattr(clock, "t", 120), _report(["ev-1"], **_checked_config()))[1],
+        lambda: (setattr(clock, "t", 180), _report(["ev-1"], **_checked_config()))[1],
     ]
-    result, _, _ = _run(script, clock=clock)  # 남은 30초 < 40초
+    result, _, _ = _run(script, clock=clock)  # 남은 -30초 + 연장 60초 = 30초 < 40초
 
     nodes = [s.node for s in result.steps]
     assert nodes.count("write_report") == 1 and nodes.count("act") == 1
@@ -709,6 +709,66 @@ def test_recheck_runs_when_enough_time_remains():
     result, _, _ = _run(script, clock=clock)  # 남은 50초
 
     assert [s.node for s in result.steps].count("write_report") == 2
+
+
+def test_recheck_starts_even_when_time_is_already_over_and_extends_the_limit():
+    clock = Clock()
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        lambda: (setattr(clock, "t", 170), _report(["ev-1"], **_checked_config()))[1],
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_checked_config()),
+    ]
+    result, _, ctx = _run(script, clock=clock)  # 남은 시간 -20 + 연장 60 = 40초
+
+    assert [s.node for s in result.steps].count("write_report") == 2
+    assert ctx.budget.remaining_seconds() == 40  # 150 + 60 - 170
+    assert result.status == "done", result.error
+
+
+def test_no_extension_when_there_is_no_recheck():
+    deployment = _tool_call(1, args={"kind": "Deployment", "name": "gateway"})
+    script = [
+        TRIAGE,
+        PLAN,
+        deployment,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_cause()),
+    ]
+    result, _, ctx = _run(script, clock=Clock())
+
+    assert [s.node for s in result.steps].count("write_report") == 1
+    assert ctx.budget.remaining_seconds() == 150
+
+
+def test_no_recheck_when_extended_remaining_is_still_short():
+    clock = Clock()
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        lambda: (setattr(clock, "t", 200), _report(["ev-1"], **_checked_config()))[1],
+    ]
+    result, _, ctx = _run(script, Budget(recheck_seconds=60), clock=clock)  # -50 + 60 = 10초
+
+    assert [s.node for s in result.steps].count("write_report") == 1
+    assert ctx.budget.remaining_seconds() == -50
+
+
+def test_limited_state_blocks_recheck_even_with_extension():
+    script = [
+        TRIAGE,
+        PLAN,
+        _tool_call(1),
+        _tool_call(2),
+        _report(["ev-1"], **_checked_config()),
+    ]
+    result, _, _ = _run(script, Budget(total_tool_calls=3))  # 사전 확인 2 + 조사 1 → 상한 도달
+
+    assert result.status == "incomplete"
+    assert [s.node for s in result.steps].count("write_report") == 1
 
 
 def test_recheck_starts_with_fresh_issue_counter():
@@ -796,7 +856,7 @@ def test_recheck_time_over_after_tools_goes_through_limit_time_and_stays_done():
         PLAN,
         AIMessage(content="조사 완료"),
         _report(["ev-1"], **_checked_config()),
-        lambda: (setattr(clock, "t", 200), _tool_call(1))[1],
+        lambda: (setattr(clock, "t", 250), _tool_call(1))[1],
         _report(["ev-1"], **_checked_config()),
     ]
     result, _, _ = _run(script, clock=clock)

@@ -55,3 +55,48 @@ def test_total_left_false_when_time_over_and_remaining_seconds():
     assert tracker.remaining_seconds() == 50
     clock.t = 150
     assert not tracker.total_left()
+
+
+def test_extend_for_recheck_raises_time_limit_only():
+    clock = Clock()
+    tracker = BudgetTracker(
+        Budget(seconds=150, recheck_seconds=60, total_tool_calls=3, per_issue_tool_calls=3),
+        clock=clock,
+    )
+    clock.t = 160
+    assert tracker.time_over()
+
+    tracker.extend_for_recheck()
+
+    assert not tracker.time_over()
+    assert tracker.remaining_seconds() == 50
+    clock.t = 210
+    assert tracker.time_over()
+    assert tracker.budget.total_tool_calls == 3 and tracker.budget.per_issue_tool_calls == 3
+
+
+def test_extend_for_recheck_applies_only_once():
+    clock = Clock()
+    tracker = BudgetTracker(Budget(seconds=150, recheck_seconds=60), clock=clock)
+
+    tracker.extend_for_recheck()
+    tracker.extend_for_recheck()
+
+    assert tracker.remaining_seconds() == 210
+
+
+def test_no_extension_without_the_call():
+    tracker = BudgetTracker(Budget(seconds=150), clock=Clock())
+
+    assert tracker.remaining_seconds() == 150
+    assert Budget().recheck_seconds == 60
+
+
+def test_remaining_with_recheck_counts_extension_once():
+    clock = Clock()
+    tracker = BudgetTracker(Budget(seconds=150, recheck_seconds=60), clock=clock)
+    clock.t = 140
+
+    assert tracker.remaining_with_recheck() == 70
+    tracker.extend_for_recheck()
+    assert tracker.remaining_with_recheck() == 70

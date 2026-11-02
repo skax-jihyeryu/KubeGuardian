@@ -5,6 +5,7 @@ load_context → preliminary → triage → plan → act ⇄ tools → write_rep
   validate 뒤 stop_check가 빈틈을 찾으면 1회만 act로 되돌려 재조사한다.
 - 문제당 상한(8)만 차면 조사를 끝낸 것으로 보고 다음 문제나 보고서로 간다 (skip_calls).
   전체 상한(20)·시간(150초)에 닿았을 때만 limited(incomplete)다. 재조사 중 상한은 limited가 아니다.
+  재조사를 시작할 때 시간 상한에 recheck_seconds(60초)를 더한다 (호출 상한은 그대로).
 - 분기·상한은 LLM이 아니라 코드가 정한다 (예산은 Tool.run이 센다).
 - plan이 문제마다 가설과 확인할 영역을 세운다. act가 도구를 더 부르지 않으면 예산이 남을 때
   next_issue가 2·3순위 문제로 넘어간다. 도구마다 판정하는 노드는 없다 (판정은 보고서에서).
@@ -384,11 +385,12 @@ def build_graph(agent: "InvestigatorV1"):
                 bool(gaps)
                 and not state["rechecked"]
                 and not state["limited"]
-                and ctx.budget.total_left()
-                and ctx.budget.remaining_seconds() >= NEXT_ISSUE_MIN_SECONDS
+                and ctx.budget.tool_calls_left()  # 시간은 재조사 연장을 포함해 따로 본다
+                and ctx.budget.remaining_with_recheck() >= NEXT_ISSUE_MIN_SECONDS
             )
             s.detail = {"gaps": gaps, "recheck": recheck}
         if recheck:
+            ctx.budget.extend_for_recheck()  # 보고서 작성 뒤 남는 시간이 짧아 재조사 몫을 더한다
             ctx.budget.start_issue()  # 재조사는 문제당 호출 수를 새로 센다
             note = "[재조사] 보고서 전에 다음을 확인하세요:\n" + "\n".join(f"- {g}" for g in gaps)
             return {
