@@ -1,0 +1,21 @@
+{% extends "setup/base.html" %}
+{% block setup_body %}
+<section class="list" aria-label="대상 서비스 목록">
+  <div class="lhead"><h1>대상 서비스</h1><div class="sub">설정에 선언한 서비스 · 읽기 전용</div></div>
+  {% for name in service_names %}<a class="mrow{% if selected == name %} sel{% endif %}" href="?service={{ name|urlencode }}"><span class="nm mono">{{ name }}</span></a>{% else %}<p class="muted" style="padding:20px">아직 선언한 서비스가 없습니다.</p>{% endfor %}
+</section>
+<section class="detail" aria-label="대상 서비스 상세"><div class="doc"><a class="setup-back" href="/{{ p }}/setup/services">← 목록으로</a>
+{% if selected %}
+<div class="crumb">{{ p }} › 점검 구성 › 대상 서비스</div>
+<h1 class="title mono">{{ selected }}</h1><div class="s13 muted">서비스 정의 · 읽기 전용</div>
+<div class="paper">
+<div class="sec"><h2>지키는 기능</h2><p>{{ definition.features|join(' · ') or '핵심 경로에 선언되지 않음' }}</p></div>
+<div class="sec"><h2>필수 설정</h2>{% for name in definition.required %}<div class="mono">{{ name }}</div>{% else %}<p class="muted">선언한 필수 설정이 없습니다.</p>{% endfor %}</div>
+<div class="sec"><h2>이 서비스를 보는 점검 규칙</h2><p>Service·Pod·Workload와 설정의 관계를 점검합니다. 실제 적용 대상은 점검 시점의 구성에 따라 결정됩니다.</p><a href="/{{ p }}/setup/rules?view=kind">점검 규칙 정의 보기</a></div>
+<div class="sec"><h2>조사 허용 API</h2>{% for path in definition.apis %}<div class="mono">GET {{ path }}</div>{% else %}<p class="muted">허용한 API가 없습니다.</p>{% endfor %}</div>
+<div class="sec"><h2>대상 설정</h2><pre class="code">{{ definition.yaml }}</pre></div>
+<div class="sec"><h2>관련 이슈</h2><a href="/{{ p }}/issues?q={{ selected|urlencode }}">이 서비스의 이슈 보기</a></div>
+</div>
+{% else %}<h1 class="title">대상 설정</h1><div class="paper"><p>kubeguardian.yaml에 core_paths와 required_config를 선언하면 서비스 정의가 표시됩니다.</p><pre class="code">{{ target_yaml }}</pre></div>{% endif %}
+</div></section>
+{% endblock %}

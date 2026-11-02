@@ -1,0 +1,13 @@
+.setup-back{display:none}
+.setup-page pre{white-space:pre-wrap;overflow-wrap:anywhere}
+.setup-page .tabs{flex-wrap:wrap}
+@media(max-width:960px){
+  .setup-page .tabs{padding:0 8px}
+  .setup-page .tabs a{padding:10px 8px}
+  .setup-page .tabs>.muted{display:none}
+  .setup-page .detail{display:none}
+  .setup-page.setup-selected .list{display:none}
+  .setup-page.setup-selected .detail{display:block;width:100%}
+  .setup-page .setup-back{display:block;margin-bottom:16px}
+  .setup-page .selbar{flex-wrap:wrap}
+}
