@@ -33,7 +33,10 @@ _LIST_METHODS: dict[str, tuple[str, str]] = {
     "EndpointSlice": ("discovery", "list_namespaced_endpoint_slice"),
 }
 _TIMEOUT_S = 10
-_LOG_LIMIT_BYTES = 256 * 1024  # tail 200줄이라도 아주 긴 줄을 막는다
+# 로그 응답 바이트 한도. Kubernetes는 tail을 먼저 적용하고 limitBytes로 뒤를 자르므로
+# 한도에 닿으면 최신 줄이 사라진다. 호출하는 쪽(`fetch_logs`)이 닿았는지 보고
+# 줄 수를 줄여 다시 읽는다.
+LOG_LIMIT_BYTES = 2 * 1024 * 1024
 
 # 클래스 안의 `list` 메서드가 내장 list를 가리므로 반환 타입은 모듈 수준 별칭으로 쓴다
 Items = list[dict[str, Any]]
@@ -94,7 +97,17 @@ class K8sClient:
         """노드 목록 (클러스터 범위). 대상 Pod가 올라간 노드만 고르는 것은 수집기가 한다."""
         return _items(self._call("core", "list_node"))
 
-    def read_log(self, pod: str, container: str, *, previous: bool, tail_lines: int) -> str:
+    def read_log(
+        self,
+        pod: str,
+        container: str,
+        *,
+        previous: bool,
+        tail_lines: int,
+        since_seconds: int | None = None,
+    ) -> str:
+        """since_seconds가 None이면 API에 기간을 넘기지 않는다."""
+        extra = {} if since_seconds is None else {"since_seconds": since_seconds}
         body = self._call(
             "core",
             "read_namespaced_pod_log",
@@ -103,7 +116,8 @@ class K8sClient:
             container=container,
             previous=previous,
             tail_lines=tail_lines,
-            limit_bytes=_LOG_LIMIT_BYTES,
+            limit_bytes=LOG_LIMIT_BYTES,
+            **extra,
         )
         return body.decode("utf-8", errors="replace")
 

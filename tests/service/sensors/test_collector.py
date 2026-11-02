@@ -3,9 +3,10 @@ from datetime import UTC, datetime
 import pytest
 
 from core.error.service_exception import ErrorCode, ServiceException
-from core.k8s import K8sCallError
+from core.k8s import LOG_LIMIT_BYTES, K8sCallError
 from service.sensors.collector import (
     COLLECTED_KINDS,
+    MAX_LOG_SCAN,
     collect,
     fetch_logs,
     log_evidence,
@@ -111,6 +112,7 @@ class FakeReader:
         self.responses.update(responses or {})
         self.logs = logs or {}
         self.log_calls = []
+        self.log_since = []
 
     def list(self, kind):
         assert kind != "Node", "Node는 list_nodes로 읽는다"
@@ -125,12 +127,15 @@ class FakeReader:
             raise value
         return value
 
-    def read_log(self, pod, container, *, previous, tail_lines):
+    def read_log(self, pod, container, *, previous, tail_lines, since_seconds=None):
         self.log_calls.append((pod, container, previous, tail_lines))
+        self.log_since.append(since_seconds)
         value = self.logs[(pod, container, previous)]
         if isinstance(value, Exception):
             raise value
-        return value
+        if callable(value):  # 줄 수에 따라 본문이 달라지는 테스트용
+            return value(tail_lines)
+        return "\n".join(value.split("\n")[-tail_lines:])  # 실제 API처럼 끝 tail줄만
 
 
 def test_all_kinds_are_collected_with_kubernetes_kind_names():
@@ -401,8 +406,9 @@ def test_fetch_logs_returns_redacted_tail_lines():
 
     lines = fetch_logs(reader, "agent-7c9f-x2k", "agent", previous=True, tail=50)
 
-    assert lines == ["start", "password=***", "ERROR boom"]
-    assert reader.log_calls == [("agent-7c9f-x2k", "agent", True, 50)]
+    assert lines.lines == ["start", "password=***", "ERROR boom"]
+    assert (lines.scanned, lines.more_before, lines.match_count) == (3, False, None)
+    assert reader.log_calls == [("agent-7c9f-x2k", "agent", True, 51)]  # 앞부분 확인용으로 하나 더
 
 
 def test_fetch_logs_masks_multiline_private_key():
@@ -412,7 +418,7 @@ def test_fetch_logs_masks_multiline_private_key():
     )
     reader = FakeReader(logs={("p", "c", False): text})
 
-    lines = fetch_logs(reader, "p", "c")
+    lines = fetch_logs(reader, "p", "c").lines
 
     assert "MIIEpAIBAAKCAQEA" not in str(lines)
     assert "zzQ9" not in str(lines)
@@ -443,9 +449,9 @@ def test_probe_header_values_are_masked():
 def test_fetch_logs_grep_runs_on_redacted_lines():
     reader = FakeReader(logs={("p", "c", False): "ERROR a\ninfo\npassword=hunter2 ERROR\n"})
 
-    assert fetch_logs(reader, "p", "c", grep="ERROR") == ["ERROR a", "password=*** ERROR"]
+    assert fetch_logs(reader, "p", "c", grep="ERROR").lines == ["ERROR a", "password=*** ERROR"]
     # 비밀값으로 grep해도 줄이 나오지 않는다 (값을 추측하는 통로를 막음)
-    assert fetch_logs(reader, "p", "c", grep="hunter2") == []
+    assert fetch_logs(reader, "p", "c", grep="hunter2").lines == []
 
 
 @pytest.mark.parametrize("tail", [0, 201])
@@ -461,6 +467,116 @@ def test_fetch_logs_failure_is_collect_failed():
         fetch_logs(reader, "p", "c", previous=True)
 
     assert exc.value.error_code is ErrorCode.COLLECT_FAILED
+
+
+def _numbered(n, suffix=""):
+    return "\n".join(f"line{i}{suffix}" for i in range(n))
+
+
+def test_fetch_logs_more_before_only_when_lines_exceed_tail():
+    reader = FakeReader(logs={("p", "c", False): _numbered(10)})
+
+    exact = fetch_logs(reader, "p", "c", tail=10)
+    more = fetch_logs(reader, "p", "c", tail=9)
+
+    assert (exact.more_before, exact.scanned, len(exact.lines)) == (False, 10, 10)
+    assert (more.more_before, more.scanned, len(more.lines)) == (True, 10, 9)
+    assert more.lines[-1] == "line9"
+
+
+def test_fetch_logs_grep_is_or_and_case_insensitive():
+    text = "Quota exceeded\nHTTP Request ok\nplain\nTIMEOUT here"
+    reader = FakeReader(logs={("p", "c", False): text})
+
+    result = fetch_logs(reader, "p", "c", grep=" quota | timeout ")
+
+    assert result.lines == ["Quota exceeded", "TIMEOUT here"]
+    assert result.match_count == 2
+
+
+def test_fetch_logs_grep_is_substring_not_regex():
+    reader = FakeReader(logs={("p", "c", False): "429 Too Many\nabc"})
+
+    assert fetch_logs(reader, "p", "c", grep="4.9").lines == []
+
+
+def test_fetch_logs_grep_finds_lines_beyond_tail():
+    text = "needle early\n" + _numbered(1500)
+    reader = FakeReader(logs={("p", "c", False): text})
+
+    result = fetch_logs(reader, "p", "c", tail=100, grep="needle")
+
+    assert result.lines == ["needle early"]
+    assert reader.log_calls == [("p", "c", False, MAX_LOG_SCAN)]
+    assert (result.scanned, result.more_before, result.match_count) == (1501, False, 1)
+
+
+def test_fetch_logs_grep_limits_to_last_tail_matches_and_counts_all():
+    reader = FakeReader(logs={("p", "c", False): _numbered(30, " ERROR")})
+
+    result = fetch_logs(reader, "p", "c", tail=10, grep="error")
+
+    assert result.lines == [f"line{i} ERROR" for i in range(20, 30)]
+    assert (result.match_count, result.more_before) == (30, True)
+
+
+def test_fetch_logs_grep_more_before_when_scan_limit_reached():
+    reader = FakeReader(logs={("p", "c", False): _numbered(MAX_LOG_SCAN)})
+
+    result = fetch_logs(reader, "p", "c", grep="line5")
+
+    assert result.more_before is True and result.scanned == MAX_LOG_SCAN
+
+
+def test_fetch_logs_grep_no_more_before_when_all_read_and_few_matches():
+    reader = FakeReader(logs={("p", "c", False): _numbered(20)})
+
+    result = fetch_logs(reader, "p", "c", tail=5, grep="line1")
+
+    assert result.match_count == 11 and result.more_before is True  # 11 > tail
+    result = fetch_logs(reader, "p", "c", tail=20, grep="line1")
+    assert result.match_count == 11 and result.more_before is False
+
+
+def test_fetch_logs_passes_since_seconds():
+    reader = FakeReader(logs={("p", "c", False): "a"})
+
+    fetch_logs(reader, "p", "c", since_seconds=1800)
+    fetch_logs(reader, "p", "c")
+
+    assert reader.log_since == [1800, None]
+
+
+@pytest.mark.parametrize("grep", ["|||", " | ", "|"])
+def test_fetch_logs_rejects_grep_without_keyword(grep):
+    with pytest.raises(ValueError, match="키워드"):
+        fetch_logs(FakeReader(), "p", "c", grep=grep)
+
+
+def test_fetch_logs_retries_with_quarter_lines_when_byte_limit_reached():
+    big = "x" * LOG_LIMIT_BYTES
+
+    def body(lines):
+        return big if lines > 100 else _numbered(lines)
+
+    reader = FakeReader(logs={("p", "c", False): body})
+
+    result = fetch_logs(reader, "p", "c", tail=100)
+
+    assert [c[3] for c in reader.log_calls] == [101, 25]
+    assert result.more_before is True
+    assert result.lines[-1] == "line24"
+
+
+def test_fetch_logs_fails_after_three_retries_at_byte_limit():
+    big = "x" * LOG_LIMIT_BYTES
+    reader = FakeReader(logs={("p", "c", False): lambda lines: big})
+
+    with pytest.raises(ServiceException) as exc:
+        fetch_logs(reader, "p", "c", grep="x")
+
+    assert exc.value.error_code is ErrorCode.COLLECT_FAILED
+    assert [c[3] for c in reader.log_calls] == [2000, 500, 125, 31]
 
 
 def test_resource_evidence_has_subject_and_api_source():

@@ -13,7 +13,7 @@ CONFIG = KubeGuardianConfig.model_validate(
 EXPECTED_INPUTS = {
     "get_topology": set(),
     "get_resource": {"kind", "name", "label_selector"},
-    "get_pod_logs": {"pod", "container", "previous", "tail", "grep"},
+    "get_pod_logs": {"pod", "container", "previous", "tail", "grep", "since_seconds"},
     "get_events": {"kind", "name", "since_minutes"},
     "probe": {"target", "path", "via", "times"},
     "run_api_scenario": {"name"},

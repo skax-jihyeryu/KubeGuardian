@@ -127,6 +127,7 @@ class FakeK8s:
         self.logs = logs or {}
         self.calls: list[str] = []
         self.log_calls: list[tuple] = []
+        self.log_since: list[int | None] = []
 
     def list(self, kind):
         self.calls.append(kind)
@@ -139,12 +140,13 @@ class FakeK8s:
         self.calls.append("Node")
         return self.nodes
 
-    def read_log(self, pod, container, *, previous, tail_lines):
+    def read_log(self, pod, container, *, previous, tail_lines, since_seconds=None):
         self.log_calls.append((pod, container, previous, tail_lines))
+        self.log_since.append(since_seconds)
         value = self.logs[(pod, container, previous)]
         if isinstance(value, Exception):
             raise value
-        return value
+        return "\n".join(value.split("\n")[-tail_lines:])  # 실제 API처럼 끝 tail줄만
 
 
 class FakeHttp:
