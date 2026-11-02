@@ -113,7 +113,7 @@ def test_new_incident_sends_first_alert_before_investigation(env):
     [m1] = sender.posts
     assert m1["channel"] == "C0123456789" and m1["thread"] is None
     assert "🔴 긴급" in m1["text"] and "dev" in m1["text"] and "원인을 조사하고" in m1["text"]
-    assert "http://localhost:8080/dev/checks/1" in m1["text"]
+    assert "http://localhost:8080/dev/issues/1" in m1["text"]
     assert IncidentStore(engine).get(c.incident_id).slack_ts == "ts-1"
     assert [a.kind for a in AlertStore(engine).for_incident(c.incident_id)] == ["M1"]
 

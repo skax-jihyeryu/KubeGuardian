@@ -6,7 +6,7 @@
   <span>열린 이슈</span>
   {% for key, label in [("crit", "긴급"), ("warn", "주의"), ("risk", "잠재 위험")] %}
     {% if counts[key] %}
-    <a class="plain" href="/{{ p }}/issues">{{ badge({"key": key, "label": label ~ " " ~ counts[key]}) }}</a>
+    <a class="plain" href="/{{ p }}/issues?status=open&amp;severity={{ key }}">{{ badge({"key": key, "label": label ~ " " ~ counts[key]}) }}</a>
     {% else %}
     <span class="zero">{{ label }} 0</span>
     {% endif %}
