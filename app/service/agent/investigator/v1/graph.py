@@ -406,6 +406,9 @@ def build_graph(agent: "InvestigatorV1"):
             if state["rechecked"] and ctx.budget.issue_tool_calls == 0:
                 s.detail["recheck_no_tool_calls"] = True  # 재조사가 도구를 한 번도 부르지 않았다
         if recheck:
+            first = downgrade_unresolved_cause(
+                mark_unobserved(report, obs, "확인하지 못함 (재조사 실패)"), obs
+            )
             ctx.budget.extend_for_recheck()  # 보고서 작성 뒤 남는 시간이 짧아 재조사 몫을 더한다
             ctx.budget.start_issue()  # 재조사는 문제당 호출 수를 새로 센다
             note = (
@@ -418,6 +421,8 @@ def build_graph(agent: "InvestigatorV1"):
                 "messages": state["messages"] + [HumanMessage(note)],
                 "rechecked": True,
                 "recheck": True,
+                "first_report": first,
+                "first_status": state["status"],
                 "report_attempts": 0,
             }
         exhausted = state["limited"] or not ctx.budget.total_left() or ctx.budget.issue_exhausted()

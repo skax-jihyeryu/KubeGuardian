@@ -1315,3 +1315,68 @@ def test_recheck_gaps_in_step_detail_stay_unwrapped():
     first = next(s for s in result.steps if s.node == "stop_check")
     gaps = "\n".join(first.detail["gaps"])
     assert "env가 localhost" in gaps and "tool_output" not in gaps
+
+
+def _first_pass_with_gap() -> list:
+    return [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_cause()),  # 원인 리소스를 조회하지 않아 재조사가 시작된다
+    ]
+
+
+def _recheck_failures(result) -> list[str]:
+    return [s.detail["recheck_failed"] for s in result.steps if "recheck_failed" in s.detail]
+
+
+def test_recheck_act_failure_keeps_the_first_report():
+    script = [*_first_pass_with_gap(), RuntimeError("boom password=hunter2")]
+    result, _, _ = _run(script)
+
+    assert result.status == "done" and result.error is None
+    assert result.report is not None and result.report.conclusion == "gateway 주소 env가 localhost"
+    assert _recheck_failures(result) == ["RuntimeError"]
+    assert "hunter2" not in str([s.detail for s in result.steps])  # 예외 메시지를 저장하지 않는다
+    assert result.report.confidence == "medium"  # 원인 리소스를 못 봄
+
+
+def test_recheck_write_report_failure_keeps_the_first_report():
+    deployment = _tool_call(1, args={"kind": "Deployment", "name": "gateway"})
+    script = [
+        *_first_pass_with_gap(),
+        deployment,
+        AIMessage(content="조사 완료"),
+        RuntimeError("boom"),  # 재조사 보고서 작성 실패 (invoke_structured가 감싼다)
+    ]
+    result, _, _ = _run(script)
+
+    assert result.status == "done" and result.report is not None
+    assert result.report.conclusion == "gateway 주소 env가 localhost"
+    assert len(_recheck_failures(result)) == 1 and result.usage.tool_calls == 3
+
+
+def test_first_pass_failure_is_still_failed():
+    result, _, _ = _run([TRIAGE, PLAN, RuntimeError("boom")])
+
+    assert result.status == "failed" and result.report is None
+    assert _recheck_failures(result) == []
+
+
+def test_first_pass_report_failure_is_still_failed():
+    result, _, _ = _run([TRIAGE, PLAN, AIMessage(content="조사 완료"), RuntimeError("boom")])
+
+    assert result.status == "failed" and result.report is None
+
+
+def test_successful_recheck_records_no_failure():
+    deployment = _tool_call(1, args={"kind": "Deployment", "name": "gateway"})
+    script = [
+        *_first_pass_with_gap(),
+        deployment,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_cause()),
+    ]
+    result, _, _ = _run(script)
+
+    assert result.status == "done" and _recheck_failures(result) == []
