@@ -1,5 +1,6 @@
 """이슈 목록·보고서·알림 타임라인의 저장된 화면 값."""
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -25,6 +26,27 @@ from core.db.incidents import Incident
 from core.db.investigations import Investigation
 from core.db.tables import IncidentCheckRow
 from core.guard.redact import redact_text
+
+# 알림 kind(M 번호는 코드·DB 식별자)를 화면에 보이는 이름으로
+ALERT_LABEL = {
+    "M1": "이슈 알림",
+    "M1u": "원인 갱신",
+    "M2": "리마인더",
+    "M3": "복구 알림",
+    "M7": "점검 중단 알림",
+    "M9": "원인 확인 답글",
+    "M10": "점검 일부 확인 못 함",
+    "TEST": "연결 확인",
+}
+
+
+_SLACK_ENTITY = re.compile(r"&(amp|lt|gt);")
+_SLACK_CHAR = {"amp": "&", "lt": "<", "gt": ">"}
+
+
+def _unescape_slack(text: str) -> str:
+    """Slack용 `&amp;` `&lt;` `&gt;`만 되돌린다. HTML 이스케이프는 템플릿이 한다."""
+    return _SLACK_ENTITY.sub(lambda m: _SLACK_CHAR[m.group(1)], text)
 
 
 @dataclass(frozen=True)
@@ -164,7 +186,10 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
     for alert in AlertStore(engine).for_incident(incident_id):
         events.append(
             Event(
-                alert.sent_at, "Slack " + alert.kind, redact_text(alert.text), dry_run=alert.dry_run
+                alert.sent_at,
+                f"Slack · {ALERT_LABEL.get(alert.kind, alert.kind)}",
+                redact_text(_unescape_slack(alert.text)),
+                dry_run=alert.dry_run,
             )
         )
     timeline = []
