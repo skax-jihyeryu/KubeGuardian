@@ -531,7 +531,7 @@ def test_query_auth_token_is_scrubbed_before_body_truncation_and_json_unescaping
     assert result.data["body"]["reflected"] == "****"
 
 
-def test_query_auth_scrubs_token_before_plaintext_clip(make_ctx, evidence):
+def test_query_auth_omits_plaintext_body_before_storage(make_ctx, evidence):
     http = _auth_http()
     http.responses[("gateway", ORG_PATH.replace("${org_id}", "7"))] = HttpResponse(
         200, 2, "x" * 490 + AUTH_TOKEN + "tail" * 30
@@ -540,6 +540,7 @@ def test_query_auth_scrubs_token_before_plaintext_clip(make_ctx, evidence):
         {"app": "gateway", "path": ORG_PATH}, make_ctx(_k8s(), http)
     )
     assert result.ok and result.truncated
+    assert result.data["body"] == "인증 응답 본문 생략: JSON 해석 실패 또는 잘린 응답"
     dumped = result.model_dump_json() + evidence.saved[-1].model_dump_json()
     assert AUTH_TOKEN[:10] not in dumped
 
