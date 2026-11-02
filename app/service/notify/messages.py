@@ -63,9 +63,12 @@ def bold(text: str) -> str:
 
 
 def code(text: str) -> str:
-    """조치 명령은 인라인 코드로 감싼다. 코드 안에서는 `*`가 서식이 아니고 백틱만 코드를 끝낸다."""
-    one_line = " ".join(clean(text).replace("`", "'").split())
-    return f"`{one_line}`"
+    """조치의 공백·백틱을 보존한다. 여러 줄이나 백틱이 있으면 코드 블록으로 감싼다."""
+    # 본문의 들여쓰기 정리는 명령·스크립트의 의미를 바꿀 수 있어 적용하지 않는다.
+    command = escape_mrkdwn(_EVIDENCE_REF.sub("", redact_text(text)))
+    if "`" in command or "\n" in command or "\r" in command:
+        return f"```\n{command}\n```"
+    return f"`{command}`"
 
 
 def _head(namespace: str, severity: str | None, title: str, mark: str = "") -> str:

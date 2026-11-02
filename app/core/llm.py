@@ -27,12 +27,18 @@ class ModelOptions(NamedTuple):
 
 # 표에 없는 모델은 기본값 (temperature 지정 가능, chat completions)
 MODEL_OPTIONS: dict[str, ModelOptions] = {
+    "gpt-6-luna": ModelOptions(fixed_temperature=True),
     "gpt-6.1-sol": ModelOptions(fixed_temperature=True, responses_api=True),
 }
 
 
 def build_chat_model(
-    model: str, *, temperature: float | None = 0, settings: Settings | None = None
+    model: str,
+    *,
+    temperature: float | None = 0,
+    settings: Settings | None = None,
+    timeout: float | None = None,
+    max_retries: int = 2,
 ) -> BaseChatModel:
     """model: Azure OpenAI에서는 배포 이름.
 
@@ -51,6 +57,8 @@ def build_chat_model(
             azure_deployment=model,
             temperature=temperature,
             use_responses_api=options.responses_api,
+            timeout=timeout,
+            max_retries=max_retries,
         )
 
     raise ValueError(f"지원하지 않는 LLM_PROVIDER: {settings.LLM_PROVIDER}")

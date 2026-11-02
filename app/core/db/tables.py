@@ -255,3 +255,17 @@ class RuleSelectionRow(Base):
     rule_id: Mapped[str] = mapped_column(String(8), primary_key=True)
     enabled: Mapped[bool] = mapped_column()
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+
+class EvidenceSummaryRow(Base):
+    """기존 evidence를 바꾸지 않고 최초 열람 시 만든 AI 설명을 보관한다."""
+
+    __tablename__ = "evidence_summary"
+
+    evidence_id: Mapped[int] = mapped_column(ForeignKey("evidence.id"), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))
+    text: Mapped[str | None] = mapped_column()
+    model: Mapped[str] = mapped_column(String(128))
+    token: Mapped[str] = mapped_column(String(32))
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    truncated: Mapped[bool] = mapped_column(default=False)

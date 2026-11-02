@@ -221,7 +221,7 @@ def test_run_investigation_attaches_judgement_from_stored_evidence(engine):
     assert result.report.judgement == "candidate"
     assert (
         result.report.judgement_basis
-        == "원인 리소스 설정 미인용 · 근거 출처 1종(설정·상태) · 지지된 가설 없음"
+        == "원인 리소스 설정 미인용 · 근거 출처 1종(설정·상태) · 지지 가설 근거 최대 1종"
     )
 
 

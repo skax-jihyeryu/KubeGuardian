@@ -131,7 +131,7 @@ def test_check_shows_scenario_that_could_not_run_with_reason(tmp_path, capsys):
     assert "게이트: 경로 C" in out
 
 
-def test_check_shows_missing_target_service_as_failed_symptom(tmp_path, capsys):
+def test_check_shows_missing_target_service_as_unknown(tmp_path, capsys):
     path = tmp_path / "kubeguardian.yaml"
     path.write_text(SCENARIO_YAML.replace("via: gateway", "via: nowhere"), encoding="utf-8")
     argv = ["check", "--config", str(path), "--db", str(tmp_path / "kg.db")]
@@ -141,8 +141,9 @@ def test_check_shows_missing_target_service_as_failed_symptom(tmp_path, capsys):
         make_http=lambda cfg: FakeHttp(),
     )
     out = capsys.readouterr().out
-    assert "실패(critical)  chat" in out
-    assert "게이트: 경로 B (critical)" in out
+    assert "확인하지 못함  chat" in out
+    assert "Service nowhere" in out
+    assert "게이트: 경로 C" in out
 
 
 def test_default_http_gets_accounts_from_accounts_dir(tmp_path, monkeypatch):
@@ -220,6 +221,13 @@ def _scripted():
                     "impact": "core_path_broken",
                     "confidence": "high",
                     "cause_resource": {"kind": "Deployment", "name": "gateway"},
+                }
+            ],
+            "hypotheses": [
+                {
+                    "statement": "gateway 주소 env가 localhost",
+                    "status": "supported",
+                    "evidence_ids": ["ev-0001"],
                 }
             ],
             "evidence_ids": ["ev-0001"],  # 새 DB의 첫 근거 (규칙 점검이 저장한 S04 적발)

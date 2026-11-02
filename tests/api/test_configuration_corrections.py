@@ -76,3 +76,21 @@ def test_missing_snapshot_only_explains_limit(client, engine):
     run = _unknown(engine)
     text = client.get(f"/dev/checks/{run}").text
     assert "스냅샷이 없어 설정과 비교할 수 없습니다" in text
+
+
+def test_actual_missing_scenario_service_shows_correction(client, engine):
+    from service.pipeline.check import run_check
+    from tests.service.checks.detectors.cases import NOW, FixtureReader, raw_cluster
+    from tests.service.tools.fakes import FakeHttp
+
+    config = _config("gatewayx")
+    client.app.dependency_overrides[get_config] = lambda: config
+    out = run_check(
+        FixtureReader(*raw_cluster()), config, engine, trigger="check", now=NOW, http=FakeHttp()
+    )
+
+    text = client.get(f"/dev/checks/{out.run_id}").text
+    assert "설정 확인과 수정 제안" in text
+    assert "gatewayx" in text
+    assert "비슷한 리소스" in text
+    assert "gateway" in text

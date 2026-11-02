@@ -53,6 +53,20 @@ def test_ai_block_records_demoted_from_validate_step():
     assert ai["conclusion_supported"] is True
 
 
+def test_ai_block_reads_demoted_from_the_last_validate_step():
+    now = datetime.now(UTC)
+    result = _result()
+    result.steps = [
+        AgentStep(node="validate", started_at=now, detail={"demoted": ["1차 가설"]}),
+        AgentStep(node="stop_check", started_at=now, detail={}),
+        AgentStep(node="validate", started_at=now, detail={"demoted": ["재조사 가설"]}),
+    ]
+
+    ai, _, _ = _run(result)
+
+    assert ai["demoted"] == ["재조사 가설"]
+
+
 def test_ai_block_records_judgement_and_llm_confidence():
     result = _result()
     result.report = result.report.model_copy(

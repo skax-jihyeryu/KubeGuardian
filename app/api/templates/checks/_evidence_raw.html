@@ -1,0 +1,6 @@
+<details{% if drawer.summary and drawer.summary.status == "failed" %} open{% endif %} id="evidence-raw-{{ drawer.n }}"{% if summary_fragment %} hx-swap-oob="outerHTML"{% endif %}>
+  <summary>원본 JSON</summary>
+  <div class="raw">{{ drawer.raw }}</div>
+  {%- if drawer.truncated %}<p class="s13 muted" style="margin-top:8px">원문이 길어 앞부분만 보입니다.</p>{% endif %}
+<p class="s13 muted" style="margin-top:12px">민감한 값은 <span class="mono">***</span>로 가려지고 키 이름은 그대로 보입니다.</p>
+</details>

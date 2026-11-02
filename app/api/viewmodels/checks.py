@@ -7,7 +7,7 @@
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from difflib import get_close_matches
 from typing import Any
 
@@ -26,6 +26,7 @@ from core.db import (
 )
 from core.db.check_results import CheckResult, Phase
 from core.db.evidence import format_evidence_id
+from core.db.evidence_summaries import EvidenceSummary, EvidenceSummaryStore
 from core.db.incidents import Incident
 from core.db.investigations import Investigation
 from core.guard.redact import redact_mapping, redact_text
@@ -192,6 +193,7 @@ class DrawerView:
     collected: str
     raw: str
     truncated: bool
+    summary: EvidenceSummary | None = None
 
 
 # ── 읽기 ────────────────────────────────────────────────────────
@@ -352,7 +354,9 @@ def build_steps(engine: Engine, run_id: int, now: datetime) -> tuple[StepsView, 
     return _steps(d, now), d.live, d.state
 
 
-def build_drawer(engine: Engine, run_id: int, n: int) -> DrawerView | None:
+def build_drawer(
+    engine: Engine, run_id: int, n: int, now: datetime | None = None
+) -> DrawerView | None:
     """이 점검에 묶인 근거만 연다. 다른 점검·점검에 묶이지 않은 근거는 없는 것으로 본다."""
     store = EvidenceStore(engine)
     ev_id = format_evidence_id(n)
@@ -370,6 +374,7 @@ def build_drawer(engine: Engine, run_id: int, n: int) -> DrawerView | None:
         collected=hms(ev.collected_at),
         raw=raw[:RAW_LIMIT],
         truncated=len(raw) > RAW_LIMIT,
+        summary=EvidenceSummaryStore(engine).get(ev_id, now or datetime.now(UTC)),
     )
 
 
@@ -686,6 +691,8 @@ def _progress(d: _Loaded) -> tuple[int, int] | None:
 def _inv_meta(d: _Loaded, inv: Investigation, now: datetime) -> str:
     calls = sum(1 for s in d.inv_steps if s.node == "tools")
     b = SPEC.budget
+    rechecked = any(s.node == "stop_check" and s.detail.get("recheck") for s in d.inv_steps)
+    limit_seconds = int(b.seconds + (b.recheck_seconds if rechecked else 0))  # 재조사는 시간 연장
     if inv.usage is not None and inv.ended_at is not None:
         seconds = int((inv.ended_at - inv.started_at).total_seconds())
         tokens = inv.usage.input_tokens + inv.usage.output_tokens
@@ -697,7 +704,7 @@ def _inv_meta(d: _Loaded, inv: Investigation, now: datetime) -> str:
         f"에이전트 {inv.agent}",
         f"모델 {SPEC.models['investigate']}",
         f"도구 {calls}/{b.total_tool_calls}",
-        f"{seconds}s/{int(b.seconds)}s",
+        f"{seconds}s/{limit_seconds}s",
     ]
     if tokens:
         parts.append(f"{tokens / 1000:.0f}k tokens")

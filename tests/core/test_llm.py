@@ -56,3 +56,11 @@ def test_unlisted_model_keeps_defaults():
 def test_unknown_provider_is_rejected():
     with pytest.raises(ValueError, match="LLM_PROVIDER"):
         build_chat_model("gpt-4.1", settings=_azure_settings(LLM_PROVIDER="unknown"))
+
+
+def test_evidence_summary_model_has_fixed_temperature_and_bounded_request():
+    llm = build_chat_model("gpt-6-luna", settings=_azure_settings(), timeout=30, max_retries=0)
+    assert llm.temperature is None
+    assert "temperature" not in llm._default_params
+    assert llm.request_timeout == 30
+    assert llm.max_retries == 0
