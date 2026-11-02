@@ -815,3 +815,169 @@ def test_graph_leaves_judgement_to_the_pipeline():
     )
 
     assert result.report.judgement is None
+
+
+# ── 경로 B 사전 확인: 실패 경로 서비스의 오류 줄 ──
+
+
+def _log_tool(matches: dict[str, list[str]]):
+    """pod → 일치 줄. 부른 인자를 calls에 남긴다."""
+
+    class Logs(Tool):
+        name = "get_pod_logs"
+        description = "로그 테스트 도구"
+        calls: list[dict] = []
+
+        class Input(BaseModel):
+            pod: str
+            tail: int
+            since_seconds: int
+            grep: str
+
+        def collect(self, args, ctx: ToolContext) -> ToolObservation:
+            self.calls.append(args.model_dump())
+            lines = matches.get(args.pod, [])
+            return ToolObservation(
+                kind="log_excerpt",
+                subject=f"dev/Pod/{args.pod}",
+                source="GET log",
+                summary=f"{args.pod} 로그 {len(lines)}줄 ('x' {len(lines)}건)",
+                data={"match_count": len(lines), "lines": lines},
+            )
+
+    tool = Logs()
+    tool.calls = []
+    return tool
+
+
+def _fail_symptom():
+    return Symptom(
+        scenario="login-chat",
+        status="failed",
+        failed_step=2,
+        summary="시나리오 login-chat: 2단계 실패",
+        severity="critical",
+        evidence_id="ev-9",
+    )
+
+
+def _cluster_k8s():
+    from tests.service.tools.fakes import FakeK8s, pod, replicaset, service
+
+    apps = ("gateway", "agent", "auth")
+    pods = [
+        pod("gateway-1", app="gateway"),
+        pod("gateway-2", app="gateway"),
+        pod("agent-1", app="agent"),
+        pod("agent-2", app="agent"),
+        pod("auth-1", app="auth"),
+    ]
+    return FakeK8s(
+        {
+            "Service": [service(a) for a in apps],
+            "ReplicaSet": [replicaset(f"{a}-rs", a) for a in apps],
+            "Pod": pods,
+        }
+    )
+
+
+def _run_b(log_tool, symptoms=None, gate_path="B", budget=None, matches_scenario=True, k8s=None):
+    scenario_tool = _fake_tool("run_api_scenario")
+    scenario_tool.scenario_names = ["login-chat"]
+    req = InvestigationRequest(
+        trigger="check",
+        gate_path=gate_path,
+        signal_board=SignalBoard(),
+        symptoms=[_fail_symptom()] if symptoms is None else symptoms,
+        user_symptom="채팅이 안 돼요",
+    )
+    llm = ScriptedLLM(
+        script=[TRIAGE, PLAN, AIMessage(content="조사 완료"), _report(["ev-1"])], calls=[]
+    )
+    ctx = RunContext(
+        run_id="r1",
+        namespace="dev",
+        evidence=MemoryEvidence(),
+        budget=BudgetTracker(budget or Budget()),
+        k8s=k8s or _cluster_k8s(),
+        now=lambda: NOW,
+        scenario_services={"login-chat": ["gateway", "agent", "auth"]} if matches_scenario else {},
+    )
+    result = InvestigatorV1(
+        llm_factory=lambda model: llm, tools=[*TOOLS, scenario_tool, log_tool], ctx=ctx
+    ).run(req)
+    return result, llm, ctx
+
+
+def test_path_b_collects_error_lines_round_robin_up_to_four_calls():
+    logs = _log_tool({"gateway-1": ["ERROR a" + "x" * 300], "auth-1": ["503 b"]})
+
+    result, llm, ctx = _run_b(logs)
+
+    assert result.status == "done", result.error
+    assert [c["pod"] for c in logs.calls] == ["gateway-1", "agent-1", "auth-1", "gateway-2"]
+    assert logs.calls[0] == {
+        "pod": "gateway-1",
+        "tail": 5,
+        "since_seconds": 1800,
+        "grep": "error|exception|fail|timeout|refused|429|502|503|504",
+    }
+    # 사전 확인 3(토폴로지·이벤트·시나리오) + 로그 4 (전체 상한에 반영)
+    assert result.usage.tool_calls == 7
+    # 일치 줄이 있는 Pod만 Fact가 되고 줄은 200자로 잘린다
+    facts = [f.statement for f in result.report.preliminary_facts if "get_pod_logs" in f.statement]
+    assert len(facts) == 2
+    assert "gateway-1 로그 1줄" in facts[0] and "ERROR a" in facts[0]
+    assert "x" * 193 in facts[0] and "x" * 194 not in facts[0]  # 줄당 200자
+    assert "503 b" in facts[1]
+    # 0건 Pod도 근거는 저장된다
+    assert sum(e.subject.startswith("dev/Pod/") for e in ctx.evidence.saved) == 4
+    assert "gateway-1 로그 1줄" in llm.calls[0][-1].content  # 선별 프롬프트에 줄이 들어간다
+
+
+def test_path_b_no_match_makes_no_fact_but_keeps_evidence():
+    logs = _log_tool({})
+
+    result, _, ctx = _run_b(logs)
+
+    assert not [f for f in result.report.preliminary_facts if "get_pod_logs" in f.statement]
+    assert len(logs.calls) == 4 and result.usage.tool_calls == 7
+    assert [e.subject for e in ctx.evidence.saved if e.kind == "log_excerpt"][:1] == [
+        "dev/Pod/gateway-1"
+    ]
+
+
+def test_path_a_does_not_collect_logs():
+    logs = _log_tool({"gateway-1": ["ERROR"]})
+
+    _run_b(logs, gate_path="A")
+
+    assert logs.calls == []
+
+
+def test_path_b_user_symptom_only_does_not_collect_logs():
+    logs = _log_tool({"gateway-1": ["ERROR"]})
+
+    _run_b(logs, symptoms=[])
+
+    assert logs.calls == []
+
+
+def test_path_b_unknown_scenario_services_do_not_stop_investigation():
+    logs = _log_tool({})
+
+    result, _, _ = _run_b(logs, matches_scenario=False)
+
+    assert result.status == "done" and logs.calls == []
+
+
+def test_path_b_pod_read_failure_does_not_stop_investigation():
+    from core.k8s import K8sCallError
+
+    k8s = _cluster_k8s()
+    k8s.objects["Pod"] = K8sCallError("403 Forbidden")
+    logs = _log_tool({})
+
+    result, _, _ = _run_b(logs, k8s=k8s)
+
+    assert result.status == "done" and logs.calls == []
