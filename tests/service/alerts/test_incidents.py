@@ -276,3 +276,32 @@ def test_new_signal_on_same_feature_keeps_the_off_rules_target(engine):
         ("S01", "dev/Service/agent"),
         ("P03", "dev/Pod/a/agent"),
     }
+
+
+def test_turning_a_rule_off_while_the_symptom_stays_continues_without_reinvestigation(engine):
+    checks = Checks(engine)
+    [opened] = checks.run([_sig("S02", "agent")], [_sym()])  # 경로 A
+
+    # S02를 끄면 게이트는 증상만 남아 경로 B가 된다: 경로가 달라 보여도 상황 변화가 아니다
+    [kept] = checks.run([], [_sym()], excluded={"S02"})
+
+    assert (kept.action, kept.incident_id, kept.needs_investigation) == (
+        "continued",
+        opened.incident_id,
+        False,
+    )
+    assert ("S02", "dev/Service/agent") in IncidentStore(engine).get(opened.incident_id).targets
+
+
+def test_features_of_the_off_rule_are_kept_so_re_enabling_does_not_open_a_second_incident(engine):
+    checks = Checks(engine)
+    [opened] = checks.run([_sig("S01", "agent"), _sig("S02", "admin")])  # chat + login
+    pod = _sig("P03", "agent", subject="dev/Pod/a/agent")
+    checks.run([_sig("S01", "agent"), pod], excluded={"S02"})
+    store = IncidentStore(engine)
+    assert store.get(opened.incident_id).features == ("chat", "login")
+
+    [back] = checks.run([_sig("S02", "admin")])
+
+    assert back.incident_id == opened.incident_id
+    assert len(store.open_incidents()) == 1

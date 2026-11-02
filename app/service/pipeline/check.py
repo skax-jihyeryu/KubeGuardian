@@ -28,6 +28,7 @@ from core.db import (
     SqliteObservationStore,
 )
 from core.db.check_lock import CHECK_LOCK_TTL, CheckLock
+from core.db.investigations import INTERRUPTED
 from core.error.service_exception import ErrorCode, ServiceException
 from core.log.logging import get_logging
 from service.alerts.incidents import IncidentChange, track
@@ -292,7 +293,9 @@ def _run_locked(
             incidents=incidents,
         )
     except BaseException as e:  # SIGTERM(SystemExit)도 행을 running으로 남기지 않는다
-        rec.finish("failed", error=type(e).__name__)
+        # 끝을 기록하지 못한 조사와 같은 값 (investigate.py)
+        interrupted = isinstance(e, SystemExit | KeyboardInterrupt)
+        rec.finish("failed", error=INTERRUPTED if interrupted else type(e).__name__)
         if isinstance(e, SQLAlchemyError):
             raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
         raise

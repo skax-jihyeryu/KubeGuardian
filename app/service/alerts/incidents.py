@@ -90,12 +90,15 @@ def _with_excluded(
 ) -> Fingerprint:
     """끈 규칙의 대상·서비스를 지문에 되돌린다. 끈 규칙은 이번 점검이 확인하지 않은 것이라
     그 때문에 생긴 차이는 상황 변화가 아니다 (재조사·대상 덮어쓰기·잘못된 해결을 막는다).
-    서비스는 규칙별로 기록하지 않아 이슈의 서비스를 모두 되돌린다."""
+    서비스는 규칙별로 기록하지 않아 이슈의 서비스를 모두 되돌린다. 경로(지문 키에 든다)와
+    영향 기능도 이슈 것을 되돌려, 끈 규칙의 기능이 사라져 다시 켤 때 이슈가 갈라지지 않게 한다."""
     kept = tuple(t for t in matched.targets if t[0] in excluded_rules)
     if not kept:
         return fp
     return replace(
         fp,
+        path=matched.path,
+        features=tuple(sorted({*fp.features, *matched.features})),
         rule_ids=tuple(sorted({*fp.rule_ids, *(rule for rule, _ in kept)})),
         services=tuple(sorted({*fp.services, *matched.services})),
         targets=tuple(sorted({*fp.targets, *kept})),

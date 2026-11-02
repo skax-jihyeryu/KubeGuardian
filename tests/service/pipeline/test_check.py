@@ -4,6 +4,7 @@ import pytest
 
 from core.config import ApiScenario
 from core.db import CheckRunStore, EvidenceStore, SqliteObservationStore, create_db_engine
+from core.db.investigations import INTERRUPTED
 from service.pipeline.check import run_check
 from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
 from tests.service.tools.fakes import FakeHttp
@@ -550,7 +551,7 @@ def test_sigterm_during_a_check_closes_the_result_as_failed_and_reraises(engine,
         run_check(_reader(), CONFIG, engine, trigger="check", now=NOW)
 
     got = CheckResultStore(engine).get(1)
-    assert (got.status, got.error) == ("failed", "SystemExit")
+    assert (got.status, got.error) == ("failed", INTERRUPTED)
     assert got.finished_at is not None
 
 
