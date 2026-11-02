@@ -73,9 +73,9 @@ def test_superseded_job_leaves_no_result(engine):
 
 def test_worker_watches_for_stalled_checks(engine):
     _opened(engine)
-    InvestigationQueue(engine).claim(NOW, timedelta(minutes=10))  # 조사할 것은 없게
+    InvestigationQueue(engine).claim(NOW, timedelta(hours=4))  # 조사할 것은 없게
 
-    _worker(engine, lambda m: None, at=NOW + timedelta(minutes=16)).run_once()
+    _worker(engine, lambda m: None, at=NOW + timedelta(minutes=181)).run_once()
 
     assert AlertStore(engine).last_sent("M7") is not None
 

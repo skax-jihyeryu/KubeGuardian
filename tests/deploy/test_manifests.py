@@ -23,7 +23,7 @@ def _pod():
 
 def test_cronjob_runs_every_five_minutes_without_overlap():
     spec = _cronjob()["spec"]
-    assert spec["schedule"] == "*/5 * * * *"
+    assert spec["schedule"] == "0 * * * *"
     assert spec["concurrencyPolicy"] == "Forbid"
     assert spec["startingDeadlineSeconds"] == 120
     assert spec["successfulJobsHistoryLimit"] == 3

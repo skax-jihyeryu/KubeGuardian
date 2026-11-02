@@ -5,7 +5,7 @@
 - 지문이 바뀌면 M1을 "다시 조사 중"으로 갱신한다. 해결되면 스레드 + 채널에 M3를 보낸다.
   직접 점검(화면·CLI)에서 해결돼도 같다.
 - 같은 지문이 이어지면(continued) 재알림 정책대로 M1 스레드에 M2만 단다. 기준은 M1 발송 시각.
-- 점검이 STALL_AFTER 넘게 돌지 않으면 M7을 한 번 보낸다 (호출은 diagnostic-agent 작업자, #28).
+- 점검이 주기 세 배 넘게 돌지 않으면 M7을 한 번 보낸다 (호출은 diagnostic-agent 작업자, #28).
 - 보내지 못해도 점검·조사는 계속한다. 모든 메시지는 알림 이력(alert)에 남는다 (dry-run 포함).
 """
 
@@ -17,6 +17,7 @@ from core.config import KubeGuardianConfig
 from core.db import AlertStore, CheckRunStore, IncidentStore
 from core.db.incidents import Incident
 from core.error.service_exception import ServiceException
+from core.schedule import stalled_after
 from service.agent.base import AgentResult
 from service.alerts.incidents import IncidentChange
 from service.model import GateResult
@@ -31,7 +32,6 @@ def parse_duration(text: str) -> timedelta:
 
 
 ALERTED = ("critical", "warning")  # 알림은 긴급·주의만 (잠재 위험·개선 권고는 화면에만)
-STALL_AFTER = timedelta(minutes=15)  # 5분 주기 3회를 놓치면 점검 중단
 _DRY_CHANNEL = "(dry-run)"
 
 
@@ -107,9 +107,9 @@ class Notifier:
         return error
 
     def check_stalled(self, now: datetime) -> bool:
-        """마지막 점검이 STALL_AFTER보다 오래됐으면 M7을 한 번 보낸다. 보냈으면 True."""
+        """마지막 점검이 주기 세 배보다 오래됐으면 M7을 한 번 보낸다. 보냈으면 True."""
         last_run = self._runs.latest_started_at()
-        if last_run is None or now - last_run < STALL_AFTER:
+        if last_run is None or now - last_run < stalled_after(self._config.schedule):
             return False
         sent = self._alerts.last_sent("M7")  # 실패한 M7은 보낸 것으로 치지 않는다
         if sent is not None and sent.sent_at > last_run:
