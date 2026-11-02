@@ -365,8 +365,8 @@ def build_graph(agent: "InvestigatorV1"):
         report = out.report.model_copy(update={"conclusion_supported": out.conclusion_supported})
         if not out.conclusion_supported and state["report_attempts"] >= 2:
             report = report.model_copy(update={"confidence": "low"})
-        if not report.preliminary_facts:
-            report = report.model_copy(update={"preliminary_facts": state["facts"]})
+        # 사전 확인은 코드가 모은 값으로 고정한다 (LLM이 <tool_output> 문장을 베껴 쓰지 못하게)
+        report = report.model_copy(update={"preliminary_facts": state["facts"]})
         # 재조사 중 시간이 넘은 것은 이미 끝난 조사를 미완료로 바꾸지 않는다
         limited = state["limited"] or (not state["rechecked"] and ctx.budget.time_over())
         return {"report": report, "status": "incomplete" if limited else "done"}

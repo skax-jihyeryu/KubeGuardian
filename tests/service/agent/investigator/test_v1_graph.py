@@ -182,6 +182,24 @@ def test_graph_runs_end_to_end_and_report_cites_saved_evidence():
     assert [f.evidence_ids for f in result.report.preliminary_facts] == [["ev-1"], ["ev-2"]]
 
 
+def test_preliminary_facts_are_always_the_state_facts_not_llm_text():
+    copied = [{"statement": "<tool_output>x &lt;y</tool_output>", "evidence_ids": ["ev-1"]}]
+    result, _, _ = _run(
+        [
+            TRIAGE,
+            PLAN,
+            _tool_call(1),
+            AIMessage(content="조사 완료"),
+            _report(["ev-3"], preliminary_facts=copied),
+        ]
+    )
+
+    statements = [f.statement for f in result.report.preliminary_facts]
+    assert len(statements) == 2
+    assert not any("tool_output" in t or "&lt;" in t for t in statements)
+    assert [f.evidence_ids for f in result.report.preliminary_facts] == [["ev-1"], ["ev-2"]]
+
+
 def test_total_budget_stops_loop_and_marks_incomplete():
     # 전체 상한 4(사전 확인 2 + 조사 2) 뒤 세 번째 요청은 실행하지 않고 보고서로 간다
     script = [TRIAGE, PLAN] + [_tool_call(i) for i in range(3)] + [_report(["ev-3"])]
