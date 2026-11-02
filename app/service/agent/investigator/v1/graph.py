@@ -266,6 +266,8 @@ def build_graph(agent: "InvestigatorV1"):
             )
             ctx.usage.add(reply)
             s.detail = {"tool_calls": [c["name"] for c in reply.tool_calls]}
+            if not reply.tool_calls:
+                s.detail["stop_reason"] = "voluntary"  # 도구를 더 부르지 않고 스스로 끝냈다
         return {"messages": state["messages"] + [reply]}
 
     def has_next_issue(state: InvestigationState) -> bool:
@@ -303,12 +305,23 @@ def build_graph(agent: "InvestigatorV1"):
             for c in state["messages"][-1].tool_calls
         ]
 
+    def stop_reason() -> str:
+        """조사를 멈춘 상한: 시간, 전체 호출 수, 문제당 호출 수 순으로 본다."""
+        b = ctx.budget
+        if b.time_over():
+            return "time"
+        return "issue_limit" if b.tool_calls_left() else "total_limit"
+
     def limit(state: InvestigationState) -> InvestigationState:
         # 전체 상한·시간에 닿았으면 남은 도구 호출 요청은 실행하지 않고 보고서로 간다
-        return {"messages": state["messages"] + answer_skipped(state), "limited": True}
+        with agent.step("limit", stop_reason=stop_reason()):
+            messages = state["messages"] + answer_skipped(state)
+        return {"messages": messages, "limited": True}
 
     def skip_calls(state: InvestigationState) -> InvestigationState:
-        return {"messages": state["messages"] + answer_skipped(state)}
+        with agent.step("skip_calls", stop_reason=stop_reason()):
+            messages = state["messages"] + answer_skipped(state)
+        return {"messages": messages}
 
     def after_skip_calls(state: InvestigationState) -> str:
         return "next_issue" if has_next_issue(state) else "write_report"
@@ -389,6 +402,8 @@ def build_graph(agent: "InvestigatorV1"):
                 and ctx.budget.remaining_with_recheck() >= NEXT_ISSUE_MIN_SECONDS
             )
             s.detail = {"gaps": gaps, "recheck": recheck}
+            if state["rechecked"] and ctx.budget.issue_tool_calls == 0:
+                s.detail["recheck_no_tool_calls"] = True  # 재조사가 도구를 한 번도 부르지 않았다
         if recheck:
             ctx.budget.extend_for_recheck()  # 보고서 작성 뒤 남는 시간이 짧아 재조사 몫을 더한다
             ctx.budget.start_issue()  # 재조사는 문제당 호출 수를 새로 센다
@@ -413,7 +428,8 @@ def build_graph(agent: "InvestigatorV1"):
         return "limit_time" if ctx.budget.time_over() else "act"
 
     def limit_time(state: InvestigationState) -> InvestigationState:
-        return {"limited": not state["rechecked"]}
+        with agent.step("limit_time", stop_reason="time"):
+            return {"limited": not state["rechecked"]}
 
     g = StateGraph(InvestigationState)
     for name, fn in [

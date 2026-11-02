@@ -28,6 +28,11 @@ class BudgetTracker:
     def start_issue(self) -> None:
         self._issue_calls = 0
 
+    @property
+    def issue_tool_calls(self) -> int:
+        """현재 문제(또는 재조사)에서 실행한 도구 호출 수."""
+        return self._issue_calls
+
     def count_tool_call(self) -> None:
         self.tool_calls += 1
         self._issue_calls += 1
