@@ -5,6 +5,7 @@ load_context → preliminary → triage → plan → act ⇄ tools → write_rep
   validate 뒤 stop_check가 빈틈을 찾으면 1회만 act로 되돌려 재조사한다.
 - 문제당 상한(8)만 차면 조사를 끝낸 것으로 보고 다음 문제나 보고서로 간다 (skip_calls).
   전체 상한(20)·시간(150초)에 닿았을 때만 limited(incomplete)다. 재조사 중 상한은 limited가 아니다.
+  재조사를 시작할 때 시간 상한에 recheck_seconds(60초)를 더한다 (호출 상한은 그대로).
 - 분기·상한은 LLM이 아니라 코드가 정한다 (예산은 Tool.run이 센다).
 - plan이 문제마다 가설과 확인할 영역을 세운다. act가 도구를 더 부르지 않으면 예산이 남을 때
   next_issue가 2·3순위 문제로 넘어간다. 도구마다 판정하는 노드는 없다 (판정은 보고서에서).
@@ -265,6 +266,9 @@ def build_graph(agent: "InvestigatorV1"):
             )
             ctx.usage.add(reply)
             s.detail = {"tool_calls": [c["name"] for c in reply.tool_calls]}
+            if not reply.tool_calls:
+                s.detail["stop_reason"] = "voluntary"  # 도구를 더 부르지 않고 스스로 끝냈다
+                s.detail["at_issue_limit"] = ctx.budget.issue_exhausted()
         return {"messages": state["messages"] + [reply]}
 
     def has_next_issue(state: InvestigationState) -> bool:
@@ -302,12 +306,23 @@ def build_graph(agent: "InvestigatorV1"):
             for c in state["messages"][-1].tool_calls
         ]
 
+    def stop_reason() -> str:
+        """조사를 멈춘 상한: 시간, 전체 호출 수, 문제당 호출 수 순으로 본다."""
+        b = ctx.budget
+        if b.time_over():
+            return "time"
+        return "issue_limit" if b.tool_calls_left() else "total_limit"
+
     def limit(state: InvestigationState) -> InvestigationState:
         # 전체 상한·시간에 닿았으면 남은 도구 호출 요청은 실행하지 않고 보고서로 간다
-        return {"messages": state["messages"] + answer_skipped(state), "limited": True}
+        with agent.step("limit", stop_reason=stop_reason()):
+            messages = state["messages"] + answer_skipped(state)
+        return {"messages": messages, "limited": True}
 
     def skip_calls(state: InvestigationState) -> InvestigationState:
-        return {"messages": state["messages"] + answer_skipped(state)}
+        with agent.step("skip_calls", stop_reason=stop_reason()):
+            messages = state["messages"] + answer_skipped(state)
+        return {"messages": messages}
 
     def after_skip_calls(state: InvestigationState) -> str:
         return "next_issue" if has_next_issue(state) else "write_report"
@@ -384,17 +399,30 @@ def build_graph(agent: "InvestigatorV1"):
                 bool(gaps)
                 and not state["rechecked"]
                 and not state["limited"]
-                and ctx.budget.total_left()
-                and ctx.budget.remaining_seconds() >= NEXT_ISSUE_MIN_SECONDS
+                and ctx.budget.tool_calls_left()  # 시간은 재조사 연장을 포함해 따로 본다
+                and ctx.budget.remaining_with_recheck() >= NEXT_ISSUE_MIN_SECONDS
             )
             s.detail = {"gaps": gaps, "recheck": recheck}
+            if state["rechecked"] and ctx.budget.issue_tool_calls == 0:
+                s.detail["recheck_no_tool_calls"] = True  # 재조사가 도구를 한 번도 부르지 않았다
         if recheck:
+            first = downgrade_unresolved_cause(
+                mark_unobserved(report, obs, "확인하지 못함 (재조사 실패)"), obs
+            )
+            ctx.budget.extend_for_recheck()  # 보고서 작성 뒤 남는 시간이 짧아 재조사 몫을 더한다
             ctx.budget.start_issue()  # 재조사는 문제당 호출 수를 새로 센다
-            note = "[재조사] 보고서 전에 다음을 확인하세요:\n" + "\n".join(f"- {g}" for g in gaps)
+            note = (
+                "[재조사] 보고서 전에 다음을 확인하세요:\n"
+                + "\n".join(f"- {_gap_for_prompt(g)}" for g in gaps)
+                + f"\n이번 재조사에 도구를 {ctx.budget.recheck_calls()}회 새로 쓸 수 있습니다. "
+                "이미 쓴 횟수는 다시 세지 않습니다. 빈틈을 해소할 도구를 먼저 호출하세요."
+            )
             return {
                 "messages": state["messages"] + [HumanMessage(note)],
                 "rechecked": True,
                 "recheck": True,
+                "first_report": first,
+                "first_status": state["status"],
                 "report_attempts": 0,
             }
         exhausted = state["limited"] or not ctx.budget.total_left() or ctx.budget.issue_exhausted()
@@ -411,7 +439,8 @@ def build_graph(agent: "InvestigatorV1"):
         return "limit_time" if ctx.budget.time_over() else "act"
 
     def limit_time(state: InvestigationState) -> InvestigationState:
-        return {"limited": not state["rechecked"]}
+        with agent.step("limit_time", stop_reason="time"):
+            return {"limited": not state["rechecked"]}
 
     g = StateGraph(InvestigationState)
     for name, fn in [
@@ -447,6 +476,12 @@ def build_graph(agent: "InvestigatorV1"):
     g.add_conditional_edges("validate", after_validate, ["write_report", "stop_check"])
     g.add_conditional_edges("stop_check", after_stop_check, ["act", END])
     return g.compile()
+
+
+def _gap_for_prompt(gap: str) -> str:
+    """여러 줄 빈틈의 항목은 가설 문장·사유(로그에서 파생될 수 있음)라 도구 출력으로 감싼다."""
+    head, _, items = gap.partition("\n")
+    return f"{head}\n{wrap_tool_output(items)}" if items else gap
 
 
 def _parse_result(content: str) -> tuple[str | None, bool]:

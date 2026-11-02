@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     # 진단 에이전트용 LLM. 제공사 분기는 core/llm.py, 모델 이름은 에이전트 버전 config가 정한다
     LLM_PROVIDER: str = "azure_openai"
+    EVIDENCE_SUMMARY_MODEL: str = "gpt-6-luna"
 
     # Azure OpenAI (진단 대상 llm-gateway와 별도 배포)
     AZURE_OPENAI_ENDPOINT: str = ""

@@ -214,7 +214,9 @@ def investigate_and_judge(
     ai["judgement"] = result.report.judgement
     ai["judgement_basis"] = result.report.judgement_basis
     ai["llm_confidence"] = result.report.confidence
-    validate = next((s for s in result.steps if s.node == "validate"), None)
+    validate = next(
+        (s for s in reversed(result.steps) if s.node == "validate"), None
+    )  # 마지막 판정
     ai["demoted"] = list(validate.detail.get("demoted", [])) if validate else []
     if ai["legacy_passed"] and not ai["conclusion_supported"]:
         # 근거 없는 결론이 우연히 맞은 것은 통과가 아니다

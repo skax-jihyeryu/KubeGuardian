@@ -1,0 +1,23 @@
+{%- set summary_url = "/" ~ p ~ "/checks/" ~ run_id ~ "/evidence/" ~ drawer.n ~ "/summary" %}
+{%- set target = "#evidence-content-" ~ drawer.n %}
+{%- set summary = drawer.summary %}
+<div id="evidence-content-{{ drawer.n }}"
+  {%- if summary is none %}
+  hx-post="{{ summary_url }}" hx-trigger="load" hx-target="this" hx-swap="outerHTML"
+  {%- elif summary.status == "pending" %}
+  hx-get="{{ summary_url }}" hx-trigger="every 2s" hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
+  <h3 style="margin-top:16px">AI 요약</h3>
+  {%- if summary and summary.status == "done" %}
+  <p class="s14" style="white-space:pre-wrap;overflow-wrap:anywhere">{{ summary.text }}</p>
+  {%- if summary.truncated %}<p class="s13 muted">입력 크기 제한으로 근거의 일부만 요약했습니다. 전체 원본도 확인하세요.</p>{% endif %}
+  {%- elif summary and summary.status == "failed" %}
+  <p class="s14 muted" role="status">요약을 불러오지 못했습니다. 원본을 확인하거나 다시 시도하세요.</p>
+  <button type="button" class="btn btn-sec" hx-post="{{ summary_url }}?retry=true" hx-target="{{ target }}" hx-swap="outerHTML" hx-disabled-elt="this">다시 시도</button>
+  {%- else %}
+  <p class="s14 muted" role="status">요약 생성 중</p>
+  {%- endif %}
+</div>
+{%- if summary and summary.status == "failed" and summary_fragment %}
+{% include "checks/_evidence_raw.html" %}
+{%- endif %}

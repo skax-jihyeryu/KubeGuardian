@@ -19,9 +19,8 @@
       <span class="k">수집 시각</span><span class="v">{{ drawer.collected }}</span>
       <span class="k">출처</span><span class="v">{{ drawer.source }}</span>
     </div>
-    <div class="raw">{{ drawer.raw }}</div>
-    {%- if drawer.truncated %}<p class="s13 muted" style="margin-top:8px">원문이 길어 앞부분만 보입니다.</p>{% endif %}
-    <p class="s13 muted" style="margin-top:12px">민감한 값은 <span class="mono">***</span>로 가려지고 키 이름은 그대로 보입니다.</p>
+    {% include "checks/_evidence_content.html" %}
+    {% include "checks/_evidence_raw.html" %}
   </div>
   <div class="df">
     <button type="button" class="btn btn-sec" data-copy-path="{{ here }}">{{ ic("copy") }}단독 페이지 링크 복사</button>

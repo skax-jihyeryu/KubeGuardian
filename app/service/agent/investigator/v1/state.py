@@ -49,6 +49,8 @@ class InvestigationState(TypedDict, total=False):
     observations: list[Observation]
     rechecked: bool  # 빠진 영역 재조사를 이미 했다
     recheck: bool  # stop_check가 방금 재조사를 시켰다 (act로 되돌아간다)
+    first_report: Report  # 재조사를 시작할 때 보관한 1차 보고서 (재조사가 실패하면 이것으로 끝낸다)
+    first_status: Literal["running", "done", "incomplete"]
     report: Report | None
     report_attempts: int
     status: Literal["running", "done", "incomplete"]
