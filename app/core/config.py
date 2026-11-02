@@ -1,11 +1,12 @@
 """환경 설정. 값은 .env(로컬) 또는 Secret·환경 변수(클러스터)에서 읽는다."""
 
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -134,7 +135,7 @@ DEFAULT_REPORT_URL = "http://localhost:8000/p/default"
 class SlackConfig(_Strict):
     """Slack 알림 설정. 명령(슬래시 명령)은 받지 않는다 (10/31, 확장 후보)."""
 
-    alert_target: str  # 채널(#이름) 또는 채널 ID. 앱을 초대해야 보낼 수 있다
+    alert_target: str  # 채널 ID. 이름은 chat.update가 받지 않는다. 앱을 초대해야 보낼 수 있다
     # 아래 키는 지금 쓰지 않고, 예전 설정 파일이 거부되지 않게 받아만 둔다.
     # 봇 토큰은 이 Secret 이름이 아니라 환경 변수 SLACK_BOT_TOKEN(kubeguardian-env)으로 읽는다
     bot_token_secret: str | None = None
@@ -144,6 +145,16 @@ class SlackConfig(_Strict):
     reminders: dict[Literal["critical", "warning"], ReminderPolicy] = {}  # 심각도별 재알림
     # 알림 링크의 보고서 화면 주소 (UI 정의서 §1.2: <report_url>/checks/{run}, /issues/{id})
     report_url: str = DEFAULT_REPORT_URL
+
+    @field_validator("alert_target")
+    @classmethod
+    def _channel_id_only(cls, value: str) -> str:
+        if not re.fullmatch(r"[CGD][A-Z0-9]{8,}", value):
+            raise ValueError(
+                "slack.alert_target은 채널 ID여야 한다 (C로 시작). "
+                "채널 이름은 메시지 수정이 실패한다"
+            )
+        return value
 
 
 class KnowledgeConfig(_Strict):

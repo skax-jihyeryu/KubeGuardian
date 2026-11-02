@@ -599,7 +599,7 @@ SLACK_YAML = (
     CONFIG_YAML
     + """
 slack:
-  alert_target: "#ops"
+  alert_target: "C0123456789"
 """
 )
 
@@ -645,9 +645,9 @@ def test_slack_test_posts_replies_and_updates_like_real_alerts(tmp_path, capsys)
     assert _slack_test(tmp_path, sender) == 0
 
     assert sender.calls == [
-        ("post", "#ops", None, False),
-        ("post", "#ops", "1.1", True),  # 복구 알림처럼 스레드 + 채널에도
-        ("update", "#ops", "1.1"),  # 원인 갱신처럼 같은 메시지를 고친다
+        ("post", "C0123456789", None, False),
+        ("post", "C0123456789", "1.1", True),  # 복구 알림처럼 스레드 + 채널에도
+        ("update", "C0123456789", "1.1"),  # 원인 갱신처럼 같은 메시지를 고친다
     ]
     assert "Slack 연결 확인: 성공" in capsys.readouterr().out
     engine = create_db_engine(str(tmp_path / "kg.db"))

@@ -606,7 +606,7 @@ api_scenarios:
 app_apis:            # query_app_api 허용 목록 (GET만)
   llm-gateway: [/api/v1/health, /api/v1/quota]
 slack:
-  alert_target: "#pr-service-ops"       # 기존 운영 채널 또는 DM. 알림량이 늘면 전용 채널로 분리
+  alert_target: "C0123456789"           # 채널 ID(이름 아님). 기존 운영 채널 또는 DM. 알림량이 늘면 전용 채널로 분리
   bot_token_secret: kg-slack-bot        # 메시지 발송 (chat:write)
   reminders:                            # 심각도별 재알림 (max는 리마인더 총 횟수)
     critical: {first_after: 30m, then_every: 2h, max: 3}

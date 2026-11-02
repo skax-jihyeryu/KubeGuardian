@@ -16,7 +16,7 @@ CONFIG = KubeGuardianConfig.model_validate(
         "target": {"namespace": "dev"},
         "core_paths": {"chat": ["gateway", "agent"]},
         "slack": {
-            "alert_target": "#ops",
+            "alert_target": "C0123456789",
             "bot_token_secret": "kg-slack-bot",
             "app_token_secret": "kg-slack-app",
             "report_url": "http://kg.local/p/dev",
@@ -109,7 +109,7 @@ def test_new_incident_sends_first_alert_before_investigation(env):
     [c] = check([_sig()], NOW)
 
     [m1] = sender.posts
-    assert m1["channel"] == "#ops" and m1["thread"] is None
+    assert m1["channel"] == "C0123456789" and m1["thread"] is None
     assert "🔴 긴급" in m1["text"] and "dev" in m1["text"] and "원인을 조사하고" in m1["text"]
     assert "http://kg.local/p/dev/checks/1" in m1["text"]
     assert IncidentStore(engine).get(c.incident_id).slack_ts == "ts-1"
