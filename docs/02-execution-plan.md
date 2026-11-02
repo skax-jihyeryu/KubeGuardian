@@ -55,7 +55,7 @@ KubeGuardian/
 │   ├── main.py                # FastAPI 앱 진입 (보고서 화면)
 │   ├── cli.py                 # kg check / investigate / report / evidence / alerts (CronJob·평가 러너 진입)
 │   ├── api/                   # ── 진입점: 요청을 받아 service를 호출 ──
-│   │   ├── routes/            #   보고서 화면 라우트 P1~P5, 점검 실행 (UI 정의서 §6.6)
+│   │   ├── routes/            #   보고서 화면 라우트(점검·이슈·점검 구성·근거), 점검 실행 (UI 정의서 §6.3)
 │   │   ├── templates/         #   Jinja2 템플릿, HTMX 조각
 │   │   ├── schemas/           #   요청·응답·화면 표시 모델
 │   │   └── slack/             #   (확장 후보) Slack 명령 수신. 10/31 제외
@@ -374,7 +374,7 @@ W2 이슈 중 #16·#18·#19·#22·#24·#46과 W2에 새로 생긴 #53·#54·#59�
 | 최종 점검 | 전체 시나리오 × 2조건 × 3회 재실행, 성공 기준 표 판정, 회귀 확인 | — | `eval/history/`, `eval/report.md` |
 | 보강 | 미달 KPI·잘못 판정한 시나리오의 원인 분석과 지침·프롬프트·도구 출력 보강 (보강 후 전체 eval) | — | 보강 기록 |
 | 테스트 | 단위·Slack 연동 테스트 보완, H0 장시간 실행 재확인, 오류 경로(LLM 실패, 수집 실패, 전송 실패) 확인 | — | `tests/` |
-| UI 수정 | 보고서 화면(P1~P5)과 Slack 메시지 문구·표시 개선 | — | `api/templates/`, `service/notify/` |
+| UI 수정 | 보고서 화면과 Slack 메시지 문구·표시 개선 | — | `api/templates/`, `service/notify/` |
 | 산출물 제작 | 데모 스크립트, 학습 회고, 학습 노트·ADR 정리 | — | `docs/07-demo-script.md`, `docs/08-retrospective.md` |
 
 **Exit (11/15)**
@@ -457,7 +457,7 @@ gantt
 3. E1(미끼) → 확장 후보로
 4. C5(스키마 드리프트, v2 이미지 빌드 필요) → 확장 후보로
 5. 화면의 점검 실행 버튼 제외 → 즉시 점검은 CLI `kg check`로
-6. 보고서 화면 P1·P2·P4 축소 → P3 근거 원문·P5 조사 과정만 남기고, 보고서는 CLI(`kg report`)와 Slack 요약으로 대체
+6. 보고서 화면 축소 → 근거 원문·점검 과정만 남기고, 보고서는 CLI(`kg report`)와 Slack 요약으로 대체
 
 **줄이지 않는 것**: 규칙 점검, AI 조사·검증, 주기 점검 + Slack 알림, 근거 검증, L1·L3 시나리오(A1·A3·A5·C1·C2), 2조건 평가.
 
