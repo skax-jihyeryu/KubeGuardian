@@ -308,7 +308,7 @@ def _container_status(s: Obj) -> Obj:
 
 def _pod(obj: Obj) -> Obj:
     status = obj.get("status") or {}
-    out_status = _pick(status, "phase", "reason", "message", "podIP")
+    out_status = _pick(status, "phase", "reason", "message", "podIP", "startTime")
     out_status["conditions"] = _conditions(status.get("conditions"))
     for key in ("containerStatuses", "initContainerStatuses"):
         if status.get(key):
