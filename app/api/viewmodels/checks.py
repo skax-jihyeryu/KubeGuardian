@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import Engine
 
 from api.timefmt import hms, md_hm, seconds_text
+from api.viewmodels.setup import STAGES
 from api.viewmodels.shell import IMPACT, SEVERITY
 from core.config import KubeGuardianConfig
 from core.db import (
@@ -33,6 +34,7 @@ from core.db.investigations import Investigation
 from core.guard.redact import redact_mapping, redact_text
 from service.agent.base import AgentStep
 from service.agent.investigator.v1.config import SPEC
+from service.checks.detectors._common import container_statuses
 from service.checks.detectors.catalog import CATALOG
 from service.model import JUDGEMENT_LABEL, ClusterSnapshot
 
@@ -92,11 +94,12 @@ class StepView:
     time: str = ""
     evidence: list[int] = field(default_factory=list)
     lines: list[str] = field(default_factory=list)
-    mono_lines: list[str] = field(default_factory=list)
     table: list[tuple[str, str, list[int]]] = field(default_factory=list)  # (이름, 설명, 근거)
     calls: list[Call] = field(default_factory=list)
     state: str = "done"  # done / cur / todo
     progress: tuple[int, int] | None = None  # (도구 호출 수, 문제당 예산)
+    collect: list["CollectRow"] = field(default_factory=list)  # 정보 수집 단계
+    rules: "RuleSummary | None" = None  # 점검 규칙 단계
 
 
 @dataclass(frozen=True)
@@ -634,6 +637,251 @@ def _check_steps(d: _Loaded) -> list[StepView]:
     return steps
 
 
+NAME_LIMIT = 8
+_PRIMARY_KINDS = ("Pod", "Deployment", "Service", "Node")
+
+
+@dataclass(frozen=True)
+class CollectRow:
+    kind: str
+    count: int
+    status: str
+    names: tuple[str, ...]
+    failed: str | None
+    primary: bool
+
+
+def _name(obj: dict[str, Any]) -> str:
+    return str((obj.get("metadata") or {}).get("name", ""))
+
+
+def _condition(obj: dict[str, Any], kind: str) -> bool | None:
+    """status.conditions의 해당 type이 True면 True, False면 False, 판단할 수 없으면 None."""
+    conditions = (obj.get("status") or {}).get("conditions") or []
+    for c in conditions:
+        if c.get("type") == kind:
+            return c.get("status") == "True"
+    return None
+
+
+def _pod_base_name(pod: dict[str, Any]) -> str:
+    """ReplicaSet 소유면 소유자 이름에서 pod-template-hash를 뗀 이름. 아니면 Pod 이름 그대로."""
+    for owner in (pod.get("metadata") or {}).get("ownerReferences") or []:
+        name = str(owner.get("name", ""))
+        if owner.get("kind") == "ReplicaSet" and "-" in name:
+            return name.rsplit("-", 1)[0]
+    return _name(pod)
+
+
+def _limited(names: list[str], limit: int = NAME_LIMIT) -> tuple[str, ...]:
+    if len(names) <= limit:
+        return tuple(names)
+    return (*names[:limit], f"외 {len(names) - limit}개")
+
+
+def _pod_state(pod: dict[str, Any]) -> str:
+    """ready / not_ready / unknown / done / terminating."""
+    if (pod.get("status") or {}).get("phase") == "Succeeded":
+        return "done"
+    if (pod.get("metadata") or {}).get("deletionTimestamp"):
+        return "terminating"
+    ready = _condition(pod, "Ready")
+    if ready is None:
+        return "not_ready" if _condition(pod, "PodScheduled") is False else "unknown"
+    return "ready" if ready else "not_ready"
+
+
+def _pod_row(pods: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
+    counts = {"ready": 0, "not_ready": 0, "unknown": 0, "done": 0, "terminating": 0}
+    restarts = 0
+    groups: dict[str, int] = {}
+    for pod in pods:
+        counts[_pod_state(pod)] += 1
+        restarts += sum(int(cs.get("restartCount") or 0) for cs in container_statuses(pod))
+        base = _pod_base_name(pod)
+        groups[base] = groups.get(base, 0) + 1
+    parts = [f"Ready {counts['ready']}"]
+    for key, label in (
+        ("not_ready", "준비 안 됨"),
+        ("unknown", "확인 불가"),
+        ("done", "완료"),
+        ("terminating", "종료 중"),
+    ):
+        if counts[key]:
+            parts.append(f"{label} {counts[key]}")
+    parts.append(f"재시작 {restarts}")
+    names = [f"{n} ×{c}" if c > 1 else n for n, c in groups.items()]
+    return " · ".join(parts), _limited(names)
+
+
+def _deployment_row(deployments: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
+    match, unknown = 0, 0
+    short = []
+    for dep in deployments:
+        if "status" not in dep:
+            unknown += 1
+            continue
+        expected = (dep.get("spec") or {}).get("replicas", 1)
+        ready = (dep["status"] or {}).get("availableReplicas") or 0
+        if ready >= expected:
+            match += 1
+        else:
+            short.append(f"{_name(dep)} {ready}/{expected}")
+    text = f"기대 수와 일치 {match}"
+    if short:
+        text += f" · 부족 {len(short)} ({', '.join(short)})"
+    if unknown:
+        text += f" · 확인 불가 {unknown}"
+    return text, _limited([_name(d) for d in deployments])
+
+
+def collect_summary(snapshot: ClusterSnapshot | None) -> list[CollectRow]:
+    """저장된 스냅샷에서 종류별 건수·상태 요약·이름을 만든다. 내용의 정확성을 검증하지 않는다."""
+    if snapshot is None:
+        return []
+    kinds = set(snapshot.resources) | set(snapshot.failed)
+    rows = []
+    for kind in sorted(
+        kinds,
+        key=lambda k: (
+            k not in _PRIMARY_KINDS,
+            _PRIMARY_KINDS.index(k) if k in _PRIMARY_KINDS else 0,
+            k,
+        ),
+    ):
+        if kind in snapshot.failed:
+            rows.append(CollectRow(kind, 0, "", (), snapshot.failed[kind], kind in _PRIMARY_KINDS))
+            continue
+        items = snapshot.resources[kind]
+        primary = kind in _PRIMARY_KINDS
+        status, names = "", ()
+        if kind == "Pod":
+            status, names = _pod_row(items)
+        elif kind == "Deployment":
+            status, names = _deployment_row(items)
+        elif kind == "Service":
+            no_selector = sum(1 for s in items if not (s.get("spec") or {}).get("selector"))
+            status = f"selector 없음 {no_selector}" if no_selector else ""
+            names = _limited([_name(s) for s in items])
+        elif kind == "Node":
+            states = [_condition(n, "Ready") for n in items]
+            parts = [f"Ready {states.count(True)}"]
+            if states.count(False):
+                parts.append(f"준비 안 됨 {states.count(False)}")
+            if states.count(None):
+                parts.append(f"확인 불가 {states.count(None)}")
+            status = " · ".join(parts)
+            names = _limited([_name(n) for n in items])
+        rows.append(CollectRow(kind, len(items), status, names, None, primary))
+    return rows
+
+
+ADVICE_LIMIT = 6
+
+
+def _advice_action(rid: str, values: dict[str, Any]) -> str:
+    """개선 권고의 조치 문구. 판정 조건(values)에 맞춘다. 문구가 없는 규칙은 빈 문자열."""
+    if rid == "H01":
+        if values.get("probe") is None:
+            return "준비 상태 검사가 없습니다"
+        return "준비 상태 검사가 포트만 확인합니다"
+    if rid == "H02":
+        missing = ", ".join(str(m) for m in values.get("missing") or [])
+        return "CPU·메모리 요청·제한 일부가 없습니다" + (f": {missing}" if missing else "")
+    return ""
+
+
+@dataclass(frozen=True)
+class RuleFinding:
+    status: str  # 적발 / 확인하지 못함 / 관찰 중
+    rule_name: str
+    rule_id: str
+    subject: str
+    message: str
+
+
+@dataclass(frozen=True)
+class AdviceLine:
+    rule_name: str
+    rule_id: str
+    action: str
+    targets: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class StagePass:
+    name: str
+    passed: tuple[str, ...]  # 항목이 없고 통과 대상이 있던 규칙 이름
+    no_target: tuple[str, ...] = ()  # 확인할 대상이 없던 규칙 이름
+
+
+@dataclass(frozen=True)
+class RuleSummary:
+    findings: tuple[RuleFinding, ...] = ()
+    advice: tuple[AdviceLine, ...] = ()
+    stages: tuple[StagePass, ...] = ()
+    developer_lines: tuple[str, ...] = ()
+    excluded: tuple[str, ...] = ()
+
+
+def _rule_name(rid: str) -> str:
+    spec = CATALOG.get(rid)
+    return spec.name if spec else rid
+
+
+def rule_summary(result: CheckResult) -> RuleSummary:
+    """규칙 결과를 적발 → 확인하지 못함·관찰 중 → 단계별 통과 → 개선 권고 순서 값으로 만든다."""
+    findings: list[RuleFinding] = []
+    advice: dict[tuple[str, str], list[str]] = {}
+    developer: list[str] = []
+    state: dict[str, str] = {}  # 규칙 ID → items / pass / no_target
+    for rule in result.verdicts:
+        rid = rule.get("rule_id", "")
+        spec = CATALOG.get(rid)
+        if spec:
+            developer.append(f"{rid} 입력: " + "; ".join(f"{k} ({f})" for k, f in spec.inputs))
+        items = rule.get("items", [])
+        state[rid] = (
+            "items" if items else "pass" if rule.get("passed", 1) else "no_target"
+        )  # passed 필드가 없는 옛 결과는 통과
+        for it in items:
+            verdict = it.get("verdict")
+            if spec and spec.grade == "advice" and verdict == "detected":
+                values = it.get("values") or {}
+                target = str(it.get("service") or it.get("subject", ""))
+                targets = advice.setdefault((rid, _advice_action(rid, values)), [])
+                if target not in targets:
+                    targets.append(target)
+                continue
+            findings.append(
+                RuleFinding(
+                    _RULE_STATUS.get(verdict, str(verdict)),
+                    _rule_name(rid),
+                    rid,
+                    str(it.get("subject", "")),
+                    str(it.get("message", "")),
+                )
+            )
+    findings.sort(key=lambda f: 0 if f.status == "적발" else 1)  # 안정 정렬: 나머지는 원래 순서
+    stages = []
+    for name, ids in STAGES:
+        ran = [r for r in ids if r in state]
+        passed = tuple(_rule_name(r) for r in ran if state[r] == "pass")
+        no_target = tuple(_rule_name(r) for r in ran if state[r] == "no_target")
+        if passed or no_target:
+            stages.append(StagePass(name, passed, no_target))
+    return RuleSummary(
+        tuple(findings),
+        tuple(
+            AdviceLine(_rule_name(rid), rid, action, _limited(targets, ADVICE_LIMIT))
+            for (rid, action), targets in advice.items()
+        ),
+        tuple(stages),
+        tuple(developer),
+        tuple(_rule_name(r) for r in result.excluded_rules),
+    )
+
+
 def _phase_view(d: _Loaded, result: CheckResult, p: Phase, title: str) -> StepView:
     time = _phase_time(p)
     if p.name == "collect":
@@ -641,41 +889,12 @@ def _phase_view(d: _Loaded, result: CheckResult, p: Phase, title: str) -> StepVi
         lines = []
         if snapshot is None:
             lines.append("저장된 스냅샷 없음")
-        else:
-            for kind in sorted(set(snapshot.resources) | set(snapshot.failed)):
-                if kind in snapshot.failed:
-                    lines.append(f"{kind}: 수집 실패 — {snapshot.failed[kind]}")
-                else:
-                    lines.append(f"{kind}: {len(snapshot.resources[kind])}개 · 수집 성공")
-            if snapshot.items("Pod") == []:
-                lines.append("주의: Pod가 0개입니다. 대상 네임스페이스와 수집 권한을 확인하세요.")
+        elif snapshot.items("Pod") == []:
+            lines.append("주의: Pod가 0개입니다. 대상 네임스페이스와 수집 권한을 확인하세요.")
         lines.append("건수는 저장된 스냅샷 기준이며 내용의 정확성을 검증한 결과가 아닙니다.")
-        return StepView(title, p.summary, time, lines=lines)
+        return StepView(title, p.summary, time, lines=lines, collect=collect_summary(snapshot))
     if p.name == "rules":
-        lines, mono = [], []
-        for rule in result.verdicts:
-            rid = rule.get("rule_id", "")
-            spec = CATALOG.get(rid)
-            if spec:
-                lines.append(f"{rid} 입력: " + "; ".join(f"{k} ({f})" for k, f in spec.inputs))
-            items = rule.get("items", [])
-            if not items:
-                mono.append(rid)
-                continue
-            for it in items:
-                lines.append(
-                    f"{rid} {_RULE_STATUS.get(it.get('verdict'), it.get('verdict'))} — "
-                    f"{it.get('subject', '')} {it.get('message', '')}".strip()
-                )
-        if result.excluded_rules:
-            lines.append(f"끈 규칙: {', '.join(result.excluded_rules)}")
-        return StepView(
-            title,
-            p.summary,
-            time,
-            lines=lines,
-            mono_lines=[" ".join(mono) + " 통과"] if mono else [],
-        )
+        return StepView(title, p.summary, time, rules=rule_summary(result))
     if p.name == "symptoms":
         table = [
             (

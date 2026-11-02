@@ -36,8 +36,31 @@
 <details class="stp" data-k="{{ s.title }}"{% if open %} open{% endif %}>
   <summary class="hd"><span class="pt"></span>{{ ic("chevron-right", "ic14 chev") }}<b>{{ s.title }}</b><span class="sum">{{ s.summary }}{{ evlinks(p, run, s.evidence) }}</span><span class="tm">{{ s.time }}</span></summary>
   <div class="sbody">
+    {%- if s.collect %}
+    <div class="sigtbl">
+      {%- for r in s.collect if r.primary or r.failed %}<span class="k">{{ r.kind }}</span><span>{% if r.failed %}수집 실패 — {{ r.failed }}{% else %}{{ r.count }}개{% if r.status %} · {{ r.status }}{% endif %}{% if r.names %} · {{ r.names|join(", ") }}{% endif %}{% endif %}</span>{% endfor %}
+    </div>
+    {%- set others = s.collect|rejectattr("primary")|rejectattr("failed")|list %}
+    {%- if others %}
+    <details data-k="정보 수집 · 그 밖의 수집 항목"><summary class="s13">그 밖의 수집 항목 {{ others|length }}종</summary>
+      <div class="sigtbl">
+        {%- for r in others %}<span class="k">{{ r.kind }}</span><span>{{ r.count }}개</span>{% endfor %}
+      </div>
+    </details>
+    {%- endif %}
+    {%- endif %}
+    {%- if s.rules %}{% set r = s.rules %}
+    {%- for f in r.findings %}<div class="s13">{{ "✗" if f.status == "적발" else "?" }} {{ f.status }} · {{ f.rule_name }} ({{ f.rule_id }}) — {{ f.subject }} {{ f.message }}</div>{% endfor %}
+    {%- for st in r.stages %}<div class="s13">{% if st.passed %}✓ {{ st.name }} — {{ st.passed|join(", ") }}{% if st.name == "개선 권고" %} 해당 없음{% else %} 통과{% endif %}{% else %}{{ st.name }}{% endif %}{% if st.no_target %}{% if st.passed %} · {% else %} — {% endif %}확인할 대상 없음: {{ st.no_target|join(", ") }}{% endif %}</div>{% endfor %}
+    {%- for a in r.advice %}<div class="s13">⚠ 개선 권고 · {{ a.rule_name }} ({{ a.rule_id }}){% if a.action %} — {{ a.action }}{% endif %}{% if a.targets %}{% if a.action %}: {% else %} — {% endif %}{{ a.targets|join(", ") }}{% endif %}</div>{% endfor %}
+    {%- if r.excluded %}<div class="s13">끈 규칙: {{ r.excluded|join(", ") }}</div>{% endif %}
+    {%- if r.developer_lines %}
+    <details><summary class="s13">규칙별 입력 필드 (개발자용)</summary>
+      {%- for line in r.developer_lines %}<div class="mono s13">{{ line }}</div>{% endfor %}
+    </details>
+    {%- endif %}
+    {%- endif %}
     {%- for line in s.lines %}<div class="s13">{{ line }}</div>{% endfor %}
-    {%- for line in s.mono_lines %}<div class="mono s13">{{ line }}</div>{% endfor %}
     {%- if s.table %}
     <div class="sigtbl">
       {%- for name, text, ev in s.table %}<span class="k">{{ name }}</span><span>{{ text }}{{ evlinks(p, run, ev) }}</span>{% endfor %}
