@@ -76,11 +76,15 @@ def _without_token(resp: HttpResponse, token: str) -> HttpResponse:
         return value
 
     payload = resp.json()
-    if payload is not None:
-        text = json.dumps(hide(payload), ensure_ascii=False)
-    else:
-        escaped = json.dumps(token, ensure_ascii=True)[1:-1]
-        text = resp.text.replace(escaped, "****").replace(token, "****")
+    if resp.truncated or payload is None:
+        # 잘린 토큰 조각·비표준 이스케이프를 추측해서 복원하지 않는다.
+        return HttpResponse(
+            resp.status,
+            resp.elapsed_ms,
+            "인증 응답 본문 생략: JSON 해석 실패 또는 잘린 응답",
+            True,
+        )
+    text = json.dumps(hide(payload), ensure_ascii=False)
     return HttpResponse(resp.status, resp.elapsed_ms, text, resp.truncated)
 
 

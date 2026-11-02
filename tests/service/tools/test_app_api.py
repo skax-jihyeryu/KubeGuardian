@@ -556,3 +556,20 @@ def test_query_auth_scrubs_json_escaped_ascii_token(make_ctx, evidence):
     assert result.ok
     assert result.data["body"]["reflected"] == "****"
     assert AUTH_TOKEN not in result.model_dump_json() + evidence.saved[-1].model_dump_json()
+
+
+@pytest.mark.parametrize("truncated", [False, True])
+def test_query_auth_omits_unparseable_reflected_token(make_ctx, evidence, truncated):
+    token = "opaque/session/secret"
+    http = _auth_http(token=token)
+    escaped = token.replace("/", r"\/")
+    http.responses[("gateway", ORG_PATH.replace("${org_id}", "7"))] = HttpResponse(
+        200, 2, '{"reflected":"' + escaped, truncated=truncated
+    )
+    result = QueryAppApi({"gateway": [ORG_PATH]}, auth=_query_auth()).run(
+        {"app": "gateway", "path": ORG_PATH}, make_ctx(_k8s(), http)
+    )
+    assert result.ok and result.truncated
+    assert result.data["body"] == "인증 응답 본문 생략: JSON 해석 실패 또는 잘린 응답"
+    dumped = result.model_dump_json() + evidence.saved[-1].model_dump_json()
+    assert "opaque" not in dumped
