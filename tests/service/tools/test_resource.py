@@ -253,3 +253,66 @@ def test_get_resource_replica_set_shows_containers_without_env_values(make_ctx):
     assert "http://x" not in text
     assert "ADMIN_SERVICE_URL" in text
     assert result.data["items"][0]["containers"][0]["image"] == "agent:v1"
+
+
+def test_get_resource_pod_has_times_and_resources(make_ctx):
+    p = pod("gateway-1", restarts=1)
+    p["status"]["startTime"] = "2026-10-20T00:00:30Z"
+    p["status"]["conditions"] = [
+        {"type": "Ready", "status": "False", "lastTransitionTime": "2026-10-20T00:05:00Z"}
+    ]
+    status = p["status"]["containerStatuses"][0]
+    status["lastState"]["terminated"].update(
+        startedAt="2026-10-20T00:01:00Z", finishedAt="2026-10-20T00:04:00Z", message="x"
+    )
+    p["spec"]["containers"][0]["resources"] = {
+        "requests": {"memory": "128Mi"},
+        "limits": {"memory": "256Mi"},
+    }
+
+    result = GetResource().run({"kind": "Pod", "name": "gateway-1"}, make_ctx(_cluster(Pod=[p])))
+
+    item = result.data["items"][0]
+    assert item["startTime"] == "2026-10-20T00:00:30Z"
+    assert item["conditions"][0]["lastTransitionTime"] == "2026-10-20T00:05:00Z"
+    [st] = item["statuses"]
+    assert st["state"] == {"state": "running", "startedAt": "2026-10-20T00:01:00Z"}
+    assert st["lastTerminated"] == {
+        "reason": "OOMKilled",
+        "exitCode": 137,
+        "startedAt": "2026-10-20T00:01:00Z",
+        "finishedAt": "2026-10-20T00:04:00Z",
+    }
+    assert item["containers"][0]["resources"] == {
+        "requests": {"memory": "128Mi"},
+        "limits": {"memory": "256Mi"},
+    }
+
+
+def test_get_resource_omits_time_and_resources_when_absent(make_ctx):
+    result = GetResource().run({"kind": "Pod", "name": "gateway-1"}, make_ctx(_cluster()))
+
+    item = result.data["items"][0]
+    assert "startTime" not in item
+    assert "resources" not in item["containers"][0]
+    assert item["conditions"] == [{"type": "Ready", "status": "True"}]
+
+
+def test_get_resource_deployment_and_replicaset_show_resources_and_condition_time(make_ctx):
+    dep = deployment("gateway")
+    dep["spec"]["template"]["spec"]["containers"][0]["resources"] = {"limits": {"cpu": "1"}}
+    dep["status"]["conditions"] = [
+        {"type": "Available", "status": "True", "lastTransitionTime": "2026-10-20T00:00:00Z"}
+    ]
+    rs = replicaset("gateway-rs", "gateway")
+    rs["spec"]["template"] = {
+        "spec": {"containers": [{"name": "gateway", "resources": {"limits": {"cpu": "1"}}}]}
+    }
+    cluster = _cluster(Deployment=[dep], ReplicaSet=[rs])
+
+    d = GetResource().run({"kind": "Deployment", "name": "gateway"}, make_ctx(cluster))
+    r = GetResource().run({"kind": "ReplicaSet", "name": "gateway-rs"}, make_ctx(cluster))
+
+    assert d.data["items"][0]["containers"][0]["resources"] == {"limits": {"cpu": "1"}}
+    assert d.data["items"][0]["conditions"][0]["lastTransitionTime"] == "2026-10-20T00:00:00Z"
+    assert r.data["items"][0]["containers"][0]["resources"] == {"limits": {"cpu": "1"}}
