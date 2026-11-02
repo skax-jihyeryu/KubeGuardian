@@ -127,12 +127,34 @@ def test_escape_mrkdwn_keeps_asterisk():
 
 
 def test_action_is_inline_code_and_keeps_command():
-    cmd = "kubectl get po -o jsonpath='{.items[*].metadata.name}' `x` <a> & b"
-    text = messages.cause_update("dev", incident(), "done", report(actions=[cmd]), None, 1, URL)
-    assert (
-        "• `kubectl get po -o jsonpath='{.items[*].metadata.name}' 'x' &lt;a&gt; &amp; b`"
-        in text.splitlines()
+    cmd = "kubectl get po -o jsonpath='{.items[*].metadata.name}' <a> & b"
+    assert messages.code(cmd) == (
+        "`kubectl get po -o jsonpath='{.items[*].metadata.name}' &lt;a&gt; &amp; b`"
     )
+
+
+def test_action_preserves_shell_backticks_and_multiline_commands():
+    cmd = "kubectl logs `kubectl get pod -o name`\nkubectl get pods"
+    text = messages.cause_update("dev", incident(), "done", report(actions=[cmd]), None, 1, URL)
+    assert f"• ```\n{cmd}\n```" in text
+    assert messages.code("echo `date`") == "```\necho `date`\n```"
+    assert messages.code("kubectl get pods\nkubectl get services") == (
+        "```\nkubectl get pods\nkubectl get services\n```"
+    )
+
+
+def test_action_preserves_whitespace_in_quoted_arguments():
+    cmd = "kubectl patch cm example -p '{\"data\": {\"value\": \"a  b\"}}'"
+    assert messages.code(cmd) == f"`{cmd}`"
+
+
+def test_multiline_action_keeps_masking_escaping_and_evidence_cleaning():
+    cmd = "kubectl get pods [ev-1]\n  echo '<a> & b'\necho api_key=abc<SECRET"
+    text = messages.code(cmd)
+    assert text.startswith("```\nkubectl get pods\n  echo '&lt;a&gt; &amp; b'\n")
+    assert "SECRET" not in text
+    assert "[ev-1]" not in text
+    assert text.endswith("```")
 
 
 def test_bold_values_replace_asterisk_and_collapse_whitespace():
