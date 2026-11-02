@@ -236,6 +236,7 @@ def test_unknown_items_show_reason_and_gate_stays_not_investigating(client, engi
         run,
         path="C",
         signals=[
+            Signal(rule_id="S01", verdict="passed", subject="dev/Service/a"),
             Signal(
                 rule_id="W02",
                 verdict="unknown",
@@ -546,7 +547,7 @@ def test_collection_uses_saved_counts_and_failure_reasons(client, engine):
         ClusterSnapshot(
             namespace="dev",
             collected_at=at(0),
-            resources={"Pod": [], "Service": [{"metadata": {"name": "x"}}]},
+            resources={"Pod": [], "Service": [{"metadata": {"name": "x"}}], "Secret": []},
             failed={"ConfigMap": "Forbidden"},
         ),
     )
@@ -558,6 +559,8 @@ def test_collection_uses_saved_counts_and_failure_reasons(client, engine):
     assert "Service" in html and "1개" in html
     assert "수집 실패 — Forbidden" in html
     assert "그 밖의 수집 항목" in html
+    assert html.index("수집 실패 — Forbidden") < html.index("그 밖의 수집 항목")  # 접히지 않는 표
+    assert 'data-k="정보 수집 · 그 밖의 수집 항목"' in html
     assert "Pod가 0개" in html
     assert "내용의 정확성" in html
 
@@ -595,6 +598,7 @@ def test_rule_result_order_is_findings_then_passed_then_advice_then_excluded(cli
         run,
         path="A",
         signals=[
+            Signal(rule_id="S01", verdict="passed", subject="dev/Service/a"),
             Signal(
                 rule_id="W02", verdict="detected", subject="dev/Deployment/agent", message="정체"
             ),
