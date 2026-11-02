@@ -1,9 +1,10 @@
 {% from "_icons.html" import ic %}
+{% set section = request.url.path.split("/")[2] if request.url.path.split("/")|length > 2 else "checks" %}
 <aside class="rail" aria-label="메뉴">
   <a class="logo" href="/{{ p }}/checks" aria-label="점검 이력 (홈)">KG</a>
   <nav class="rnav">
-    <a class="rbtn on" href="/{{ p }}/checks" aria-label="점검 이력" aria-current="page">{{ ic("activity", "ic20") }}</a>
-    <a class="rbtn" href="/{{ p }}/issues" aria-label="이슈">{{ ic("flag", "ic20") }}</a>
-    <a class="rbtn" href="/{{ p }}/setup/services" aria-label="점검 구성">{{ ic("sliders", "ic20") }}</a>
+    <a class="rbtn{% if section == 'checks' %} on{% endif %}" href="/{{ p }}/checks" aria-label="점검 이력"{% if section == 'checks' %} aria-current="page"{% endif %}>{{ ic("activity", "ic20") }}</a>
+    <a class="rbtn{% if section == 'issues' %} on{% endif %}" href="/{{ p }}/issues" aria-label="이슈">{{ ic("flag", "ic20") }}</a>
+    <a class="rbtn{% if section == 'setup' %} on{% endif %}" href="/{{ p }}/setup/services" aria-label="점검 구성">{{ ic("sliders", "ic20") }}</a>
   </nav>
 </aside>

@@ -1,5 +1,7 @@
 """프로젝트 식별자와 Kubernetes 네임스페이스를 서로 바꾸지 않는다."""
 
+from unittest.mock import patch
+
 import pytest
 from pydantic import ValidationError
 
@@ -40,6 +42,16 @@ def test_routes_use_project_id_and_shell_displays_namespace(client, engine):
     assert shell.project == "llm-gateway" and shell.namespace == "dev"
 
 
+def test_manual_check_keeps_namespace_when_project_differs(client):
+    client.app.dependency_overrides[get_config] = lambda: CONFIG
+    with patch("api.routes.checks.start_manual_check", return_value=42) as start:
+        response = client.post("/llm-gateway/checks")
+    assert response.headers["location"] == "/llm-gateway/checks/42"
+    config = start.call_args.args[1]
+    assert config.target.namespace == "dev"
+    assert config.project.id == "llm-gateway"
+
+
 def test_chat_default_project_uses_config_for_latest_check_link(engine):
     import json
 
@@ -52,3 +64,31 @@ def test_chat_default_project_uses_config_for_latest_check_link(engine):
     )
     assert f"/llm-gateway/checks/{run}" in reply.text
     assert "/dev/" not in reply.text
+
+
+def test_reader_collects_dev_when_project_id_is_llm_gateway(engine):
+    from core.db import CheckResultStore
+    from service.notify.sender import DryRunSender
+    from service.pipeline.manual_check import start_manual_check
+    from tests.service.checks.detectors.cases import NOW, FixtureReader, raw_cluster
+
+    namespaces = []
+    tasks = []
+
+    def reader(config):
+        namespaces.append(config.target.namespace)
+        return FixtureReader(*raw_cluster())
+
+    run = start_manual_check(
+        engine,
+        CONFIG,
+        NOW,
+        tasks.append,
+        reader_factory=reader,
+        http_factory=lambda _: None,
+        sender_factory=lambda _: DryRunSender(),
+    )
+    tasks[0]()
+    assert namespaces == ["dev"]
+    assert CheckResultStore(engine).get(run).status == "done"
+    assert CheckRunStore(engine).get_snapshot(run).namespace == "dev"

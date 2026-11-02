@@ -97,9 +97,10 @@ class _Recorder:
     def clock(self) -> datetime:
         return self._now + (_wall_now() - self._t0)
 
-    def start(self, run_id: int, excluded: frozenset[str]) -> None:
+    def start(self, run_id: int, excluded: frozenset[str], *, existing: bool = False) -> None:
         self._run_id = run_id
-        self._record(lambda: self._store.start(run_id, self._now, sorted(excluded)))
+        if not existing:
+            self._record(lambda: self._store.start(run_id, self._now, sorted(excluded)))
         self._phase_start = self.clock()
 
     def phase(self, name: str, summary: Callable[[], str]) -> None:
@@ -232,13 +233,15 @@ def _run_locked(
     now: datetime,
     http: Any,
     user_symptom: str | None,
+    run_id: int | None = None,
 ) -> CheckOutcome:
     rec = _Recorder(engine, now)
     try:
         runs = CheckRunStore(engine)
-        run_id = runs.create(trigger, now)
+        existing = run_id is not None
+        run_id = run_id if existing else runs.create(trigger, now)
         excluded = _excluded_rules(engine)
-        rec.start(run_id, excluded)
+        rec.start(run_id, excluded, existing=existing)
         lock.locks.attach_run(lock.token, run_id)
         snapshot = collect(reader, now=now)
         runs.save_snapshot(run_id, snapshot)

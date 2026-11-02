@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from api.deps import get_config
 from api.viewmodels.shell import build_shell
 from core.config import KubeGuardianConfig
 from core.db import CheckRunStore
@@ -26,3 +27,10 @@ def test_hourly_notifier_waits_for_three_missed_checks(engine):
     notifier = Notifier(engine, hourly(), FakeSender())
     assert not notifier.check_stalled(at(0) + timedelta(minutes=61))
     assert notifier.check_stalled(at(0) + timedelta(minutes=181))
+
+
+def test_hourly_checks_do_not_create_false_gap_rows(client, engine):
+    client.app.dependency_overrides[get_config] = hourly
+    CheckRunStore(engine).create("schedule", at(0))
+    CheckRunStore(engine).create("schedule", at(3600))
+    assert "점검 중단 ·" not in client.get("/dev/checks").text

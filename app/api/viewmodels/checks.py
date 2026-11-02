@@ -129,6 +129,11 @@ class Header:
     note: str | None  # 상태 한 줄 (점검 중·조사 대기·조사 실패 등)
     conclusion_issue: int | None  # 있으면 "이슈 #n에서 결론 보기" 링크
     unknown: int
+    elapsed_seconds: int | None = None
+
+    @property
+    def elapsed_text(self) -> str:
+        return seconds_text(self.elapsed_seconds or 0)
 
 
 @dataclass(frozen=True)
@@ -333,10 +338,20 @@ def _header(d: _Loaded, items: list[Item], now: datetime) -> Header:
             "plain", None, None, None, issues, False, f"{when} · {trigger}", None, None, 0
         )
     if d.state == "running":
-        elapsed = seconds_text((now - d.started_at).total_seconds())
-        meta = f"{when} · {trigger} · 점검 중 · {elapsed} 경과"
+        elapsed = max(0, int((now - d.started_at).total_seconds()))
+        meta = f"{when} · {trigger} · 점검 중"
         return Header(
-            "plain", None, None, None, issues, False, meta, "점검이 진행 중입니다", None, 0
+            "plain",
+            None,
+            None,
+            None,
+            issues,
+            False,
+            meta,
+            "점검이 진행 중입니다",
+            None,
+            0,
+            elapsed_seconds=elapsed,
         )
     if d.state == "halted":
         meta = f"{when} · {trigger} · 점검 중단"
