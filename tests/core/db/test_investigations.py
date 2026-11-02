@@ -275,3 +275,24 @@ def test_start_stores_trace_gate_and_symptom_columns(engine):
     )
     _, other, plain = _start(engine)
     assert other.get(plain).trace_id is None  # 기본은 None
+
+
+def test_cause_chain_report_round_trips_without_database_migration(engine):
+    _, store, iid = _start(engine)
+    report = Report.model_validate(
+        {
+            "conclusion": "오류 전달",
+            "confidence": "low",
+            "impact_scope": "채팅",
+            "cause_chain": [
+                {
+                    "service": {"kind": "Service", "name": "agent"},
+                    "observation": "429 수신",
+                    "evidence_ids": ["ev-1"],
+                    "error_from_downstream": True,
+                }
+            ],
+        }
+    )
+    store.finish(iid, AgentResult(status="done", report=report), NOW)
+    assert store.get(iid).report.cause_chain == report.cause_chain

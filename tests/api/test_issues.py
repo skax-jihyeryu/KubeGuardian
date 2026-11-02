@@ -417,3 +417,27 @@ def test_warning_and_resolved_issues_show_no_ack_state(client, engine):
 
     assert "미확인" not in client.get(f"/dev/issues/{warning}").text
     assert "미확인" not in client.get(f"/dev/issues/{resolved}").text
+
+
+def test_cause_chain_shows_order_provenance_and_escaped_observation(client, engine):
+    from service.model import Report
+
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    ev = add_evidence(engine, run)
+    inv = start_investigation(engine, run, inc, [])
+    data = report(evidence_ids=[ev]).model_dump()
+    data["cause_chain"] = [
+        {
+            "service": {"kind": "Service", "name": "agent-svc"},
+            "observation": "<script>429 수신</script>",
+            "evidence_ids": [ev],
+            "error_from_downstream": True,
+        }
+    ]
+    finish_investigation(engine, inv, Report.model_validate(data))
+    text = client.get(f"/dev/issues/{inc}").text
+    assert "호출 체인" in text and "Service/agent-svc" in text
+    assert "하위 서비스 오류 전달" in text
+    assert "&lt;script&gt;429 수신&lt;/script&gt;" in text
+    assert f"/dev/checks/{run}?ev=1" in text

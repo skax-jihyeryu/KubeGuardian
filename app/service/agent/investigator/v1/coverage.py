@@ -4,6 +4,7 @@
 - 구동·설정·연결·로그 영역을 실제로 조회했는가 (도구 호출 기록 기준)
 """
 
+from core.guard.cause_chain import cause_chain_gaps
 from service.agent.investigator.v1.state import Observation
 from service.model import AREAS, Area, Report
 
@@ -92,7 +93,8 @@ def _pod_probe_gap(runbook: str | None, observations: list[Observation]) -> str 
 def find_gaps(
     report: Report, observations: list[Observation], runbook: str | None = None
 ) -> list[str]:
-    gaps = []
+    failed = {o.evidence_id for o in observations if not o.ok}
+    gaps = cause_chain_gaps(report, known=lambda i: i not in failed)
     if cause_gap := _cause_gap(report, observations):
         gaps.append(cause_gap)
     seen = observed_areas(observations)
