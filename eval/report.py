@@ -129,18 +129,25 @@ def _ci(k: int, n: int) -> str:
 
 
 def batch_drift(results: list[tuple[str, dict]]) -> list[str]:
-    """묶음 도중 이미지·설정이 바뀐 지점을 문장으로 돌려준다. 값이 없는 결과는 건너뛴다."""
+    """묶음 도중 이미지·설정이 바뀐 구간을 문장으로 돌려준다.
+
+    in_cluster는 시나리오 시작 때만 기록되므로 변경 시점은 두 시작 사이다.
+    값이 없는 결과는 건너뛴다.
+    """
     out = []
     for key in ("image_id", "config_resource_version"):
-        prev = None
+        prev = prev_sid = None
         for _, result in results:
             value = (result.get("in_cluster") or {}).get(key)
             if not value:
                 continue
             if prev is not None and value != prev:
                 show = (lambda v: str(v)[-12:]) if key == "image_id" else str
-                out.append(f"{key}: {show(prev)} → {show(value)} ({result['scenario']}부터)")
-            prev = value
+                out.append(
+                    f"{key}: {show(prev)} → {show(value)} "
+                    f"({prev_sid} 시작~{result['scenario']} 시작 사이)"
+                )
+            prev, prev_sid = value, result["scenario"]
     return out
 
 
@@ -350,6 +357,12 @@ def render(summary: dict, baseline: dict | None) -> str:
             "> **경고: 평가 도중 클러스터가 바뀌었습니다.** "
             "이 묶음의 결과는 같은 조건이 아니므로 비교에 쓰지 마세요.",
             *[f"> - {d}" for d in summary["drift"]],
+            "",
+        ]
+    if baseline and baseline.get("drift"):
+        out += [
+            "> **경고: baseline 묶음 도중 클러스터가 바뀌었습니다.** 회귀 비교를 믿지 마세요.",
+            *[f"> - {d}" for d in baseline["drift"]],
             "",
         ]
     out += [
