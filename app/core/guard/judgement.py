@@ -17,6 +17,7 @@ LLM이 매긴 확신도(confidence)는 기준이 없고 정답률과 맞는지 �
 
 from collections.abc import Callable, Iterable
 
+from core.guard.cause_chain import cause_chain_gaps
 from service.model import Evidence, Report
 
 CONFIG = "설정·상태"
@@ -46,6 +47,8 @@ def judge(report: Report, lookup: EvidenceLookup) -> Report:
     if not usable:
         reason = "결론 근거가 조회 실패 기록뿐" if cited else "결론 근거를 찾을 수 없음"
         return _with(report, "guess", reason)
+    if gaps := cause_chain_gaps(report, known=lambda i: bool(_usable([i], lookup))):
+        return _with(report, "candidate", " · ".join(gaps))
     kinds = sorted(_sources(usable))
     cause = top.cause_resource
     cause_cited = cause is not None and any(

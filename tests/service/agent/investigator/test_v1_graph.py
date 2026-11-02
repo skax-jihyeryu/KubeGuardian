@@ -122,6 +122,17 @@ def _tool_call(i: int, name: str = "get_resource", args: dict | None = None) -> 
 
 
 def _report(evidence_ids: list[str], **extra) -> str:
+    if "cause_chain" not in extra and extra.get("issues"):
+        cause = min(extra["issues"], key=lambda i: i["rank"]).get("cause_resource")
+        if cause:
+            extra["cause_chain"] = [
+                {
+                    "service": cause,
+                    "observation": "설정 확인",
+                    "evidence_ids": evidence_ids,
+                    "error_from_downstream": False,
+                }
+            ]
     return json.dumps(
         {
             "conclusion": "gateway 주소 env가 localhost",
@@ -1461,3 +1472,88 @@ def test_partial_failure_without_pod_probe_triggers_recheck():
     assert "Pod별 probe(via=pod)" in recheck
     assert state["rechecked"] is True
     assert state["observations"][-1].via == "pod"
+
+
+def _chain_report(downstream):
+    return _report(
+        ["ev-1"],
+        **_cause(),
+        cause_chain=[
+            {
+                "service": {"kind": "Deployment", "name": "gateway"},
+                "observation": "하위 호출 오류를 수신",
+                "evidence_ids": ["ev-1"],
+                "error_from_downstream": downstream,
+            }
+        ],
+    )
+
+
+def test_downstream_terminal_rechecks_once_and_can_resolve():
+    script = [
+        TRIAGE,
+        PLAN,
+        _tool_call(1, args={"kind": "Deployment", "name": "gateway"}),
+        AIMessage(content="조사 완료"),
+        _chain_report(True),
+        AIMessage(content="추가 확인 완료"),
+        _chain_report(False),
+    ]
+    result, _, _ = _run(script)
+    stops = [s for s in result.steps if s.node == "stop_check"]
+    assert result.status == "done", result.error
+    assert len(stops) == 2
+    assert any("호출 체인" in gap for gap in stops[0].detail["gaps"])
+    assert stops[0].detail["recheck"] is True
+    assert stops[1].detail["gaps"] == []
+    assert result.report.cause_chain[-1].error_from_downstream is False
+
+
+def test_downstream_terminal_survives_failed_recheck_for_final_judgement():
+    script = [
+        TRIAGE,
+        PLAN,
+        _tool_call(1, args={"kind": "Deployment", "name": "gateway"}),
+        AIMessage(content="조사 완료"),
+        _chain_report(True),
+        RuntimeError("재조사 실패"),
+    ]
+    result, _, _ = _run(script)
+    assert result.status == "done", result.error
+    assert _recheck_failures(result) == ["RuntimeError"]
+    assert result.report.cause_chain[-1].error_from_downstream is True
+    assert len([s for s in result.steps if s.node == "write_report"]) == 1
+
+
+def test_unresolved_downstream_terminal_stops_after_one_recheck():
+    script = [
+        TRIAGE,
+        PLAN,
+        _tool_call(1, args={"kind": "Deployment", "name": "gateway"}),
+        AIMessage(content="조사 완료"),
+        _chain_report(True),
+        AIMessage(content="출처 미확인"),
+        _chain_report(True),
+    ]
+    result, _, _ = _run(script)
+    stops = [s for s in result.steps if s.node == "stop_check"]
+    assert result.status == "done", result.error
+    assert len(stops) == 2 and stops[1].detail["recheck"] is False
+    assert any("하위 서비스" in gap for gap in stops[1].detail["gaps"])
+    assert result.report.cause_chain[-1].error_from_downstream is True
+
+
+def test_preliminary_log_failure_cannot_support_a_chain_hop():
+    extra = _cause()
+    extra["cause_chain"] = [
+        {
+            "service": {"kind": "Deployment", "name": "gateway"},
+            "observation": "로그를 조회하지 못함",
+            "evidence_ids": ["ev-4"],
+            "error_from_downstream": False,
+        }
+    ]
+    result, _, _ = _run_b(_log_tool({}, failing=("gateway-1",)), report_extra=extra)
+    assert result.status == "done", result.error
+    first = next(s for s in result.steps if s.node == "stop_check")
+    assert "호출 체인 1번째 지점에 유효한 근거가 없습니다" in first.detail["gaps"]

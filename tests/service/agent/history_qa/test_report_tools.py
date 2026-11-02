@@ -224,3 +224,22 @@ def test_report_keyword_matches_decoded_korean_and_literal_wildcards(tools, engi
     saved(engine, "할당량 1000 소진")
     found = call(tools, "search_reports", keyword="할당량 100%")
     assert [row["id"] for row in found["reports"]] == [rid]
+
+
+def test_nested_chain_citations_are_scoped_to_the_report_check(tools, engine):
+    from service.model import Report
+
+    foreign = add_evidence(engine, make_run(engine))
+    rid, run, _, own = saved(engine)
+    data = report(evidence_ids=[own]).model_dump()
+    data["cause_chain"] = [
+        {
+            "service": {"kind": "Service", "name": "agent"},
+            "observation": "429 수신",
+            "evidence_ids": [own, foreign, "ev-9999"],
+            "error_from_downstream": True,
+        }
+    ]
+    finish_investigation(engine, rid, Report.model_validate(data))
+    found = call(tools, "get_report", report_id=rid)
+    assert found["report"]["cause_chain"][0]["evidence_ids"] == [own]

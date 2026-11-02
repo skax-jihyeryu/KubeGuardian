@@ -73,6 +73,12 @@ def validate_report(report: Report, known: Callable[[str], bool]) -> ValidationO
         elif cov.status != "checked" and not cov.summary.strip():
             update["summary"] = "(사유 미기재)"
         coverage = coverage.model_copy(update={area: cov.model_copy(update=update)})
+    chain = []
+    for index, hop in enumerate(report.cause_chain):
+        ids = keep(hop.evidence_ids)
+        if not ids:
+            demoted.append(f"cause_chain.{index}")
+        chain.append(hop.model_copy(update={"evidence_ids": ids}))
     evidence_ids = keep(report.evidence_ids)
     cleaned = report.model_copy(
         update={
@@ -81,6 +87,7 @@ def validate_report(report: Report, known: Callable[[str], bool]) -> ValidationO
             "hypotheses": hypotheses,
             "issues": issues,
             "coverage": coverage,
+            "cause_chain": chain,
         }
     )
     return ValidationOutcome(

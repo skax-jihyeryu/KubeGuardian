@@ -56,6 +56,16 @@ def _report(
             "evidence_ids": list(evidence_ids),
             "issues": [issue] if issues else [],
             "hypotheses": list(hypotheses),
+            "cause_chain": [
+                {
+                    "service": {"kind": cause[0], "name": cause[1]},
+                    "observation": "설정 확인",
+                    "evidence_ids": ["ev-1"],
+                    "error_from_downstream": False,
+                }
+            ]
+            if cause
+            else [],
         }
     )
 

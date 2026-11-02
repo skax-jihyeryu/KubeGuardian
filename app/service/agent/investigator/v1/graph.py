@@ -203,8 +203,8 @@ def build_graph(agent: "InvestigatorV1"):
                     if fact := error_log_fact(pod, result):
                         facts.append(fact)
                     # 일치 줄이 없거나 실패한 조회는 로그를 확인한 것으로 세지 않는다 (커버리지)
-                    if result.ok and result.data.get("match_count"):
-                        obs.append(observation(result.evidence_id, "get_pod_logs", args, True))
+                    if not result.ok or result.data.get("match_count"):
+                        obs.append(observation(result.evidence_id, "get_pod_logs", args, result.ok))
         return {
             "facts": facts,
             "seen": state["seen"] + s.evidence_ids,

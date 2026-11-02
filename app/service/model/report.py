@@ -35,6 +35,13 @@ class ResourceRef(BaseModel):
     name: str
 
 
+class ChainHop(BaseModel):
+    service: ResourceRef  # 호출 지점의 리소스 식별자 (Pod/Deployment/Service 등)
+    observation: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    error_from_downstream: bool
+
+
 class Issue(BaseModel):
     rank: int
     title: str
@@ -98,6 +105,7 @@ class Report(BaseModel):
     evidence_ids: list[str] = []
     hypotheses: list[Hypothesis] = []
     coverage: Coverage = Field(default_factory=Coverage)
+    cause_chain: list[ChainHop] = Field(default_factory=list)
     actions: list[str] = []  # 권장 조치 (명령 수준, 자동 실행 안 함)
     verification: str = ""  # 재검증 방법
 

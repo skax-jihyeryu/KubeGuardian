@@ -8,7 +8,7 @@ from service.agent.investigator.v1.coverage import (
 )
 from service.agent.investigator.v1.state import Observation
 from service.model import Report
-from service.model.report import AreaCoverage, Coverage, Hypothesis, Issue, ResourceRef
+from service.model.report import AreaCoverage, ChainHop, Coverage, Hypothesis, Issue, ResourceRef
 
 ALL_NA = {
     a: AreaCoverage(status="not_applicable", summary="해당 없음")
@@ -37,6 +37,16 @@ def _report(issues=None, **areas) -> Report:
         issues=issues or [],
         hypotheses=supported,
         coverage=cov,
+        cause_chain=[
+            ChainHop(
+                service=min(issues, key=lambda i: i.rank).cause_resource,
+                observation="확인",
+                evidence_ids=["ev-1"],
+                error_from_downstream=False,
+            )
+        ]
+        if issues and min(issues, key=lambda i: i.rank).cause_resource
+        else [],
     )
 
 
@@ -47,7 +57,7 @@ def _get(kind, name, ev="ev-2") -> Observation:
 def test_find_gaps_missing_cause_resource():
     gaps = find_gaps(_report([_issue(kind=None)]), [])
 
-    assert gaps == ["1순위 원인 리소스를 지정하지 않았습니다"]
+    assert gaps == ["호출 체인이 없습니다", "1순위 원인 리소스를 지정하지 않았습니다"]
 
 
 def test_find_gaps_cause_resource_not_fetched():
@@ -263,3 +273,18 @@ def test_find_gaps_other_runbook_or_none_has_no_pod_probe_gap():
     assert find_gaps(_report(), [], runbook="service-unreachable") == []
     assert find_gaps(_report(), [], runbook="") == []
     assert find_gaps(_report(), []) == []
+
+
+def test_failed_tool_citation_does_not_satisfy_chain_evidence():
+    report = _report([_issue()])
+    report.cause_chain[0].evidence_ids = ["ev-failed"]
+    observations = [
+        _get("Deployment", "gateway"),
+        Observation(evidence_id="ev-failed", tool="get_pod_logs", ok=False),
+    ]
+    assert find_gaps(report, observations) == ["호출 체인 1번째 지점에 유효한 근거가 없습니다"]
+
+
+def test_initial_signal_citation_is_not_rejected_as_unobserved_tool():
+    report = _report([_issue()])
+    assert find_gaps(report, [_get("Deployment", "gateway")]) == []

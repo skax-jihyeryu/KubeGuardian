@@ -217,12 +217,9 @@ def test_run_investigation_attaches_judgement_from_stored_evidence(engine):
         http=FakeHttp(),
     )
 
-    # 스크립트 보고서는 신호판 S04 근거(설정·상태)만 인용하고 원인 리소스 설정은 인용하지 않는다
+    # 예전 스크립트 보고서도 읽지만 호출 체인 없는 원인 주장을 새로 확정하지 않는다.
     assert result.report.judgement == "candidate"
-    assert (
-        result.report.judgement_basis
-        == "원인 리소스 설정 미인용 · 근거 출처 1종(설정·상태) · 지지 가설 근거 최대 1종"
-    )
+    assert result.report.judgement_basis == "호출 체인이 없습니다"
 
 
 def test_run_investigation_confirms_with_cause_config_and_supported_hypothesis(engine):
@@ -255,6 +252,14 @@ def test_run_investigation_confirms_with_cause_config_and_supported_hypothesis(e
                 "conclusion": "gateway 주소 env가 localhost",
                 "confidence": "high",
                 "impact_scope": "전체",
+                "cause_chain": [
+                    {
+                        "service": {"kind": "Deployment", "name": "gateway"},
+                        "observation": "주소 설정 오류",
+                        "evidence_ids": [config_id],
+                        "error_from_downstream": False,
+                    }
+                ],
                 "coverage": {
                     a: {"status": "not_applicable", "summary": "테스트"}
                     for a in ("run", "config", "wiring", "logs")
