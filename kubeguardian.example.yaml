@@ -38,6 +38,10 @@ api_scenarios:               # run_api_scenario. 단계 형식은 app/core/confi
 # 비어 있으면 도구를 등록하지 않는다. 이 환경의 llm-gateway 할당량 API는 gateway 경유 인증과
 # 조직 관리자 권한이 필요하고 사용량을 돌려주지 않아 비워 둔다 (#77).
 app_apis: {}
+# 수집에서 뺄 이벤트 대상 API 그룹. 이 PoC는 Chaos Mesh로 장애를 주입하는데, Chaos Mesh가 대상
+# 네임스페이스에 만드는 PodNetworkChaos·PodHttpChaos의 이벤트가 보이면 조사가 주입 사실을 읽게 된다 (#82).
+# 장애 주입 도구가 없는 운영 클러스터에서는 비워 둔다
+exclude_event_api_groups: [chaos-mesh.org]
 slack:
   alert_target: "#pr-service-ops"
   report_url: http://localhost:8000/p/default   # 알림 링크의 보고서 화면 주소 (port-forward 기준)
