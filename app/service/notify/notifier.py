@@ -10,6 +10,7 @@
 - 보내지 못해도 점검·조사는 계속한다. 모든 메시지는 알림 이력(alert)에 남는다 (dry-run 포함).
 """
 
+from contextlib import suppress
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -26,6 +27,7 @@ from service.agent.base import AgentResult
 from service.alerts.incidents import IncidentChange
 from service.model import GateResult
 from service.notify import messages
+from service.notify.parent import reconcile_parent
 from service.notify.sender import DRY_RUN_PREFIX, Sender
 
 
@@ -298,6 +300,10 @@ class Notifier:
         except ServiceException as e:
             error = e.detail or e.error_code.name
         self._record(kind, incident.id, text, now, ts=ts, thread=None, error=error)
+        if error is None and blocks is not None:
+            # The persisted acknowledgement survives; another click retries.
+            with suppress(ServiceException):
+                reconcile_parent(self._engine, self._sender, self._channel, incident.id)
 
     def _record(
         self,

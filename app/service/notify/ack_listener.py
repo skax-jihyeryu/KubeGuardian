@@ -22,6 +22,7 @@ from core.db import AlertStore, IncidentAckStore, IncidentStore
 from core.error.service_exception import ServiceException
 from core.log.logging import get_logging
 from service.notify import messages
+from service.notify.parent import reconcile_parent
 from service.notify.sender import Sender
 
 logger = get_logging()
@@ -54,30 +55,15 @@ def handle_ack(
     if incident is None or not incident.slack_ts:
         return False
     alerts = AlertStore(engine)
-    text = next(
-        (
-            a.text
-            for a in reversed(alerts.for_incident(incident_id))
-            if a.kind in ("M1", "M1u") and not a.error
-        ),
-        None,
-    )
     if incident.status != "open":
-        if text is not None:
-            blocks = [
-                b for b in messages.ack_blocks(text, incident_id, None) if b["type"] != "actions"
-            ]
-            _try(lambda: sender.update(slack.alert_target, incident.slack_ts, text, blocks=blocks))
+        _try(lambda: reconcile_parent(engine, sender, slack.alert_target, incident_id))
         return False
 
     name = str(user.get("name") or user.get("username") or user_id)[:_NAME_MAX]
-    acks = IncidentAckStore(engine)
-    if not acks.ack(incident_id, user_id, name, now):
+    first = IncidentAckStore(engine).ack(incident_id, user_id, name, now)
+    _try(lambda: reconcile_parent(engine, sender, slack.alert_target, incident_id))
+    if not first:
         return False
-    ack = acks.get(incident_id)
-    if text is not None:
-        blocks = messages.ack_blocks(text, incident_id, ack)
-        _try(lambda: sender.update(slack.alert_target, incident.slack_ts, text, blocks=blocks))
     reply = f"✅ <@{messages.clean(user_id)}> 님이 확인했습니다"
     ts, error = None, None
     try:

@@ -87,7 +87,7 @@ def test_repeated_or_second_person_click_changes_nothing(engine):
     assert _handle(engine, sender, _payload(user="U1")) is False
 
     assert IncidentAckStore(engine).get(1).user_id == "U1"
-    assert len(sender.posts) == 1 and len(sender.updates) == 1  # 알림은 한 번
+    assert len(sender.posts) == 1 and len(sender.updates) == 3
 
 
 @pytest.mark.parametrize(
@@ -184,3 +184,54 @@ def test_ssl_context_uses_ca_file_when_set(monkeypatch):
 
     monkeypatch.setenv("SSL_CERT_FILE", certifi.where())
     assert isinstance(ack_listener.ssl_context(), ssl.SSLContext)
+
+
+def test_duplicate_click_retries_failed_parent_with_first_actor(engine):
+    sender = FakeSender(fail=True)
+    assert _handle(engine, sender, _payload(user="U1"))
+    first = IncidentAckStore(engine).get(1)
+    sender.fail = False
+    assert not _handle(engine, sender, _payload(user="U2"), NOW + timedelta(hours=1))
+    assert IncidentAckStore(engine).get(1) == first
+    assert "<@U1>" in str(sender.updates[-1]["blocks"])
+    assert sender.posts == []
+    assert len([a for a in AlertStore(engine).for_incident(1) if a.kind == "ACK"]) == 1
+
+
+@pytest.mark.parametrize("first_writer", ["worker", "listener"])
+def test_overlapping_parent_writes_preserve_latest_content_and_ack(engine, first_writer):
+    from service.notify.notifier import Notifier
+
+    class OverlappingSender(FakeSender):
+        hook = None
+        displayed = None
+
+        def update(self, channel, ts, text, blocks=None):
+            hook, self.hook = self.hook, None
+            if hook:
+                hook()
+            super().update(channel, ts, text, blocks)
+            self.displayed = (text, blocks)
+
+    sender = OverlappingSender()
+    notifier = Notifier(engine, CONFIG, sender, ack_enabled=True)
+    incident = IncidentStore(engine).get(1)
+
+    def worker():
+        notifier._update("M1u", incident, "100.1", "fresh investigation", NOW)
+
+    def listener():
+        _handle(engine, sender, _payload())
+
+    if first_writer == "worker":
+        sender.hook = listener
+        worker()
+    else:
+        sender.hook = worker
+        listener()
+    text, blocks = sender.displayed
+    assert text == "fresh investigation"
+    assert blocks[-1]["type"] == "context"
+    assert "<@U1>" in str(blocks[-1])
+    assert len(sender.posts) == 1
+    assert len([a for a in AlertStore(engine).for_incident(1) if a.kind == "ACK"]) == 1
