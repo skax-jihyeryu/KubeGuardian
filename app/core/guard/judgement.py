@@ -5,15 +5,17 @@ LLM이 매긴 확신도(confidence)는 기준이 없고 정답률과 맞는지 �
 
 | 값 | 조건 |
 |---|---|
-| confirmed (확정) | 결론이 1순위 원인 리소스의 설정(get_resource)을 인용 + 근거 출처 2종 이상 |
-| candidate (후보) | 결론 근거는 있으나 위 조건 중 하나가 빠짐 |
+| confirmed (확정) | 원인 리소스 설정 인용 + 근거 출처 2종+ + supported 가설 하나의 근거 출처 2종+ |
+| candidate (후보) | 결론 근거는 있으나 위 조건 중 하나가 빠짐 (지지된 가설 없음 포함) |
 | guess (추정) | 결론에 근거가 없음(검증기 강등), 1순위 문제가 없음, 인용이 조회 실패 기록뿐 |
 
 에이전트 버전과 상관없이 같은 기준이 되도록 조사 실행 공통 경로(run_request)가 저장된 근거로 정한다.
 출처는 근거 종류로 묶는다. 같은 종류를 여러 번 인용해도 1종이고, 조회 실패 기록은 세지 않는다.
+가설의 출처는 가설 하나 안에서만 센다 (여러 가설의 출처를 합치지 않는다).
+한계: 가설과 원인 리소스의 연결이 스키마에 없어 무관한 가설이 supported여도 통과한다.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from service.model import Evidence, Report
 
@@ -38,24 +40,45 @@ def judge(report: Report, lookup: EvidenceLookup) -> Report:
         return _with(report, "guess", "결론에 근거 없음")
     if top is None:
         return _with(report, "guess", "1순위 문제 없음")
-    cited = [e for i in {*report.evidence_ids, *top.evidence_ids} if (e := lookup(i))]
-    usable = [e for e in cited if not _is_failure(e) and e.kind in SOURCE_OF_KIND]
+    ids = {*report.evidence_ids, *top.evidence_ids}
+    cited = [e for i in ids if (e := lookup(i))]
+    usable = _usable(ids, lookup)
     if not usable:
         reason = "결론 근거가 조회 실패 기록뿐" if cited else "결론 근거를 찾을 수 없음"
         return _with(report, "guess", reason)
-    kinds = sorted({SOURCE_OF_KIND[e.kind] for e in usable})
+    kinds = sorted(_sources(usable))
     cause = top.cause_resource
     cause_cited = cause is not None and any(
         e.kind == "resource" and e.subject.endswith(f"/{cause.kind}/{cause.name}") for e in usable
     )
+    # 가설 하나 안에서 출처가 2종이어야 한다 (여러 가설의 출처를 합치지 않는다)
+    supported = [h for h in report.hypotheses if h.status == "supported"]
+    best = max((len(_sources(_usable(h.evidence_ids, lookup))) for h in supported), default=0)
+    if not supported:
+        hypothesis_basis = "지지된 가설 없음"
+    elif best < CONFIRM_MIN_SOURCES:
+        hypothesis_basis = f"지지 가설 근거 최대 {best}종"
+    else:
+        hypothesis_basis = f"지지 가설 근거 {best}종"
     basis = " · ".join(
         [
             "원인 리소스 설정 인용" if cause_cited else "원인 리소스 설정 미인용",
             f"근거 출처 {len(kinds)}종({', '.join(kinds)})",
+            hypothesis_basis,
         ]
     )
-    confirmed = cause_cited and len(kinds) >= CONFIRM_MIN_SOURCES
+    confirmed = cause_cited and len(kinds) >= CONFIRM_MIN_SOURCES and best >= CONFIRM_MIN_SOURCES
     return _with(report, "confirmed" if confirmed else "candidate", basis)
+
+
+def _usable(ids: Iterable[str], lookup: EvidenceLookup) -> list[Evidence]:
+    """lookup으로 찾은 근거 중 출처로 셀 수 있는 것 (조회 실패 기록·알 수 없는 종류 제외)."""
+    found = (e for i in set(ids) if (e := lookup(i)))
+    return [e for e in found if not _is_failure(e) and e.kind in SOURCE_OF_KIND]
+
+
+def _sources(evidence: Iterable[Evidence]) -> set[str]:
+    return {SOURCE_OF_KIND[e.kind] for e in evidence}
 
 
 def _is_failure(evidence: Evidence) -> bool:

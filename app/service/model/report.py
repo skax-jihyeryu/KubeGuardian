@@ -90,7 +90,8 @@ class Report(BaseModel):
     conclusion_supported: bool = True  # False = 결론이 인용한 근거가 없다 (검증기가 정한다)
     # 판단 수준은 코드가 붙인다 (core/guard/judgement.py). LLM 구조화 출력 스키마에서는 뺀다
     judgement: SkipJsonSchema[Judgement | None] = None
-    judgement_basis: SkipJsonSchema[str] = ""  # 예: "원인 리소스 설정 인용 · 근거 출처 2종(...)"
+    # 예: "원인 리소스 설정 인용 · 근거 출처 2종(...) · 지지 가설 근거 2종"
+    judgement_basis: SkipJsonSchema[str] = ""
     impact_scope: str
     issues: list[Issue] = []
     preliminary_facts: list[Fact] = []
