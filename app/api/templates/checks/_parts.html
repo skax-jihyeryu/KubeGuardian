@@ -49,6 +49,17 @@
     </details>
     {%- endif %}
     {%- endif %}
+    {%- if s.rules %}{% set r = s.rules %}
+    {%- for f in r.findings %}<div class="s13">{{ "✗" if f.status == "적발" else "?" }} {{ f.status }} · {{ f.rule_name }} ({{ f.rule_id }}) — {{ f.subject }} {{ f.message }}</div>{% endfor %}
+    {%- for st in r.stages %}<div class="s13">✓ {{ st.name }}{% if st.has_findings %} (이 단계에 해당 항목 있음){% endif %} — {{ st.passed|join(", ") }} 통과</div>{% endfor %}
+    {%- for a in r.advice %}<div class="s13">⚠ 개선 권고 · {{ a.rule_name }} ({{ a.rule_id }}) — {{ a.action }}: {{ a.targets|join(", ") }}</div>{% endfor %}
+    {%- if r.excluded %}<div class="s13">끈 규칙: {{ r.excluded|join(", ") }}</div>{% endif %}
+    {%- if r.developer_lines %}
+    <details><summary class="s13">규칙별 입력 필드 (개발자용)</summary>
+      {%- for line in r.developer_lines %}<div class="mono s13">{{ line }}</div>{% endfor %}
+    </details>
+    {%- endif %}
+    {%- endif %}
     {%- for line in s.lines %}<div class="s13">{{ line }}</div>{% endfor %}
     {%- for line in s.mono_lines %}<div class="mono s13">{{ line }}</div>{% endfor %}
     {%- if s.table %}

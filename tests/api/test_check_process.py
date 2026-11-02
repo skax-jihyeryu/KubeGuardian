@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 
 from api.viewmodels.checks import collect_summary
+from service.checks.detectors.catalog import CATALOG
 from service.model import ClusterSnapshot
 
 NOW = datetime(2026, 11, 2, 5, 5, tzinfo=UTC)
@@ -108,3 +109,92 @@ def test_failed_kind_shows_reason():
 
 def test_no_snapshot_gives_no_rows():
     assert collect_summary(None) == []
+
+
+# ── 점검 규칙 결과 ──────────────────────────────────────────────
+
+from api.viewmodels.checks import rule_summary  # noqa: E402
+from core.db.check_results import CheckResult  # noqa: E402
+
+
+def result(verdicts, excluded=()):
+    return CheckResult(
+        run_id=1,
+        status="done",
+        started_at=NOW,
+        finished_at=NOW,
+        gate_path="C",
+        gate_reason="",
+        first_severity=None,
+        verdicts=verdicts,
+        symptoms=[],
+        phases=[],
+        excluded_rules=list(excluded),
+        error=None,
+    )
+
+
+def rule(rid, passed=0, items=()):
+    return {"rule_id": rid, "passed": passed, "items": list(items)}
+
+
+def item(verdict, subject, message="m", service=None):
+    return {"verdict": verdict, "subject": subject, "message": message, "service": service}
+
+
+def test_findings_list_detected_before_unknown_and_observing_with_rule_names():
+    summary = rule_summary(
+        result(
+            [
+                rule("S01", items=[item("unknown", "dev/Service/a", "못 읽음")]),
+                rule("W02", items=[item("detected", "dev/Deployment/agent", "롤아웃 정체")]),
+                rule("P03", items=[item("observing", "dev/Pod/x")]),
+            ]
+        )
+    )
+    assert [(f.status, f.rule_id) for f in summary.findings] == [
+        ("적발", "W02"),
+        ("확인하지 못함", "S01"),
+        ("관찰 중", "P03"),
+    ]
+    first = summary.findings[0]
+    assert first.rule_name and first.subject == "dev/Deployment/agent"
+    assert first.message == "롤아웃 정체"
+
+
+def test_rules_without_items_are_grouped_as_passed_by_stage():
+    summary = rule_summary(
+        result([rule("W01", passed=2), rule("W02", items=[item("detected", "dev/Deployment/a")])])
+    )
+    deploy = next(s for s in summary.stages if s.name == "3 배포")
+    assert [n for n in deploy.passed] == [CATALOG["W01"].name]
+    assert deploy.has_findings is True
+    assert "W02" not in " ".join(deploy.passed)
+
+
+def test_stage_without_passed_rules_is_omitted_and_unrun_rules_are_not_listed():
+    summary = rule_summary(result([rule("W02", items=[item("detected", "x")])]))
+    assert summary.stages == ()
+
+
+def test_advice_groups_targets_by_rule_with_action_text_and_limit():
+    items = [item("detected", f"dev/Service/s{i}", service=f"s{i}") for i in range(8)]
+    summary = rule_summary(result([rule("H02", items=items), rule("H01", passed=1)]))
+    assert [a.rule_id for a in summary.advice] == ["H02"]
+    advice = summary.advice[0]
+    assert "CPU·메모리 요청·제한이 없습니다" in advice.action
+    assert advice.targets == ("s0", "s1", "s2", "s3", "s4", "s5", "외 2개")
+    assert summary.findings == ()
+
+
+def test_h01_action_text():
+    summary = rule_summary(
+        result([rule("H01", items=[item("detected", "d/Service/a", service="a")])])
+    )
+    assert "준비 상태 검사가 포트만 확인합니다" in summary.advice[0].action
+
+
+def test_developer_lines_and_excluded_rule_names():
+    summary = rule_summary(result([rule("S01", passed=1)], excluded=["W02"]))
+    assert summary.developer_lines and summary.developer_lines[0].startswith("S01 입력: ")
+    assert summary.excluded == (CATALOG["W02"].name,)

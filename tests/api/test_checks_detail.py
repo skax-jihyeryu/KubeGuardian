@@ -567,7 +567,7 @@ def test_old_run_without_collect_has_no_fabricated_collection_step(client, engin
     assert "정보 수집" not in detail(client, run).text
 
 
-def test_rule_result_rows_show_input_fields(client, engine):
+def test_rule_input_fields_appear_only_inside_the_developer_details(client, engine):
     from service.checks.detectors.catalog import CATALOG
 
     run = make_run(engine)
@@ -575,16 +575,34 @@ def test_rule_result_rows_show_input_fields(client, engine):
         engine,
         run,
         path="A",
+        signals=[Signal(rule_id="S01", verdict="unknown", subject="dev", message="missing")],
+    )
+    html = detail(client, run).text.split('data-k="점검 규칙 점검"', 1)[1]  # 점검 과정 절
+    marker = "규칙별 입력 필드 (개발자용)"
+    assert marker in html
+    before, after = html.split(marker, 1)
+    for kind, fields in CATALOG["S01"].inputs:
+        assert f"{kind} ({fields})" in after
+        assert f"{kind} ({fields})" not in before
+    assert "S01 입력:" not in before
+
+
+def test_rule_result_order_is_findings_then_passed_then_advice_then_excluded(client, engine):
+    run = make_run(engine)
+    finish_check(
+        engine,
+        run,
+        path="A",
         signals=[
             Signal(
-                rule_id="S01",
-                verdict="unknown",
-                subject="dev",
-                message="missing",
-            )
+                rule_id="W02", verdict="detected", subject="dev/Deployment/agent", message="정체"
+            ),
+            Signal(rule_id="H02", verdict="detected", subject="dev/Service/web", service="web"),
         ],
+        rules=("S01", "W02", "H02"),
+        excluded=("P03",),
     )
-    html = detail(client, run).text
-    assert "입력 정보" in html
-    for kind, fields in CATALOG["S01"].inputs:
-        assert f"{kind} ({fields})" in html
+    html = detail(client, run).text.split('data-k="점검 규칙 점검"', 1)[1]  # 점검 과정 절
+    positions = [html.index(x) for x in ("정체", "✓", "⚠", "끈 규칙", "규칙별 입력 필드")]
+    assert positions == sorted(positions)
+    assert "web" in html

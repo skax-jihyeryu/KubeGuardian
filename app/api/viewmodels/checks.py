@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import Engine
 
 from api.timefmt import hms, md_hm, seconds_text
+from api.viewmodels.setup import STAGES
 from api.viewmodels.shell import IMPACT, SEVERITY
 from core.config import KubeGuardianConfig
 from core.db import (
@@ -97,6 +98,7 @@ class StepView:
     state: str = "done"  # done / cur / todo
     progress: tuple[int, int] | None = None  # (도구 호출 수, 문제당 예산)
     collect: list["CollectRow"] = field(default_factory=list)  # 정보 수집 단계
+    rules: "RuleSummary | None" = None  # 점검 규칙 단계
 
 
 @dataclass(frozen=True)
@@ -675,9 +677,7 @@ def _pod_base_name(pod: dict[str, Any]) -> str:
 
 
 def _limited(names: list[str]) -> tuple[str, ...]:
-    if len(names) <= NAME_LIMIT:
-        return tuple(names)
-    return (*names[:NAME_LIMIT], f"외 {len(names) - NAME_LIMIT}개")
+    return _limited_at(names, NAME_LIMIT)
 
 
 def _pod_row(pods: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
@@ -762,6 +762,104 @@ def collect_summary(snapshot: ClusterSnapshot | None) -> list[CollectRow]:
     return rows
 
 
+ADVICE_LIMIT = 6
+_ADVICE_ACTION = {
+    "H01": "준비 상태 검사가 포트만 확인합니다",
+    "H02": "CPU·메모리 요청·제한이 없습니다",
+}
+
+
+@dataclass(frozen=True)
+class RuleFinding:
+    status: str  # 적발 / 확인하지 못함 / 관찰 중
+    rule_name: str
+    rule_id: str
+    subject: str
+    message: str
+
+
+@dataclass(frozen=True)
+class AdviceLine:
+    rule_name: str
+    rule_id: str
+    action: str
+    targets: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class StagePass:
+    name: str
+    passed: tuple[str, ...]  # 항목이 없는 규칙 이름
+    has_findings: bool  # 같은 단계에 적발·확인하지 못함·관찰 중 항목이 있다
+
+
+@dataclass(frozen=True)
+class RuleSummary:
+    findings: tuple[RuleFinding, ...] = ()
+    advice: tuple[AdviceLine, ...] = ()
+    stages: tuple[StagePass, ...] = ()
+    developer_lines: tuple[str, ...] = ()
+    excluded: tuple[str, ...] = ()
+
+
+def _rule_name(rid: str) -> str:
+    spec = CATALOG.get(rid)
+    return spec.name if spec else rid
+
+
+def rule_summary(result: CheckResult) -> RuleSummary:
+    """규칙 결과를 적발 → 확인하지 못함·관찰 중 → 단계별 통과 → 개선 권고 순서 값으로 만든다."""
+    findings: list[RuleFinding] = []
+    advice: list[AdviceLine] = []
+    developer: list[str] = []
+    passed_by_rule: dict[str, bool] = {}  # 항목이 없으면 True
+    for rule in result.verdicts:
+        rid = rule.get("rule_id", "")
+        spec = CATALOG.get(rid)
+        if spec:
+            developer.append(f"{rid} 입력: " + "; ".join(f"{k} ({f})" for k, f in spec.inputs))
+        items = rule.get("items", [])
+        if rid.startswith("H"):
+            if items:
+                targets = [str(it.get("service") or it.get("subject", "")) for it in items]
+                limited = _limited_at(targets, ADVICE_LIMIT)
+                action = _ADVICE_ACTION.get(rid, "")
+                advice.append(AdviceLine(_rule_name(rid), rid, action, limited))
+            continue
+        passed_by_rule[rid] = not items
+        for it in items:
+            verdict = it.get("verdict")
+            findings.append(
+                RuleFinding(
+                    _RULE_STATUS.get(verdict, str(verdict)),
+                    _rule_name(rid),
+                    rid,
+                    str(it.get("subject", "")),
+                    str(it.get("message", "")),
+                )
+            )
+    findings.sort(key=lambda f: 0 if f.status == "적발" else 1)  # 안정 정렬: 나머지는 원래 순서
+    stages = []
+    for name, ids in STAGES:
+        run_ids = [r for r in ids if r in passed_by_rule]
+        passed = tuple(_rule_name(r) for r in run_ids if passed_by_rule[r])
+        if passed:
+            stages.append(StagePass(name, passed, any(not passed_by_rule[r] for r in run_ids)))
+    return RuleSummary(
+        tuple(findings),
+        tuple(advice),
+        tuple(stages),
+        tuple(developer),
+        tuple(_rule_name(r) for r in result.excluded_rules),
+    )
+
+
+def _limited_at(names: list[str], limit: int) -> tuple[str, ...]:
+    if len(names) <= limit:
+        return tuple(names)
+    return (*names[:limit], f"외 {len(names) - limit}개")
+
+
 def _phase_view(d: _Loaded, result: CheckResult, p: Phase, title: str) -> StepView:
     time = _phase_time(p)
     if p.name == "collect":
@@ -774,30 +872,7 @@ def _phase_view(d: _Loaded, result: CheckResult, p: Phase, title: str) -> StepVi
         lines.append("건수는 저장된 스냅샷 기준이며 내용의 정확성을 검증한 결과가 아닙니다.")
         return StepView(title, p.summary, time, lines=lines, collect=collect_summary(snapshot))
     if p.name == "rules":
-        lines, mono = [], []
-        for rule in result.verdicts:
-            rid = rule.get("rule_id", "")
-            spec = CATALOG.get(rid)
-            if spec:
-                lines.append(f"{rid} 입력: " + "; ".join(f"{k} ({f})" for k, f in spec.inputs))
-            items = rule.get("items", [])
-            if not items:
-                mono.append(rid)
-                continue
-            for it in items:
-                lines.append(
-                    f"{rid} {_RULE_STATUS.get(it.get('verdict'), it.get('verdict'))} — "
-                    f"{it.get('subject', '')} {it.get('message', '')}".strip()
-                )
-        if result.excluded_rules:
-            lines.append(f"끈 규칙: {', '.join(result.excluded_rules)}")
-        return StepView(
-            title,
-            p.summary,
-            time,
-            lines=lines,
-            mono_lines=[" ".join(mono) + " 통과"] if mono else [],
-        )
+        return StepView(title, p.summary, time, rules=rule_summary(result))
     if p.name == "symptoms":
         table = [
             (
