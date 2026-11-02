@@ -324,7 +324,7 @@ def test_evidence_drawer_opens_with_masked_source(client, engine):
     assert res.status_code == 200
     assert 'class="drawer"' in res.text
     assert f"근거 {n}" in res.text
-    assert "log_excerpt" in res.text
+    assert "Pod 로그" in res.text
     assert "dev/Pod/agent-x" in res.text
     assert "hunter2" not in res.text and "abcdefgh12345678" not in res.text
     assert "***" in res.text  # 원문은 마스킹되어 보인다

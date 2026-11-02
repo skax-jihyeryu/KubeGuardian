@@ -51,6 +51,14 @@ ACTION_LABEL = {
 GATE_REASON = {"A": "장애 신호", "B": "기능 점검 실패"}
 JUDGEMENT_DOTS = {"confirmed": 3, "candidate": 2, "guess": 1}
 EVIDENCE_LIMIT = 100
+EVIDENCE_KIND_LABEL = {
+    "detector": "규칙 점검 결과",
+    "app_api": "기능 점검·앱 API 호출",
+    "resource": "리소스 설정·상태 조회",
+    "log_excerpt": "Pod 로그",
+    "event": "이벤트",
+    "probe_result": "연결 확인",
+}
 RAW_LIMIT = 50_000  # 서랍에 보이는 원문 길이 상한
 
 
@@ -142,6 +150,7 @@ class Header:
 class EvidenceRow:
     n: int
     content: str
+    subject: str
     kind: str
     stage: str
     time: str
@@ -355,7 +364,7 @@ def build_drawer(engine: Engine, run_id: int, n: int) -> DrawerView | None:
     raw = json.dumps(redact_mapping(ev.data), ensure_ascii=False, indent=2, default=str)
     return DrawerView(
         n=n,
-        kind=ev.kind,
+        kind=EVIDENCE_KIND_LABEL[ev.kind],
         subject=redact_text(ev.subject),
         source=redact_text(ev.source),
         collected=hms(ev.collected_at),
@@ -792,5 +801,50 @@ def _evidence_rows(engine: Engine, d: _Loaded) -> list[EvidenceRow]:
         assert ev.id is not None
         n = int(ev.id[3:])
         stage = stage_of.get(n) or ("점검 규칙 점검" if ev.kind == "detector" else "—")
-        rows.append(EvidenceRow(n, redact_text(ev.subject), ev.kind, stage, hms(ev.collected_at)))
+        rows.append(
+            EvidenceRow(
+                n,
+                _evidence_summary(ev.kind, ev.data),
+                redact_text(ev.subject),
+                EVIDENCE_KIND_LABEL[ev.kind],
+                stage,
+                hms(ev.collected_at),
+            )
+        )
     return rows
+
+
+def _evidence_summary(kind: str, data: dict[str, Any]) -> str:
+    """저장된 관측값만 짧게 표시한다. 누락된 값으로 성공 여부를 추론하지 않는다."""
+    data = redact_mapping(data)
+    text = "요약할 결과 필드 없음"
+    if data.get("error"):
+        text = f"조회 실패: {data['error']}"
+    elif kind == "detector":
+        parts = [_RULE_STATUS.get(data.get("verdict"), ""), str(data.get("message") or "")]
+        text = " · ".join(p for p in parts if p) or text
+    elif kind == "app_api":
+        if "scenario" in data and isinstance(data.get("steps"), list) and "failed_step" in data:
+            count = len(data["steps"])
+            failed = data.get("failed_step")
+            text = (
+                f"{count}단계 · 실패 단계 {failed}" if failed else f"{count}단계 · 실패 단계 없음"
+            )
+        elif "status" in data:
+            text = f"HTTP {data['status']}"
+            if data.get("latency_ms") is not None:
+                text += f" · {data['latency_ms']}ms"
+    elif kind == "resource":
+        if "count" in data:
+            text = f"{data.get('kind', '리소스')} {data['count']}개"
+        elif "services" in data and "edges" in data:
+            text = f"서비스 {len(data['services'])}개 · 호출 관계 {len(data['edges'])}개"
+    elif kind == "event" and "count" in data:
+        text = f"이벤트 {data['count']}건"
+        if "warnings" in data:
+            text += f" · Warning {data['warnings']}건"
+    elif kind == "log_excerpt" and "line_count" in data:
+        text = f"로그 {data['line_count']}줄"
+    elif kind == "probe_result" and "ok" in data and "fail" in data:
+        text = f"성공 {data['ok']}·실패 {data['fail']}"
+    return redact_text(text)[:240]
