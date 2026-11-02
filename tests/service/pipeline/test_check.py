@@ -141,13 +141,41 @@ def test_user_symptom_opens_path_b_without_http(engine):
     assert (out.gate.path, out.gate.severity) == ("B", "warning")
 
 
-def test_missing_target_service_opens_path_b_critical(engine):
-    objects, failed = raw_cluster()
-    objects["Service"] = [x for x in objects["Service"] if x["metadata"]["name"] != "gateway"]
-    reader = FixtureReader(objects, failed)
-    out = run_check(reader, _symptom_config(), engine, trigger="check", now=NOW, http=_http(200))
-    assert (out.gate.path, out.gate.severity) == ("B", "critical")
-    assert [(x.scenario, x.status) for x in out.gate.symptoms] == [("chat", "failed")]
+def test_missing_configured_service_is_unknown_without_incident(engine):
+    from core.db import CheckResultStore
+
+    config = _symptom_config()
+    config.api_scenarios[0].steps[0].call.via = "gatewayx"
+    http = _http(200)
+    out = run_check(_reader(), config, engine, trigger="schedule", now=NOW, http=http)
+
+    assert (out.gate.path, out.gate.severity) == ("C", None)
+    assert out.incidents == []
+    assert out.gate.symptoms == []
+    [symptom] = out.symptoms
+    assert (symptom.status, symptom.failed_step, symptom.severity) == ("unknown", None, None)
+    assert "Service gatewayx" in symptom.summary
+    assert http.calls == []
+    [stored] = CheckResultStore(engine).get(out.run_id).symptoms
+    assert stored["status"] == "unknown"
+
+
+def test_missing_configured_service_notifies_only_after_three_checks(engine):
+    from core.db import AlertStore
+    from service.notify.notifier import Notifier
+    from tests.service.notify.test_notifier import FakeSender
+
+    config = _symptom_config()
+    config.api_scenarios[0].steps[0].call.via = "gatewayx"
+    sender = FakeSender()
+    notifier = Notifier(engine, config, sender)
+    for index in range(4):
+        now = NOW + timedelta(minutes=5 * index)
+        out = run_check(_reader(), config, engine, trigger="schedule", now=now, http=_http(200))
+        notifier.after_check(out.run_id, out.gate, out.incidents, now + timedelta(seconds=12))
+        assert len(sender.posts) == (0 if index < 2 else 1)
+
+    assert [alert.kind for alert in AlertStore(engine).list_alerts()] == ["M10"]
 
 
 def test_blank_user_symptom_is_not_a_symptom(engine):
