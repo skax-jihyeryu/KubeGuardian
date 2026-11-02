@@ -604,8 +604,15 @@ api_scenarios:
       - call:  {via: gateway, path: /api/v1/agent/invoke, expect: 200, timeout_s: 60,
                 body: {query: "...", model: gpt-4.1, org_id: "${org_id}"},
                 check: {path: data.answer, not_starts_with: "오류가 발생했습니다:"}}  # 200이어도 실패 문구면 실패
-app_apis:            # query_app_api 허용 목록 (GET만)
-  llm-gateway: [/api/v1/health, /api/v1/quota]
+app_apis:            # query_app_api 허용 목록 (GET만, gateway 경유)
+  gateway: ["/api/v1/llm-gateway/deployments/assignments/org/${org_id}"]
+app_api_auth:        # 선택: 기존 Secret 계정으로 로그인, 토큰은 저장하지 않음
+  gateway:
+    via: gateway
+    path: /api/v1/auth/login
+    account_secret: kg-test-user
+    token: access_token
+    extract: {org_id: user.role.organizations.0.org_id}
 slack:
   alert_target: "C0123456789"           # 채널 ID(이름 아님). 기존 운영 채널 또는 DM. 알림량이 늘면 전용 채널로 분리
   bot_token_secret: kg-slack-bot        # 메시지 발송 (chat:write)
