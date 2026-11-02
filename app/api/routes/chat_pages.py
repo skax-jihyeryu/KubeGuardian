@@ -206,7 +206,8 @@ def chat_evidence(request: Request, project: ProjectDep, engine: EngineDep, ev: 
         request,
         "chat/evidence.html",
         {
-            "e": evidence,
+            "subject": redact_text(evidence.subject),
+            "source": redact_text(evidence.source),
             "raw": json.dumps(redact_mapping(evidence.data), ensure_ascii=False, indent=2),
         },
     )

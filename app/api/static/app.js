@@ -75,7 +75,8 @@
   });
   document.body.addEventListener('htmx:afterRequest', function (e) {
     if (e.detail.successful && e.target.matches('#chat-panel form')) {
-      e.target.querySelector('textarea').value = '';
+      var failed = e.detail.xhr.responseText.indexOf('role="alert"') >= 0;
+      if (!failed) e.target.querySelector('textarea').value = '';
       var messages = document.getElementById('chat-messages');
       if (messages) messages.scrollTop = messages.scrollHeight;
     }
