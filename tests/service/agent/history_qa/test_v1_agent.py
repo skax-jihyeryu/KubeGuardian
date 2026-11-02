@@ -102,8 +102,10 @@ def test_current_kst_time_is_sent_to_llm(engine):
     # UTC 11-01 16:30 = KST 11-02(월) 01:30. 날짜가 UTC와 다르다.
     agent, _ = _agent(engine, llm, now=lambda: datetime(2026, 11, 1, 16, 30, tzinfo=UTC))
     agent.run(ChatRequest(question="이번 주 이슈는?"))
-    system = " ".join(str(m.content) for m in llm.calls[0] if isinstance(m, SystemMessage))
-    assert "2026-11-02 01:30" in system and "월요일" in system and "KST" in system
+    systems = [m for m in llm.calls[0] if isinstance(m, SystemMessage)]
+    time_message = str(systems[1].content)
+    assert "2026-11-02 01:30" in time_message and "월요일" in time_message
+    assert "KST" in time_message
 
 
 def test_screen_context_is_one_escaped_block(engine):

@@ -2,6 +2,7 @@
 
 import json
 import re
+import unicodedata
 from typing import Annotated
 from urllib.parse import parse_qs
 from uuid import uuid4
@@ -50,7 +51,13 @@ FILTER_CHOICES = {
     "status": {"open", "resolved", "running", "done", "unknown", "halted", "failed"},
 }
 MAX_FILTER_Q = 100
-MAX_FILTER_CONTEXT = 300
+
+
+def flatten_text(raw: str) -> str:
+    """제어·서식 문자를 없애고 공백을 하나로 합친 뒤 마스킹한다. 마스킹은 평탄화한 문자열에 한다."""
+    kept = "".join(c for c in raw if unicodedata.category(c) != "Cf")
+    flat = re.sub(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\s]+", " ", kept).strip()
+    return redact_text(flat)
 
 
 def filter_values(value: str) -> dict[str, str]:
@@ -66,14 +73,14 @@ def filter_values(value: str) -> dict[str, str]:
             if raw.isascii() and raw.isdecimal() and 0 < int(raw) <= 365:
                 result[key] = str(int(raw))
         elif key == "q":
-            text = re.sub(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\s]+", " ", redact_text(raw)).strip()
+            text = flatten_text(raw)
             if text:
                 result[key] = text[:MAX_FILTER_Q]
     return result
 
 
 def filter_context(value: str) -> str:
-    return ", ".join(f"{k}={v}" for k, v in filter_values(value).items())[:MAX_FILTER_CONTEXT]
+    return ", ".join(f"{k}={v}" for k, v in filter_values(value).items())
 
 
 @router.get("/{p}/chat")
