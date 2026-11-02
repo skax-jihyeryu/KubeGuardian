@@ -691,6 +691,8 @@ def _progress(d: _Loaded) -> tuple[int, int] | None:
 def _inv_meta(d: _Loaded, inv: Investigation, now: datetime) -> str:
     calls = sum(1 for s in d.inv_steps if s.node == "tools")
     b = SPEC.budget
+    rechecked = any(s.node == "stop_check" and s.detail.get("recheck") for s in d.inv_steps)
+    limit_seconds = int(b.seconds + (b.recheck_seconds if rechecked else 0))  # 재조사는 시간 연장
     if inv.usage is not None and inv.ended_at is not None:
         seconds = int((inv.ended_at - inv.started_at).total_seconds())
         tokens = inv.usage.input_tokens + inv.usage.output_tokens
@@ -702,7 +704,7 @@ def _inv_meta(d: _Loaded, inv: Investigation, now: datetime) -> str:
         f"에이전트 {inv.agent}",
         f"모델 {SPEC.models['investigate']}",
         f"도구 {calls}/{b.total_tool_calls}",
-        f"{seconds}s/{int(b.seconds)}s",
+        f"{seconds}s/{limit_seconds}s",
     ]
     if tokens:
         parts.append(f"{tokens / 1000:.0f}k tokens")

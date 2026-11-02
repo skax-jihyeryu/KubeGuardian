@@ -25,6 +25,9 @@ AREA_BY_KIND: dict[str, set[Area]] = {
     "Service": {"wiring"},
     "EndpointSlice": {"wiring"},
 }
+_UNRESOLVED_MAX = 5  # 재조사 메시지에 싣는 미확인 가설 수
+_REASON_MAX = 200
+_STATEMENT_MAX = 200
 _LABEL: dict[Area, str] = {"run": "구동", "config": "설정", "wiring": "연결", "logs": "로그"}
 
 
@@ -64,6 +67,18 @@ def _cause_gap(report: Report, observations: list[Observation]) -> str | None:
     return None
 
 
+def _unresolved_gap(report: Report) -> str | None:
+    """문제가 있는데 지지된 가설이 없으면 그 사유. 미확인(inconclusive) 가설을 항목으로 붙인다."""
+    if not report.issues or any(h.status == "supported" for h in report.hypotheses):
+        return None
+    head = "핵심 가설이 미해결입니다."
+    open_items = [h for h in report.hypotheses if h.status == "inconclusive"][:_UNRESOLVED_MAX]
+    if not open_items:
+        return f"{head} 근거를 더 모으세요"
+    lines = [f"  - {h.statement[:_STATEMENT_MAX]} ({h.reason[:_REASON_MAX]})" for h in open_items]
+    return "\n".join([f"{head} 다음 미확인 항목을 확인하세요:", *lines])
+
+
 def find_gaps(report: Report, observations: list[Observation]) -> list[str]:
     gaps = []
     if cause_gap := _cause_gap(report, observations):
@@ -72,6 +87,8 @@ def find_gaps(report: Report, observations: list[Observation]) -> list[str]:
     for area in AREAS:
         if area not in seen and getattr(report.coverage, area).status != "not_applicable":
             gaps.append(f"{_LABEL[area]} 영역을 확인하지 않았습니다")
+    if unresolved := _unresolved_gap(report):
+        gaps.append(unresolved)
     return gaps
 
 
