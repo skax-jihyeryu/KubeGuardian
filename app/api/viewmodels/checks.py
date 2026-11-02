@@ -33,7 +33,7 @@ from core.guard.redact import redact_mapping, redact_text
 from service.agent.base import AgentStep
 from service.agent.investigator.v1.config import SPEC
 from service.checks.detectors.catalog import CATALOG
-from service.model import JUDGEMENT_LABEL
+from service.model import JUDGEMENT_LABEL, ClusterSnapshot
 
 STALE_INVESTIGATION_MINUTES = 10  # worker.STALE_CLAIM과 같다. 이보다 오래 running이면 멈춘 조사
 TRIGGER_LABEL = {
@@ -212,6 +212,7 @@ class _Loaded:
     inv_steps: list[AgentStep]
     queued: bool
     live: bool
+    snapshot: ClusterSnapshot | None = None
 
 
 def _load(engine: Engine, run_id: int, now: datetime) -> _Loaded | None:
@@ -249,7 +250,18 @@ def _load(engine: Engine, run_id: int, now: datetime) -> _Loaded | None:
         )
     live = state == "running" or inv_state == "running" or queued
     return _Loaded(
-        run_id, started_at, trigger, result, state, links, inv, inv_state, steps, queued, live
+        run_id,
+        started_at,
+        trigger,
+        result,
+        state,
+        links,
+        inv,
+        inv_state,
+        steps,
+        queued,
+        live,
+        CheckRunStore(engine).get_snapshot(run_id),
     )
 
 
@@ -512,7 +524,12 @@ def _judge(result: CheckResult) -> tuple[list[Item], str | None, str | None]:
                     evidence=ev,
                     values=[
                         (str(k), str(v)) for k, v in redact_mapping(it.get("values") or {}).items()
-                    ],
+                    ]
+                    + (
+                        [("입력 정보", "; ".join(f"{k} ({f})" for k, f in spec.inputs))]
+                        if spec
+                        else []
+                    ),
                 )
             )
     features_passed: list[str] = []
@@ -592,7 +609,12 @@ def _gate(d: _Loaded) -> GateLine | None:
 
 # ── 점검 과정 ───────────────────────────────────────────────────
 
-_PHASE_TITLE = {"rules": "점검 규칙 점검", "symptoms": "기능 점검", "gate": "조사 판단"}
+_PHASE_TITLE = {
+    "collect": "정보 수집",
+    "rules": "점검 규칙 점검",
+    "symptoms": "기능 점검",
+    "gate": "조사 판단",
+}
 
 
 def _phase_time(p: Phase) -> str:
@@ -617,10 +639,28 @@ def _check_steps(d: _Loaded) -> list[StepView]:
 
 def _phase_view(d: _Loaded, result: CheckResult, p: Phase, title: str) -> StepView:
     time = _phase_time(p)
+    if p.name == "collect":
+        snapshot = d.snapshot
+        lines = []
+        if snapshot is None:
+            lines.append("저장된 스냅샷 없음")
+        else:
+            for kind in sorted(set(snapshot.resources) | set(snapshot.failed)):
+                if kind in snapshot.failed:
+                    lines.append(f"{kind}: 수집 실패 — {snapshot.failed[kind]}")
+                else:
+                    lines.append(f"{kind}: {len(snapshot.resources[kind])}개 · 수집 성공")
+            if snapshot.items("Pod") == []:
+                lines.append("주의: Pod가 0개입니다. 대상 네임스페이스와 수집 권한을 확인하세요.")
+        lines.append("건수는 저장된 스냅샷 기준이며 내용의 정확성을 검증한 결과가 아닙니다.")
+        return StepView(title, p.summary, time, lines=lines)
     if p.name == "rules":
         lines, mono = [], []
         for rule in result.verdicts:
             rid = rule.get("rule_id", "")
+            spec = CATALOG.get(rid)
+            if spec:
+                lines.append(f"{rid} 입력: " + "; ".join(f"{k} ({f})" for k, f in spec.inputs))
             items = rule.get("items", [])
             if not items:
                 mono.append(rid)

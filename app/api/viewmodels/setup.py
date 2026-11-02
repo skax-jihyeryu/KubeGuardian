@@ -155,6 +155,7 @@ class RuleDefinition:
     predicate: str
     source: str
     source_url: str | None
+    inputs: tuple[tuple[str, str], ...]
 
 
 def rule_groups(engine: Engine, view: str):
@@ -178,6 +179,7 @@ def rule_groups(engine: Engine, view: str):
             stage_of[rid],
             kind_of[rid],
             *RULE_DETAILS.get(rid, ("준비 중", "아직 구현되지 않은 규칙", None)),
+            spec.inputs if spec else (),
         )
     groups = [
         (name, [definitions[r] for r in ids]) for name, ids in (KINDS if view == "kind" else STAGES)

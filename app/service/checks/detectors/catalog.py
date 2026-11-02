@@ -24,6 +24,11 @@ class RuleSpec:
     runbooks: tuple[str, ...]  # 관련 조사 지침
 
     @property
+    def inputs(self) -> tuple[tuple[str, str], ...]:
+        """판정과 대상 묶음에 사용하는 Kind·주요 필드 (외부 설정·이전 스냅샷 제외)."""
+        return _INPUTS[self.id]
+
+    @property
     def grade(self) -> Grade:
         return "advice" if self.id.startswith("H") else "signal"
 
@@ -114,3 +119,87 @@ _RULES = [
 ]
 
 CATALOG: dict[str, RuleSpec] = {rule.id: rule for rule in _RULES}
+
+
+_INPUTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "N01": (("Node", "status.conditions (Ready)"),),
+    "P03": (
+        ("Pod", "status.containerStatuses, status.initContainerStatuses, metadata.ownerReferences"),
+        ("ReplicaSet", "metadata.ownerReferences"),
+        ("Service", "spec.selector"),
+    ),
+    "P06": (
+        (
+            "Pod",
+            "status.containerStatuses (restartCount), status.initContainerStatuses, "
+            "metadata.uid, metadata.ownerReferences",
+        ),
+        ("ReplicaSet", "metadata.ownerReferences"),
+        ("Service", "spec.selector"),
+    ),
+    "P07": (
+        (
+            "Pod",
+            "status.containerStatuses (state, lastState), status.initContainerStatuses, "
+            "metadata.ownerReferences",
+        ),
+        ("ReplicaSet", "metadata.ownerReferences"),
+        ("Service", "spec.selector"),
+    ),
+    "W01": (
+        ("Deployment", "spec.replicas, status.availableReplicas, metadata.name"),
+        ("Service", "spec.selector"),
+    ),
+    "W02": (
+        ("Deployment", "spec, status.conditions, status.observedGeneration, metadata.generation"),
+        ("ReplicaSet", "metadata.ownerReferences, metadata.annotations, spec.replicas, status"),
+        ("Service", "spec.selector"),
+    ),
+    "S01": (("Service", "spec.selector, spec.type, spec.externalName"), ("Pod", "metadata.labels")),
+    "S02": (
+        ("Service", "metadata.name, spec.selector, spec.type"),
+        ("EndpointSlice", "metadata.labels, endpoints.conditions, endpoints.targetRef"),
+        ("Pod", "metadata.labels, metadata.ownerReferences, status.conditions"),
+        ("ReplicaSet", "metadata.ownerReferences"),
+    ),
+    "S03": (
+        ("Service", "spec.selector, spec.ports, spec.type"),
+        ("Pod", "metadata.labels, spec.containers.ports"),
+    ),
+    "S04": (
+        ("Service", "metadata.name, spec.selector, spec.ports"),
+        (
+            "Deployment",
+            "spec.template.spec.containers.env, spec.template.spec.containers.envFrom, "
+            "spec.template.metadata.labels",
+        ),
+        ("ConfigMap", "data"),
+        ("Secret", "keys"),
+    ),
+    "C01": (
+        ("Pod", "spec.containers, spec.initContainers, spec.volumes"),
+        ("ConfigMap", "metadata.name, data, binaryDataKeys"),
+        ("Secret", "metadata.name, keys"),
+        ("ReplicaSet", "metadata.ownerReferences"),
+        ("Service", "spec.selector"),
+    ),
+    "C05": (
+        ("Deployment", "spec.template.spec.containers.env, spec.template.spec.containers.envFrom"),
+        ("ConfigMap", "metadata.name, data"),
+        ("Secret", "metadata.name, keys"),
+        ("Service", "spec.selector"),
+    ),
+    "H01": (
+        ("Pod", "spec.containers.readinessProbe"),
+        ("Service", "spec.selector"),
+        ("ReplicaSet", "metadata.ownerReferences"),
+    ),
+    "H02": (
+        (
+            "Pod",
+            "spec.containers.resources, spec.initContainers.resources, metadata.ownerReferences",
+        ),
+        ("ReplicaSet", "metadata.ownerReferences"),
+        ("Service", "spec.selector"),
+    ),
+}

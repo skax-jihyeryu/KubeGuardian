@@ -533,3 +533,57 @@ def test_time_limit_has_no_extension_without_a_recheck(client, engine):
     no_recheck = step("stop_check", 20, detail={"gaps": [], "recheck": False})
 
     assert _meta_limit(client, engine, [step("plan", 12), no_recheck]) == "150"
+
+
+def test_collection_uses_saved_counts_and_failure_reasons(client, engine):
+    from core.db import CheckRunStore
+    from service.model import ClusterSnapshot
+
+    run = make_run(engine)
+    CheckRunStore(engine).save_snapshot(
+        run,
+        ClusterSnapshot(
+            namespace="dev",
+            collected_at=at(0),
+            resources={"Pod": [], "Service": [{"metadata": {"name": "x"}}]},
+            failed={"ConfigMap": "Forbidden"},
+        ),
+    )
+    finish_check(engine, run, path="C")
+    CheckResultStore(engine).phase(run, "collect", at(0), at(1), "수집 완료")
+    html = detail(client, run).text
+    assert "정보 수집" in html
+    assert "Pod: 0개" in html
+    assert "Service: 1개" in html
+    assert "ConfigMap: 수집 실패 — Forbidden" in html
+    assert "Pod가 0개" in html
+    assert "내용의 정확성" in html
+
+
+def test_old_run_without_collect_has_no_fabricated_collection_step(client, engine):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    assert "정보 수집" not in detail(client, run).text
+
+
+def test_rule_result_rows_show_input_fields(client, engine):
+    from service.checks.detectors.catalog import CATALOG
+
+    run = make_run(engine)
+    finish_check(
+        engine,
+        run,
+        path="A",
+        signals=[
+            Signal(
+                rule_id="S01",
+                verdict="unknown",
+                subject="dev",
+                message="missing",
+            )
+        ],
+    )
+    html = detail(client, run).text
+    assert "입력 정보" in html
+    for kind, fields in CATALOG["S01"].inputs:
+        assert f"{kind} ({fields})" in html

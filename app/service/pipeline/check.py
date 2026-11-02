@@ -245,6 +245,10 @@ def _run_locked(
         lock.locks.attach_run(lock.token, run_id)
         snapshot = collect(reader, now=now)
         runs.save_snapshot(run_id, snapshot)
+        rec.phase(
+            "collect",
+            lambda: f"수집 성공 {len(snapshot.resources)}종 · 실패 {len(snapshot.failed)}종",
+        )
         lock.renew()
         ctx = DetectorContext(
             snapshot=snapshot,
