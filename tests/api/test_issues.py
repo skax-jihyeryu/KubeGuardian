@@ -278,3 +278,44 @@ def test_old_report_lives_in_timeline_entry(client, engine):
     old = client.get(f"/dev/issues/{inc}?report={first}").text
     assert f"<summary>R-{second:04d} 보고서</summary>" in old
     assert f"<summary>R-{first:04d} 보고서</summary>" not in old
+
+
+def test_empty_hypotheses_and_issues_show_no_record(client, engine):
+    inc = _done_issue(engine)
+    text = client.get(f"/dev/issues/{inc}").text
+    section = text.split("4. 가설 판정")[1].split("5. 확인한 범위")[0]
+    assert "기록 없음" in section
+    run = make_run(engine)
+    inc2 = open_incident(engine, run)
+    inv = start_investigation(engine, run, inc2, [])
+    finish_investigation(engine, inv, report().model_copy(update={"issues": []}))
+    text = client.get(f"/dev/issues/{inc2}").text
+    section = text.split("2. 문제")[1].split("3. 사전 확인")[0]
+    assert "기록 없음" in section
+    assert "<table" not in section
+
+
+def test_old_report_timeline_escapes_and_has_single_fold(client, engine):
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    first = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, first, report(conclusion="<b>옛</b> 결론"))
+    second = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, second, report())
+    text = client.get(f"/dev/issues/{inc}").text
+    assert "&lt;b&gt;옛&lt;/b&gt; 결론" in text
+    assert "<b>옛</b>" not in text
+    assert f"보고서 R-{first:04d}" not in text
+    assert text.count(f"R-{first:04d} 보고서") == 1
+
+
+def test_failed_old_investigation_has_no_fold(client, engine):
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    first = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, first, None, status="failed")
+    second = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, second, report())
+    text = client.get(f"/dev/issues/{inc}").text
+    assert "조사 실패" in text
+    assert f"R-{first:04d} 보고서" not in text

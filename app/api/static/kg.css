@@ -160,7 +160,6 @@ ol.act li::before{content:counter(a) ".";font:500 14px/24px var(--mono);color:va
 .code{background:var(--surface-2);border-radius:6px;padding:10px 12px;font:400 13.5px/20px var(--mono);white-space:pre-wrap;word-break:break-all;display:flex;gap:12px;align-items:flex-start;justify-content:space-between}
 .code .cp{flex:none}
 .verify{margin-top:12px;font-size:14px;line-height:22px;color:var(--ink)}
-.verify b{color:var(--muted);font-weight:600;margin-right:6px}
 ul.facts{display:flex;flex-direction:column;gap:6px;padding-left:4px}
 ul.facts li{display:flex;gap:10px;font-size:15px;line-height:24px}
 ul.facts li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--ink);margin-top:10px;flex:none}

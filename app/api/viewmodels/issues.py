@@ -156,7 +156,7 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
                 "조사 완료"
                 if inv.report
                 else {"running": "조사 중", "failed": "조사 실패"}.get(inv.status, "조사 미완"),
-                f"보고서 R-{inv.id:04d}" if inv.report else "",
+                f"보고서 R-{inv.id:04d}" if inv.report and inv is selected else "",
                 inv.check_run_id,
                 report=inv if inv.report and inv is not selected else None,
             )
