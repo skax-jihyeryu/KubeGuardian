@@ -579,7 +579,7 @@ diagnostic-agent의 FastAPI가 **서버 렌더링 HTML**(Jinja2 템플릿 + HTMX
 | 열기·배치 | GNB 오른쪽 버튼으로 열고 닫는다. 열리면 상세 패널 위에 겹치는 오른쪽 패널(약 400px)이고, 닫기 전까지 화면을 옮겨도 유지된다. 960px 이하에서는 전체 폭. 레일 메뉴에는 넣지 않는다 |
 | 맥락 | 질문할 때 보던 맥락(프로젝트, 이력 필터, 선택한 점검·이슈)을 함께 넘기고, 패널 위쪽에 칩(`이슈 #12 ✕`)으로 보인다. ✕로 전체 이력으로 넓힌다 |
 | 데이터 | SQLite의 점검·이슈·보고서·근거·알림·조사 단계. 클러스터 조회 도구는 쓰지 않는다 |
-| 새 조사가 필요한 질문 | "지금 상태가 어떤가" 같은 질문에는 답하지 않고 "`kg investigate`(CLI)로 요청하세요"(또는 GNB의 `지금 점검`)라고 안내한다 |
+| 새 조사가 필요한 질문 | "지금 상태가 어떤가"에는 단정하지 않고 `지금 점검` 안내와 마지막 점검 링크를 붙인다. 증상을 적어 조사를 요청하면 CLI `kg investigate 증상`을 안내한다 |
 | 인용 | 답변은 `[근거 N]`·이슈·보고서 ID를 인용한다. 기존 근거 검증기를 재사용하고, 근거가 없는 문장은 끝에 _(추정)_ |
 | 링크 | 답의 점검·이슈·근거 링크를 누르면 아래 화면이 그 대상으로 이동한다. `[근거 N]`은 패널 안에서 원문이 펼쳐진다 (근거 서랍과 겹치지 않게) |
 | 마스킹 | 입력을 마스킹한 뒤 LLM에 보내고, 출력에도 마스킹을 적용한다. 질문은 500자 이내. 대화는 마스킹해서 SQLite에 저장한다 |
@@ -590,10 +590,10 @@ diagnostic-agent의 FastAPI가 **서버 렌더링 HTML**(Jinja2 템플릿 + HTMX
 | 도구 | 설명 |
 |---|---|
 | `list_runs(since?, filter?)` | 점검 목록 (결과·실행 방식) |
-| `get_snapshot(run_id, kind?, name?)` | 점검 시점의 스냅샷 (kind별 개수, kind를 주면 객체) |
-| `get_evidence(evidence_id)` | 근거 원문 (마스킹된 값) |
-| `list_issues(since?, status?)` | 이슈 목록 (심각도·상태·지속 시간) |
-| `list_alerts(since?, issue_id?)` | 알림 이력 (보냄·dry-run 포함) |
+| `get_snapshot(run_id, kind?, name?)` | 점검 시점의 스냅샷 (kind별 개수, kind를 주면 객체와 `total`(전체 개수)) |
+| `get_evidence(evidence_id? \| run_id?)` | `evidence_id`면 근거 원문 (마스킹된 값), `run_id`면 그 점검의 근거 목록 (번호·종류·대상). 둘 중 하나만 준다 |
+| `list_issues(since?, status?, keyword?)` | 이슈 목록 (심각도·상태·지속 시간). `as_of_run`으로 조회 기준 점검을 함께 준다 |
+| `list_alerts(since?, issue_id?)` | 알림 이력 (보냄·dry-run 포함). `as_of_run`을 함께 준다 |
 | `read_knowledge(name?)` | 환경 문서와 런북 (name이 없으면 문서 이름 목록) |
 | `search_reports(query?, since?, severity?, service?)` | (#100에서 추가) 보고서 검색 (제목·결론·원인 서비스) |
 | `get_report(report_id)` | (#100에서 추가) 보고서 하나 (문제·근거 번호 포함) |

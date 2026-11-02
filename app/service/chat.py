@@ -29,7 +29,7 @@ CURRENT_STATE_GUIDE = (
     "저장된 이력만으로는 지금 상태를 알 수 없습니다. "
     "상단의 지금 점검을 누르면 점검 상세에서 진행 과정과 결과를 볼 수 있습니다."
 )
-INVESTIGATE_GUIDE = "증상을 적어 조사를 요청하려면 Slack에서 /kg investigate를 쓰세요."
+INVESTIGATE_GUIDE = '증상을 적어 조사를 요청하려면 CLI에서 kg investigate "증상"을 쓰세요.'
 PARTIAL_GUIDE = "도구 호출 상한에 닿아 일부 이력만 확인했습니다."
 
 

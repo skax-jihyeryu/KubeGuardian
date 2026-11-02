@@ -98,6 +98,12 @@ def test_investigate_guide_appended(engine):
     assert reply.answer.sentences[-1].text == INVESTIGATE_GUIDE
 
 
+def test_investigate_guide_points_to_cli_only():
+    assert "kg investigate" in INVESTIGATE_GUIDE
+    assert "Slack" not in INVESTIGATE_GUIDE
+    assert "/kg" not in INVESTIGATE_GUIDE
+
+
 def test_partial_guide_appended(engine):
     calls = [
         AIMessage(content="", tool_calls=[{"name": "list_runs", "args": {}, "id": f"c{i}"}])
