@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -27,7 +28,51 @@ def ev(kind, data):
         ("log_excerpt", {"lines": []}, True),
         ("event", {"count": 0}, True),
         ("probe_result", {"ok": 1}, True),
-        ("app_api", {"scenario": "chat", "failed_step": None, "steps": []}, True),
+        (
+            "app_api",
+            {
+                "scenario": "chat",
+                "failed_step": None,
+                "steps": [
+                    {
+                        "step": 1,
+                        "action": "GET",
+                        "path": "/",
+                        "status": 200,
+                        "latency_ms": 5,
+                        "ok": True,
+                    }
+                ],
+            },
+            False,
+        ),
+        (
+            "app_api",
+            {
+                "scenario": "chat",
+                "failed_step": 2,
+                "steps": [
+                    {
+                        "step": 1,
+                        "action": "GET",
+                        "path": "/",
+                        "status": 200,
+                        "latency_ms": 5,
+                        "ok": True,
+                    },
+                    {
+                        "step": 2,
+                        "action": "POST",
+                        "path": "/c",
+                        "status": 502,
+                        "latency_ms": 9,
+                        "ok": False,
+                    },
+                ],
+            },
+            True,
+        ),
+        ("app_api", {"scenario": "chat"}, False),
         ("app_api", {"status": 502, "latency_ms": 20}, True),
         ("app_api", {"status": None, "error": "timeout"}, True),
         ("app_api", {"status": 200, "latency_ms": 20}, False),
@@ -87,8 +132,8 @@ def test_next_targets_newest_first_and_skips_nontargets(engine):
 
 
 class FakeLlm:
-    def __init__(self, text="요약입니다.", error=None):
-        self.text, self.error, self.calls = text, error, 0
+    def __init__(self, text="요약입니다.", error=None, usage=None):
+        self.text, self.error, self.usage, self.calls = text, error, usage, 0
 
     def __call__(self, name):
         return self
@@ -97,7 +142,7 @@ class FakeLlm:
         self.calls += 1
         if self.error:
             raise self.error
-        return SimpleNamespace(content=self.text)
+        return SimpleNamespace(content=self.text, usage_metadata=self.usage)
 
 
 def run_once(engine, llm):
@@ -111,12 +156,12 @@ def test_run_once_summarizes_one_target_and_never_calls_twice(engine):
     second = add_evidence(engine, None, kind="resource", data={})
     llm = FakeLlm()
 
-    assert run_once(engine, llm) == 1
+    assert run_once(engine, llm) == "done"
     assert llm.calls == 1
     store = EvidenceSummaryStore(engine)
     assert store.get(second, NOW).status == "done"  # 최신순
     assert store.get(first, NOW) is None
-    assert run_once(engine, llm) == 1 and run_once(engine, llm) == 0
+    assert run_once(engine, llm) == "done" and run_once(engine, llm) is None
     assert llm.calls == 2
 
 
@@ -124,9 +169,9 @@ def test_failed_summary_is_not_retried(engine):
     ev_id = add_evidence(engine, None, kind="resource", data={})
     llm = FakeLlm(error=RuntimeError("down"))
 
-    assert run_once(engine, llm) == 1
+    assert run_once(engine, llm) == "failed"
     assert EvidenceSummaryStore(engine).get(ev_id, NOW).status == "failed"
-    assert run_once(engine, llm) == 0
+    assert run_once(engine, llm) is None
     assert llm.calls == 1
 
 
@@ -135,7 +180,7 @@ def test_expired_pending_is_not_called_again(engine):
     EvidenceSummaryStore(engine).claim(ev_id, "m", at(0))  # 90초 TTL이 지난 pending
     llm = FakeLlm()
 
-    assert run_once(engine, llm) == 0
+    assert run_once(engine, llm) is None
     assert llm.calls == 0
 
 
@@ -144,7 +189,7 @@ def test_run_once_skips_target_claimed_by_another_process(engine):
     EvidenceSummaryStore(engine).claim(ev_id, "m", NOW)
     llm = FakeLlm()
 
-    assert run_once(engine, llm) == 0
+    assert run_once(engine, llm) is None
     assert llm.calls == 0
 
 
@@ -162,7 +207,7 @@ def test_exception_on_one_target_does_not_block_the_next(engine, monkeypatch, ca
 
     monkeypatch.setattr(worker, "summarize_evidence", flaky)
 
-    assert run_once(engine, FakeLlm()) == 1
+    assert run_once(engine, FakeLlm()) == "done"
     assert EvidenceSummaryStore(engine).get(good, NOW).status == "done"
     err = capsys.readouterr()
     assert "OSError" in err.err + err.out and "hunter2" not in err.err + err.out
@@ -184,3 +229,83 @@ def test_summary_thread_is_daemon_and_generates(engine):
             break
         time.sleep(0.01)
     assert summary and summary.status == "done"
+
+
+def test_log_has_status_and_tokens_but_no_content(engine, capsys):
+    add_evidence(engine, None, kind="resource", data={"password": "hunter2"})
+    llm = FakeLlm(text="본문 secret-text", usage={"input_tokens": 120, "output_tokens": 30})
+    run_once(engine, llm)
+    err = capsys.readouterr().err
+    assert re.search(r"근거 요약: ev-0001 done \d+\.\d초 입력 120 출력 30", err)
+    assert "secret-text" not in err and "hunter2" not in err
+
+
+def test_log_marks_failure_and_missing_tokens(engine, capsys):
+    add_evidence(engine, None, kind="resource", data={})
+    run_once(engine, FakeLlm(error=RuntimeError("x")))
+    assert re.search(r"ev-0001 failed \d+\.\d초 입력 - 출력 -", capsys.readouterr().err)
+
+
+def test_next_targets_skips_malformed_row_and_logs_type(engine, capsys):
+    from sqlalchemy.orm import Session
+
+    from core.db.tables import EvidenceRow
+    from service.evidence_summary_worker import next_targets
+
+    good = add_evidence(engine, None, kind="resource", data={})
+    with Session(engine) as s, s.begin():
+        s.add(
+            EvidenceRow(kind="resource", subject="x", collected_at=at(30), source="s", data=["bad"])
+        )
+    assert next_targets(engine, NOW) == [good]
+    assert "ValidationError" in capsys.readouterr().err
+
+
+class Stop(Exception):
+    pass
+
+
+def loop(engine, llm, stop_after):
+    from service.evidence_summary_worker import summary_loop
+
+    delays = []
+
+    def sleep(seconds):
+        delays.append(seconds)
+        if len(delays) >= stop_after:
+            raise Stop
+
+    with pytest.raises(Stop):
+        summary_loop(engine, model="m", llm_factory=llm, clock=lambda: NOW, poll_s=5, sleep=sleep)
+    return delays
+
+
+def test_failures_back_off_exponentially_to_cap(engine):
+    for _ in range(200):
+        add_evidence(engine, None, kind="resource", data={})
+    llm = FakeLlm(error=RuntimeError("down"))
+
+    delays = loop(engine, llm, 8)
+
+    assert delays == [60, 120, 240, 480, 900, 900, 900, 900]
+    assert llm.calls == 8  # 대기 없이 소진되지 않는다
+
+
+def test_success_waits_one_second_and_resets_backoff(engine):
+    for _ in range(4):
+        add_evidence(engine, None, kind="resource", data={})
+    outcomes = iter([RuntimeError("down"), RuntimeError("down"), None, RuntimeError("down")])
+
+    class Flaky(FakeLlm):
+        def invoke(self, messages):
+            err = next(outcomes)
+            self.error = err
+            return super().invoke(messages)
+
+    delays = loop(engine, Flaky(), 4)
+
+    assert delays == [60, 120, 1, 60]
+
+
+def test_idle_loop_polls(engine):
+    assert loop(engine, FakeLlm(), 2) == [5, 5]
