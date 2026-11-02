@@ -15,7 +15,7 @@
 run_check가 점검 잠금 안에서 부른다.
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
@@ -67,6 +67,8 @@ def track(
         matched = (
             overlapping[-1] if overlapping else None
         )  # 겹치는 것이 여럿이면 가장 최근을 따른다
+        if matched is not None and excluded_rules:
+            fp = _with_excluded(fp, matched, excluded_rules)
         change = _follow(store, matched, fp, gate, trigger, run_id, now)
         if change:
             changes.append(change)
@@ -81,6 +83,21 @@ def track(
             store.resolve(incident.id, run_id, now)
             changes.append(IncidentChange(incident.id, "resolved", incident.first_severity))
     return changes
+
+
+def _with_excluded(fp: Fingerprint, matched: Incident, excluded_rules: frozenset[str]) -> Fingerprint:
+    """끈 규칙의 대상·서비스를 지문에 되돌린다. 끈 규칙은 이번 점검이 확인하지 않은 것이라
+    그 때문에 생긴 차이는 상황 변화가 아니다 (재조사·대상 덮어쓰기·잘못된 해결을 막는다).
+    서비스는 규칙별로 기록하지 않아 이슈의 서비스를 모두 되돌린다."""
+    kept = tuple(t for t in matched.targets if t[0] in excluded_rules)
+    if not kept:
+        return fp
+    return replace(
+        fp,
+        rule_ids=tuple(sorted({*fp.rule_ids, *(rule for rule, _ in kept)})),
+        services=tuple(sorted({*fp.services, *matched.services})),
+        targets=tuple(sorted({*fp.targets, *kept})),
+    )
 
 
 def _follow(
