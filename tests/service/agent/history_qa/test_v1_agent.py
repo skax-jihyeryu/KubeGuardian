@@ -131,6 +131,8 @@ def test_bind_tools_schemas(engine):
         "list_issues",
         "list_alerts",
         "read_knowledge",
+        "search_reports",
+        "get_report",
     }
     props = tools["list_runs"].args
     assert "limit" in props and "namespace" not in props

@@ -214,3 +214,16 @@ def test_seen_but_missing_in_db_removed(engine):
     with patch("service.chat.IncidentStore.get", return_value=None):
         reply = answer_question("q", engine=engine, config=CONFIG, llm_factory=lambda _m: llm)
     assert reply.answer.sentences[0].issue_ids == []
+
+
+def test_stored_turn_context_is_masked_and_bounded(engine):
+    context = "이슈 #1 · 필터: q=password=hidden " + "가" * 3000
+    _ask(engine, ["끝", _answer()], conversation_id="context-test", context=context)
+    with Session(engine) as session:
+        rows = list(session.scalars(select(ChatMessageRow).order_by(ChatMessageRow.id)))
+    assert len(rows) == 2
+    assert all("hidden" not in row.answer["_context"] for row in rows)
+    assert all(len(row.answer["_context"]) <= 2000 for row in rows)
+    assert rows[0].answer["_context"] == rows[1].answer["_context"]
+    assert "sentences" not in rows[0].answer
+    assert "sentences" in rows[1].answer

@@ -36,6 +36,53 @@
   });
 })();
 
+/* 질문 패널은 페이지 이동 뒤에도 열린 상태를 유지한다. */
+(function () {
+  function openChat() {
+    var btn = document.querySelector('[data-chat-toggle]');
+    if (!btn) return;
+    var path = location.pathname.match(/\/(issues|checks)\/(\d+)$/);
+    var url = btn.dataset.chatUrl;
+    var params = new URLSearchParams();
+    if (path) params.set(path[1] === 'issues' ? 'issue' : 'run', path[2]);
+    if (location.search) params.set('filters', location.search.slice(1));
+    url += '?' + params.toString();
+    htmx.ajax('GET', url, {target: '#chat-root', swap: 'innerHTML'});
+    btn.setAttribute('aria-expanded', 'true');
+    sessionStorage.setItem('kg-chat-open', '1');
+  }
+  function closeChat() {
+    document.getElementById('chat-root').replaceChildren();
+    var btn = document.querySelector('[data-chat-toggle]');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    sessionStorage.removeItem('kg-chat-open');
+  }
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-chat-close]')) closeChat();
+    if (e.target.closest('[data-chat-toggle]')) {
+      if (document.getElementById('chat-panel')) closeChat(); else openChat();
+    }
+    var example = e.target.closest('[data-question]');
+    if (example) {
+      var input = document.querySelector('#chat-panel textarea');
+      input.value = example.dataset.question;
+      input.focus();
+      input.form.requestSubmit();
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && document.getElementById('chat-panel')) closeChat();
+  });
+  document.body.addEventListener('htmx:afterRequest', function (e) {
+    if (e.detail.successful && e.target.matches('#chat-panel form')) {
+      e.target.querySelector('textarea').value = '';
+      var messages = document.getElementById('chat-messages');
+      if (messages) messages.scrollTop = messages.scrollHeight;
+    }
+  });
+  if (sessionStorage.getItem('kg-chat-open')) openChat();
+})();
+
 /* 점검 완료 뒤 GNB 갱신과 대기 시간 해제를 함께 처리한다. */
 (function () {
   function cooldown() {

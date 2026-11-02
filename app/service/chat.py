@@ -46,6 +46,11 @@ def _guide(text: str, **ids) -> AnswerSentence:
     return AnswerSentence(text=text, kind="guide", **ids)
 
 
+def chat_context(value: str) -> str:
+    """화면 맥락은 마스킹하고 저장·표시 크기를 제한한다."""
+    return redact_text(value)[:2000] or "전체 이력"
+
+
 def answer_question(
     question: str,
     *,
@@ -54,6 +59,7 @@ def answer_question(
     llm_factory: LlmFactory,
     conversation_id: str | None = None,
     project: str | None = None,
+    context: str = "전체 이력",
     knowledge_dir: Path = KNOWLEDGE_DIR,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> ChatReply:
@@ -65,6 +71,7 @@ def answer_question(
     chat = ChatStore(engine)
     history = chat.recent(conversation_id, HISTORY_TURNS)
     masked = redact_text(question)
+    context = chat_context(context)
 
     ctx = RunContext(
         run_id=conversation_id,
@@ -74,7 +81,12 @@ def answer_question(
         now=now,
     )
     agent = HistoryQaV1(llm_factory, build_history_tools(engine, knowledge_dir), ctx)
-    result = agent.run(ChatRequest(question=masked, history=history))
+    result = agent.run(
+        ChatRequest(
+            question=f"[화면 맥락: {context}]\n{masked}" if context != "전체 이력" else masked,
+            history=history,
+        )
+    )
     if result.status == "failed":
         raise ServiceException(ErrorCode.LLM_CALL_FAILED, result.error)
 
@@ -110,8 +122,14 @@ def answer_question(
 
     answer = answer.model_copy(update={"sentences": sentences})
     text = format_answer(answer)
-    chat.add(conversation_id, "user", masked, now())
-    chat.add(conversation_id, "assistant", text, now(), answer.model_dump())
+    chat.add(conversation_id, "user", masked, now(), {"_context": context})
+    chat.add(
+        conversation_id,
+        "assistant",
+        text,
+        now(),
+        {**answer.model_dump(), "_context": context},
+    )
     return ChatReply(conversation_id=conversation_id, answer=answer, text=text)
 
 

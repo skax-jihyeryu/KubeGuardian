@@ -26,7 +26,18 @@ details.stp>.sbody{padding-left:22px}
   .drawer{width:100%;border-radius:0}
   .paper{padding:16px}
 }
-
+.chat{position:fixed;top:96px;max-width:100%;height:calc(100dvh - 96px)}
+.chat .cb{overflow-y:auto}
+.chat textarea{width:100%;resize:vertical;border:0;background:transparent;color:var(--ink);font:inherit}
+.chat .raw2{white-space:pre-wrap}
+.chat .q,.chat .a{white-space:pre-wrap;overflow-wrap:anywhere}
+.chat details{display:inline-block}
+.chat details[open]{display:block}
+button{cursor:pointer}
+button:disabled{cursor:default}
+.htmx-indicator{display:none}
+.htmx-request.htmx-indicator,.htmx-request .htmx-indicator{display:inline}
+@media(max-width:960px){.chat{width:100%}}
 @media(max-width:960px){
   .list.with-detail{display:none}
   .body>.detail.empty{display:none}

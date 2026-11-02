@@ -50,9 +50,21 @@ class Seen:
             case "list_issues":
                 self._add_as_of(result)
                 self.issues.update(i["id"] for i in result.get("issues", []))
+            case "search_reports":
+                self._add_as_of(result)
+                for report in result.get("reports", []):
+                    self._report_ids(report)
+            case "get_report":
+                self._report_ids(result)
             case "list_alerts":
                 self._add_as_of(result)
                 self.issues.update(a["issue_id"] for a in result.get("alerts", []))
+
+    def _report_ids(self, result: dict) -> None:
+        self.runs.add(result["run_id"])
+        if result.get("issue_id") is not None:
+            self.issues.add(result["issue_id"])
+        self.evidence.update(result.get("evidence_ids", []))
 
     def _add_as_of(self, result: dict) -> None:
         if result.get("as_of_run") is not None:

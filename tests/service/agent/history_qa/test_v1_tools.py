@@ -232,6 +232,8 @@ def test_tools_never_write(tools, engine):
         "list_issues": {},
         "list_alerts": {},
         "read_knowledge": {},
+        "search_reports": {},
+        "get_report": {"report_id": 1},
     }
     assert set(calls) == set(tools)
     budget = _budget()

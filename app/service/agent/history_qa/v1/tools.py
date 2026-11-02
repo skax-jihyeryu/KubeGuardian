@@ -1,18 +1,21 @@
-"""history_qa 읽기 전용 도구 6개. 저장된 이력만 읽고 DB·클러스터에 아무것도 쓰지 않는다.
+"""history_qa 읽기 전용 이력·보고서 도구. 저장된 이력만 읽고 DB·클러스터에 아무것도 쓰지 않는다.
 
 `service/tools/base.Tool`은 호출마다 evidence를 저장하므로 쓰지 않는다. 호출 상한은 `run`이 센다.
 """
 
 import json
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, model_validator
-from sqlalchemy import Engine
+from sqlalchemy import Engine, String, cast, exists, func, select
+from sqlalchemy.orm import Session
 
 from core.db import AlertStore, CheckRunStore, EvidenceStore, IncidentStore
+from core.db.tables import InvestigationRow
 from core.guard.budget import BudgetTracker
 from core.guard.redact import redact_mapping
 from service.notify.messages import DISPLAY_TZ
@@ -297,6 +300,169 @@ class ListAlerts(HistoryTool):
         }
 
 
+# SQLite 정수 범위 안의 양수만 받는다. bool·문자열을 번호로 조용히 바꾸지 않는다.
+ReportId = Annotated[int, Field(strict=True, ge=1, le=2**63 - 1)]
+
+
+def _report_data(engine: Engine, investigation) -> dict:
+    """다른 점검의 근거와 존재하지 않는 근거는 보고서 인용으로 전달하지 않는다."""
+    evidence = EvidenceStore(engine)
+    data = investigation.report.model_dump(mode="json")
+    allowed: dict[str, bool] = {}
+
+    def belongs(ev):
+        if not isinstance(ev, str) or not re.fullmatch(r"ev-[0-9]{1,19}", ev):
+            return False
+        if not 0 < int(ev[3:]) <= 2**63 - 1:
+            return False
+        if ev not in allowed:
+            allowed[ev] = evidence.check_run_of(ev) == investigation.check_run_id
+        return allowed[ev]
+
+    def clean(node):
+        if isinstance(node, dict):
+            return {
+                key: [ev for ev in value if belongs(ev)]
+                if key == "evidence_ids" and isinstance(value, list)
+                else clean(value)
+                for key, value in node.items()
+            }
+        if isinstance(node, list):
+            return [clean(value) for value in node]
+        return node
+
+    return redact_mapping(clean(data))
+
+
+def _report_evidence(data: dict) -> list[str]:
+    ids = set()
+
+    def collect(node):
+        if isinstance(node, dict):
+            ids.update(node.get("evidence_ids", []))
+            for value in node.values():
+                collect(value)
+        elif isinstance(node, list):
+            for value in node:
+                collect(value)
+
+    collect(data)
+    return sorted(ids)
+
+
+class SearchReports(HistoryTool):
+    name = "search_reports"
+    description = (
+        "저장된 AI 조사 보고서 검색(최신순). keyword는 보고서 내용 부분 일치, "
+        "issue_id·run_id·since·until로 범위를 좁힌다. id는 get_report에 줄 보고서 번호다."
+    )
+
+    class Input(_Window):
+        until: AwareDatetime | None = None
+        issue_id: ReportId | None = None
+        run_id: ReportId | None = None
+        keyword: str | None = Field(default=None, max_length=200)
+
+    def _query(self, inp: Any) -> dict:
+        stmt = select(InvestigationRow.id).where(
+            func.json_type(InvestigationRow.report) == "object"
+        )
+        if inp.since is not None:
+            stmt = stmt.where(InvestigationRow.started_at >= inp.since)
+        if inp.until is not None:
+            stmt = stmt.where(InvestigationRow.started_at <= inp.until)
+        if inp.issue_id is not None:
+            stmt = stmt.where(InvestigationRow.incident_id == inp.issue_id)
+        if inp.run_id is not None:
+            stmt = stmt.where(InvestigationRow.check_run_id == inp.run_id)
+        if inp.keyword:
+            # JSON 저장 시 한글이 \u 이스케이프로 들어가도 값 자체에서 검색한다.
+            text = func.json_tree(InvestigationRow.report).table_valued("type", "value")
+            stmt = stmt.where(
+                exists(
+                    select(1)
+                    .select_from(text)
+                    .where(
+                        text.c.type == "text",
+                        cast(text.c.value, String).contains(inp.keyword, autoescape=True),
+                    )
+                    .correlate(InvestigationRow)
+                )
+            )
+        with Session(self._engine) as session:
+            total = session.scalar(select(func.count()).select_from(stmt.subquery()))
+            ids = list(session.scalars(stmt.order_by(InvestigationRow.id.desc()).limit(inp.limit)))
+        from core.db.investigations import InvestigationStore
+
+        store = InvestigationStore(self._engine)
+        reports = []
+        for report_id in ids:
+            investigation = store.get(report_id)
+            if investigation is None:
+                continue
+            data = _report_data(self._engine, investigation) if investigation.report else {}
+            reports.append(
+                {
+                    "id": report_id,
+                    "run_id": investigation.check_run_id,
+                    "issue_id": investigation.incident_id,
+                    "status": investigation.status,
+                    "started_at": _at(investigation.started_at),
+                    "report_invalid": investigation.report_invalid,
+                    "conclusion": str(data.get("conclusion", ""))[:600],
+                    "judgement": data.get("judgement"),
+                    "evidence_ids": _report_evidence(data),
+                }
+            )
+        return {
+            "ok": True,
+            "as_of_run": _latest_run_id(self._engine),
+            "total": total,
+            "reports": reports,
+            "truncated": total > len(reports),
+        }
+
+
+class GetReport(HistoryTool):
+    name = "get_report"
+    description = (
+        "보고서 번호(report_id, search_reports의 id)의 저장된 보고서. "
+        "결론·문제·권장 조치·가설 판정·확인 범위·재검증·근거 번호를 읽는다. "
+        "선택 issue_id·run_id를 주면 그 이슈·점검 소속일 때만 반환한다."
+    )
+
+    class Input(_Input):
+        report_id: ReportId
+        issue_id: ReportId | None = None
+        run_id: ReportId | None = None
+
+    def _query(self, inp: Any) -> dict:
+        from core.db.investigations import InvestigationStore
+
+        investigation = InvestigationStore(self._engine).get(inp.report_id)
+        if (
+            investigation is None
+            or inp.issue_id is not None
+            and investigation.incident_id != inp.issue_id
+            or inp.run_id is not None
+            and investigation.check_run_id != inp.run_id
+        ):
+            return {"ok": False, "error": "NOT_FOUND"}
+        if investigation.report is None:
+            return {"ok": False, "error": "REPORT_UNAVAILABLE"}
+        data = _report_data(self._engine, investigation)
+        return {
+            "ok": True,
+            "id": investigation.id,
+            "run_id": investigation.check_run_id,
+            "issue_id": investigation.incident_id,
+            "status": investigation.status,
+            "started_at": _at(investigation.started_at),
+            "evidence_ids": _report_evidence(data),
+            "report": data,
+        }
+
+
 class ReadKnowledge(HistoryTool):
     name = "read_knowledge"
     description = "환경 문서와 런북. name을 주지 않으면 문서 이름 목록."
@@ -320,5 +486,14 @@ class ReadKnowledge(HistoryTool):
 
 
 def build_history_tools(engine: Engine, knowledge_dir: Path) -> list[HistoryTool]:
-    classes = (ListRuns, GetSnapshot, GetEvidence, ListIssues, ListAlerts, ReadKnowledge)
+    classes = (
+        ListRuns,
+        GetSnapshot,
+        GetEvidence,
+        ListIssues,
+        ListAlerts,
+        SearchReports,
+        GetReport,
+        ReadKnowledge,
+    )
     return [cls(engine, knowledge_dir) for cls in classes]
