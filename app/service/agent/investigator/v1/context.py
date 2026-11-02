@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from service.agent._common.tool_adapter import wrap_tool_output
 from service.agent.investigator.v1.state import InvestigationPlan
 from service.checks.detectors.catalog import CATALOG
 from service.model import SignalBoard, Symptom
@@ -42,7 +43,11 @@ def render_board(board: SignalBoard) -> str:
 
 
 def render_facts(facts: list[Fact]) -> str:
-    return "\n".join(f"- {f.statement} [{', '.join(f.evidence_ids)}]" for f in facts) or "(없음)"
+    """Fact 문장은 로그·이벤트 원문을 담을 수 있어 <tool_output>으로 감싼다 (태그 탈출 방지)."""
+    return (
+        "\n".join(f"- {wrap_tool_output(f.statement)} [{', '.join(f.evidence_ids)}]" for f in facts)
+        or "(없음)"
+    )
 
 
 _AREA_LABEL = {"run": "구동", "config": "설정", "wiring": "연결", "logs": "로그"}

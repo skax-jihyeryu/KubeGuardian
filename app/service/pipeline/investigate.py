@@ -199,6 +199,9 @@ def _run_agent(
         budget=BudgetTracker(agent_cls.spec.budget),
         k8s=k8s,
         http=http,
+        scenario_services={
+            s.name: config.core_paths.get(s.feature, []) for s in config.api_scenarios
+        },
         **({} if investigation_id is None else {"steps": store.steps_sink(investigation_id)}),
     )
     agent = agent_cls(llm_factory=llm_factory, tools=build_tools(config), ctx=ctx)
