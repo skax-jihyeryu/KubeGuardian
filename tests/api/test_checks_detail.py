@@ -511,3 +511,25 @@ def test_unknown_advice_is_shown_with_reason(client, engine):
     assert "Pod 수집 권한이 없어 readinessProbe를 확인하지 못했습니다" in page
     assert "확인하지 못함 1" in page
     assert "개선 권고 1건" not in page
+
+
+def _meta_limit(client, engine, steps) -> str:
+    run, _ = _chat_failed(engine)
+    inc = open_incident(engine, run)
+    start_investigation(engine, run, inc, steps)
+    text = client.get(f"/dev/checks/{run}/steps").text
+    import re
+
+    return re.search(r"\d+s/(\d+)s", text).group(1)
+
+
+def test_time_limit_includes_the_recheck_extension_when_a_recheck_started(client, engine):
+    recheck = step("stop_check", 20, detail={"gaps": ["x"], "recheck": True})
+
+    assert _meta_limit(client, engine, [step("plan", 12), recheck]) == "210"
+
+
+def test_time_limit_has_no_extension_without_a_recheck(client, engine):
+    no_recheck = step("stop_check", 20, detail={"gaps": [], "recheck": False})
+
+    assert _meta_limit(client, engine, [step("plan", 12), no_recheck]) == "150"
