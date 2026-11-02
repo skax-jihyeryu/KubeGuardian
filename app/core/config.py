@@ -182,12 +182,31 @@ class KubeGuardianConfig(_Strict):
     topology: TopologyConfig = TopologyConfig()
     api_scenarios: list[ApiScenario] = []
     app_apis: dict[str, list[str]] = {}  # query_app_api 허용 목록 (GET만)
+    app_api_auth: dict[str, LoginStep] = {}  # GET Service → 테스트 계정 로그인 단계
     # 수집에서 뺄 이벤트의 대상 API 그룹 (involvedObject.apiVersion의 그룹, 정확히 일치).
     # 평가용 장애 주입 도구의 흔적이 점검·조사 입력에 들어가지 않게 한다 (#82). 운영 기본값은 비움
     exclude_event_api_groups: list[str] = []
     web: WebConfig = WebConfig()
     slack: SlackConfig | None = None
     knowledge: KnowledgeConfig = KnowledgeConfig()
+
+    @model_validator(mode="after")
+    def _app_api_auth_is_consistent(self) -> "KubeGuardianConfig":
+        for service in self.app_api_auth:
+            if not self.app_apis.get(service):
+                raise ValueError(f"app_api_auth 대상의 app_apis 허용 경로가 없음: {service}")
+        for service, paths in self.app_apis.items():
+            login = self.app_api_auth.get(service)
+            variables = {
+                name
+                for path in paths
+                for name in re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", path)
+            }
+            if variables - (set(login.extract) if login else set()):
+                raise ValueError(
+                    f"app_apis 경로 변수는 app_api_auth extract에 있어야 함: {service}"
+                )
+        return self
 
     @model_validator(mode="after")
     def _scenarios_are_consistent(self) -> "KubeGuardianConfig":

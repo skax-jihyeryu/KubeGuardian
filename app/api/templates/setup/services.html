@@ -12,7 +12,7 @@
 <div class="sec"><h2>지키는 기능</h2><p>{{ definition.features|join(' · ') or '핵심 경로에 선언되지 않음' }}</p></div>
 <div class="sec"><h2>필수 설정</h2>{% for name in definition.required %}<div class="mono">{{ name }}</div>{% else %}<p class="muted">선언한 필수 설정이 없습니다.</p>{% endfor %}</div>
 <div class="sec"><h2>이 서비스를 보는 점검 규칙</h2><p>Service·Pod·Workload와 설정의 관계를 점검합니다. 실제 적용 대상은 점검 시점의 구성에 따라 결정됩니다.</p><a href="/{{ p }}/setup/rules?view=kind">점검 규칙 정의 보기</a></div>
-<div class="sec"><h2>조사 허용 API</h2>{% for path in definition.apis %}<div class="mono">GET {{ path }}</div>{% else %}<p class="muted">허용한 API가 없습니다.</p>{% endfor %}</div>
+<div class="sec"><h2>조사 허용 API</h2>{% if definition.auth %}<p>로그인 인증 · <span class="mono">{{ definition.auth.via }} {{ definition.auth.path }}</span></p><p class="s13 muted">계정 참조: <span class="mono">{{ definition.auth.account_ref }}</span> · 토큰은 메모리에서만 사용합니다.</p>{% endif %}{% for path in definition.apis %}<div class="mono">GET {{ path }}</div>{% else %}<p class="muted">허용한 API가 없습니다.</p>{% endfor %}</div>
 <div class="sec"><h2>대상 설정</h2><pre class="code">{{ definition.yaml }}</pre></div>
 <div class="sec"><h2>관련 이슈</h2><a href="/{{ p }}/issues?q={{ selected|urlencode }}">이 서비스의 이슈 보기</a></div>
 </div>

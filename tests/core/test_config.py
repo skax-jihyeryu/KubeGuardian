@@ -155,3 +155,36 @@ def test_alert_target_accepts_channel_id(target):
         {"target": {"namespace": "dev"}, "slack": {"alert_target": target}}
     )
     assert config.slack.alert_target == target
+
+
+def test_app_api_auth_accepts_own_org_template_and_is_optional():
+    login = {
+        "via": "gateway",
+        "path": "/login",
+        "account_secret": "kg-test-user",
+        "extract": {"org_id": "user.role.organizations.0.org_id"},
+    }
+    config = KubeGuardianConfig(
+        target={"namespace": "dev"},
+        app_apis={"gateway": ["/assignments/org/${org_id}"]},
+        app_api_auth={"gateway": login},
+    )
+    assert config.app_api_auth["gateway"].account_secret == "kg-test-user"
+    assert KubeGuardianConfig(target={"namespace": "dev"}).app_api_auth == {}
+
+
+@pytest.mark.parametrize(
+    "apis, auth",
+    [
+        ({}, {"gateway": {"via": "gateway", "path": "/login", "account_secret": "s"}}),
+        ({"gateway": []}, {"gateway": {"via": "gateway", "path": "/login", "account_secret": "s"}}),
+        ({"gateway": ["/org/${org_id}"]}, {}),
+        (
+            {"gateway": ["/org/${org_id}"]},
+            {"gateway": {"via": "gateway", "path": "/login", "account_secret": "s"}},
+        ),
+    ],
+)
+def test_app_api_auth_requires_allowlist_and_matching_extract(apis, auth):
+    with pytest.raises(ValidationError):
+        KubeGuardianConfig(target={"namespace": "dev"}, app_apis=apis, app_api_auth=auth)

@@ -26,5 +26,5 @@ def build_tools(config: KubeGuardianConfig) -> list[Tool]:
         RunApiScenario(config.api_scenarios),
     ]
     if config.app_apis:
-        tools.append(QueryAppApi(config.app_apis))
+        tools.append(QueryAppApi(config.app_apis, auth=config.app_api_auth))
     return tools

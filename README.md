@@ -69,3 +69,10 @@ Slack 링크에 사용할 외부 접근 주소는 `web.base_url`로 설정한다
 `llm-gateway`를 사용하므로 `http://localhost:8080/llm-gateway/checks`로 연다.
 Kubernetes 진단 대상은 별도의 `target.namespace: dev` 설정이며, 프로젝트 ID를 바꿔도
 수집 범위는 바뀌지 않는다. `project`를 생략하면 ID는 `default`다.
+
+앱 상태 API는 `app_apis`의 GET 허용 목록으로 등록하고, 인증이 필요하면 같은 Service 키의
+`app_api_auth`에 로그인 경로·계정 Secret 참조를 설정한다. 현재 예시는 gateway 로그인 후
+계정의 자기 조직 모델 할당을 조회한다. `${org_id}`는 로그인 응답에서 얻은 양의 정수로만 바인딩한다.
+OpenAPI·관리자 권한은 필요하지 않으며, 계정과 토큰은 LLM·근거·로그로 전달하지 않는다.
+이 조회는 조사 에이전트의 `query_app_api` 도구이며, 주기/직접 점검의 `api_scenarios`와 별개다.
+할당량 API는 관리자 권한이 필요하고 used/remaining이 null이라 연결·소진 판단 범위에서 제외한다.
