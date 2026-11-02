@@ -350,10 +350,11 @@ def test_schedule_checks_open_continue_and_resolve_an_incident(engine):
     }
 
 
-def test_direct_check_does_not_open_an_incident(engine):
+def test_direct_check_opens_an_incident(engine):
     out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="check", now=NOW)
 
-    assert out.gate.path == "A" and out.incidents == []
+    assert out.gate.path == "A"
+    assert [(c.action, c.needs_investigation) for c in out.incidents] == [("opened", True)]
 
 
 # ── 점검 결과·규칙 선택 (#116) ──

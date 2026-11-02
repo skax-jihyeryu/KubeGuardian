@@ -18,6 +18,7 @@ from core.log.logging import get_logging
 from service.notify.notifier import Notifier
 from service.notify.sender import build_sender
 from service.pipeline.check import _acquire_lock, _excluded_rules, _run_locked
+from service.pipeline.investigate import queue_investigations
 
 
 class ManualCheckConflict(Exception):
@@ -85,18 +86,20 @@ def start_manual_check(
                     user_symptom=None,
                     run_id=run_id,
                 )
-                sender = (
-                    sender_factory(config)
-                    if sender_factory
-                    else build_sender(get_setting(), config)
-                )
-                # 직접 점검은 해결 알림만 보낸다. 새 이슈·리마인더는 보내지 않는다.
-                Notifier(engine, config, sender).after_check(
-                    run_id,
-                    outcome.gate,
-                    [c for c in outcome.incidents if c.action == "resolved"],
-                    now,
-                )
+                try:
+                    sender = (
+                        sender_factory(config)
+                        if sender_factory
+                        else build_sender(get_setting(), config)
+                    )
+                    ack_enabled = bool(get_setting().SLACK_APP_TOKEN) and not sender.dry_run
+                    Notifier(engine, config, sender, ack_enabled=ack_enabled).after_check(
+                        run_id, outcome.gate, outcome.incidents, now
+                    )
+                except Exception as exc:
+                    get_logging().warning(f"직접 점검 알림 실패: {type(exc).__name__}")
+                # 1차 알림을 먼저 시도한다. 발송 실패가 조사 예약을 막지는 않는다.
+                queue_investigations(engine, config, outcome, trigger="ui", now=now)
             except Exception as exc:
                 with suppress(Exception):
                     store = CheckResultStore(engine)
