@@ -478,3 +478,37 @@ def test_unknown_symptom_from_the_pod_makes_the_in_cluster_run_invalid(tmp_path,
     assert code == 2
     assert result["unknown_symptoms"] == ["chat: 조회 실패: Service 목록"]
     assert result["invalid"].startswith("증상 감지 확인하지 못함")
+
+
+def test_run_captures_end_metadata_after_fetch(tmp_path, monkeypatch):
+    def hook(stub):
+        def describe():
+            stub.events.append("describe")
+            return {"image_id": "end" if stub.fetched else "start", "config_resource_version": "1"}
+
+        stub.describe = describe
+
+    code, result, stub = _run_in_cluster(tmp_path, monkeypatch, "H0", stub_hook=hook)
+    assert code == 0
+    assert result["in_cluster"]["image_id"] == "start"
+    assert result["in_cluster_end"]["image_id"] == "end"
+    assert stub.events[-2:] == ["fetch", "describe"]
+
+
+@pytest.mark.parametrize("fail_at", [None, 1])
+def test_end_describe_failure_preserves_result_and_invalidates(tmp_path, monkeypatch, fail_at):
+    def hook(stub):
+        def describe():
+            if "fetch" in stub.events:
+                raise RemoteError("runner unavailable")
+            return {"image_id": "start", "config_resource_version": "1"}
+
+        stub.describe = describe
+        stub.fetch_error = RemoteError("fetch unavailable")
+
+    code, result, _ = _run_in_cluster(tmp_path, monkeypatch, "H0", fail_at=fail_at, stub_hook=hook)
+    assert code == 2
+    assert ("Pod" if fail_at else "runner unavailable") in result["invalid"]
+    assert "fetch unavailable" in result["db_fetch_failed"]
+    assert "runner unavailable" in result["in_cluster_end_failed"]
+    assert "in_cluster_end" not in result

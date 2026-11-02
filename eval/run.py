@@ -533,6 +533,17 @@ def run(
         if not recovered:
             result["invalid"] = result.get("invalid") or "원복 확인 실패"
             exit_code = EXIT_INVALID
+        if remote:
+            try:
+                result["in_cluster_end"] = {"pod": remote.pod, **remote.describe()}
+            except Exception as e:
+                result["in_cluster_end_failed"] = redact_text(f"{type(e).__name__}: {e}")
+                log(
+                    "describe",
+                    f"종료 시 runner 메타데이터 확인 실패: {result['in_cluster_end_failed']}",
+                )
+                result["invalid"] = result.get("invalid") or result["in_cluster_end_failed"]
+                exit_code = EXIT_INVALID
         exit_code = finish(result, out_dir, exit_code)
     return exit_code
 
