@@ -69,6 +69,17 @@
           </div>
         </div>
         {%- endfor %}
+        {%- if d.corrections %}
+        <details class="note" open><summary>설정 확인과 수정 제안</summary>
+          <p class="s13 muted">현재 설정을 점검 시점의 스냅샷과 비교한 참고 정보입니다. 자동으로 수정하지 않습니다.</p>
+          {% for correction in d.corrections %}
+          <div style="margin-top:12px"><b>{{ correction.item }}</b><p>{{ correction.reason }}</p>
+            {% if correction.configured %}<div class="dl"><span class="k">설정값</span><span class="mono">{{ correction.configured }}</span>
+            {% if correction.candidate %}<span class="k">비슷한 리소스</span><span class="mono">{{ correction.candidate }}</span>{% endif %}</div>{% endif %}
+          </div>
+          {% endfor %}
+        </details>
+        {%- endif %}
         {%- if d.passed_text %}
         <div class="pass">{{ ic("check-circle", "ok-ic") }}{{ d.passed_text }}</div>
         {%- endif %}

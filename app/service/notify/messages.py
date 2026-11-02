@@ -165,3 +165,12 @@ def connection_test(namespace: str, at: datetime) -> str:
         f"🔧 [KubeGuardian] {namespace} — Slack 알림 연결 확인 ({hhmm(at)}). "
         "이 메시지는 무시해도 됩니다."
     )
+
+
+def unknown(namespace: str, items: list[str], run_id: int, url: str) -> str:
+    """M10: 같은 항목을 연속으로 확인하지 못했을 때 알림."""
+    return (
+        f"⚠️ [KubeGuardian] {namespace} — 점검 일부를 확인하지 못함\n"
+        f"같은 항목을 연속 3회 확인하지 못했습니다: {', '.join(items)}\n"
+        f"점검 판정: {url}/checks/{run_id}#s-judge"
+    )

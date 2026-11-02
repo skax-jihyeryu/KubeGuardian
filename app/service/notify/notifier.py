@@ -11,11 +11,13 @@
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session
 
 from core.config import KubeGuardianConfig
 from core.db import AlertStore, CheckRunStore, IncidentStore
 from core.db.incidents import Incident
+from core.db.tables import AlertRow, CheckResultRow
 from core.error.service_exception import ServiceException
 from core.schedule import stalled_after
 from service.agent.base import AgentResult
@@ -37,6 +39,7 @@ _DRY_CHANNEL = "(dry-run)"
 
 class Notifier:
     def __init__(self, engine: Engine, config: KubeGuardianConfig, sender: Sender):
+        self._engine = engine
         self._incidents = IncidentStore(engine)
         self._alerts = AlertStore(engine)
         self._runs = CheckRunStore(engine)
@@ -53,6 +56,7 @@ class Notifier:
     def after_check(
         self, run_id: int, gate: GateResult, changes: list[IncidentChange], now: datetime
     ) -> None:
+        self.check_unknown(run_id, now)
         for change in changes:
             incident = self._incidents.get(change.incident_id)
             if incident is None:
@@ -116,6 +120,69 @@ class Notifier:
         if sent is not None and sent.sent_at > last_run:
             return False
         self._post("M7", None, messages.stalled(self._ns, last_run, now, self._url), now)
+        return True
+
+    def check_unknown(self, run_id: int, now: datetime) -> bool:
+        """같은 항목을 연속 세 번 확인하지 못했을 때 한 번 알린다."""
+
+        def unknown(result):
+            if result.status != "done":
+                return set()
+            items = {
+                f"{r['rule_id']} · {i.get('subject', '')}"
+                for r in result.verdicts
+                for i in r.get("items", [])
+                if i.get("verdict") == "unknown"
+            }
+            items.update(
+                f"기능 점검 {s.get('scenario', '')} · {s.get('failed_step', '')}"
+                for s in result.symptoms
+                if s.get("status") == "unknown"
+            )
+            return items
+
+        # 각 항목의 현재 연속 구간을 찾는다. 실패한 발송은 구간을 끝내지 않는다.
+        counts, starts = {}, {}
+        with Session(self._engine) as session:
+            rows = session.scalars(
+                select(CheckResultRow)
+                .where(CheckResultRow.run_id <= run_id)
+                .order_by(CheckResultRow.run_id.desc())
+            )
+            active = None
+            for row in rows:
+                if active is None:
+                    if row.run_id != run_id:
+                        return False
+                    active = unknown(row)
+                active &= unknown(row)
+                if not active:
+                    break
+                for item in active:
+                    counts[item] = counts.get(item, 0) + 1
+                    starts[item] = row.started_at
+        repeated = {item for item, count in counts.items() if count >= 3}
+        if not repeated:
+            return False
+        # 현재 연속 구간에서 성공한 알림만 제외한다. 실패했으면 다음 점검에서 다시 보낸다.
+        with Session(self._engine) as session:
+            sent = session.scalars(
+                select(AlertRow).where(
+                    AlertRow.kind == "M10",
+                    AlertRow.error.is_(None),
+                    AlertRow.sent_at >= min(starts[item] for item in repeated),
+                )
+            )
+            for alert in sent:
+                lines = alert.text.splitlines()
+                items = lines[1].partition(": ")[2].split(", ") if len(lines) > 1 else []
+                repeated -= {
+                    item for item in items if item in starts and alert.sent_at >= starts[item]
+                }
+        if not repeated:
+            return False
+        text = messages.unknown(self._ns, sorted(repeated), run_id, self._url)
+        self._post("M10", None, text, now)
         return True
 
     # ── 내부 ──

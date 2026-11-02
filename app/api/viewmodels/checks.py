@@ -8,12 +8,14 @@
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
+from difflib import get_close_matches
 from typing import Any
 
 from sqlalchemy import Engine
 
 from api.timefmt import hms, md_hm, seconds_text
 from api.viewmodels.shell import IMPACT, SEVERITY
+from core.config import KubeGuardianConfig
 from core.db import (
     CheckResultStore,
     CheckRunStore,
@@ -161,6 +163,15 @@ class CheckDetail:
     evidence: list[EvidenceRow]
     live: bool
     error: str | None
+    corrections: list["Correction"] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Correction:
+    item: str
+    configured: str | None
+    candidate: str | None
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -232,7 +243,12 @@ def _load(engine: Engine, run_id: int, now: datetime) -> _Loaded | None:
 
 
 def build_check_detail(
-    engine: Engine, project: str, run_id: int, now: datetime
+    engine: Engine,
+    project: str,
+    run_id: int,
+    now: datetime,
+    *,
+    config: KubeGuardianConfig | None = None,
 ) -> CheckDetail | None:
     d = _load(engine, run_id, now)
     if d is None:
@@ -255,7 +271,68 @@ def build_check_detail(
         evidence=evidence,
         live=d.live,
         error=result.error if result else None,
+        corrections=configuration_corrections(engine, run_id, result, config),
     )
+
+
+def configuration_corrections(
+    engine: Engine,
+    run_id: int,
+    result: CheckResult | None,
+    config: KubeGuardianConfig | None,
+) -> list[Correction]:
+    """확인하지 못한 기능 점검만 저장된 스냅샷과 비교한다. 설정을 자동 수정하지 않는다."""
+    if result is None or config is None:
+        return []
+    unknown = {s.get("scenario") for s in result.symptoms if s.get("status") == "unknown"}
+    if not unknown:
+        return []
+    snapshot = CheckRunStore(engine).get_snapshot(run_id)
+    resources = snapshot.items("Service") if snapshot else None
+    names = {
+        str(r.get("metadata", {}).get("name"))
+        for r in resources or []
+        if r.get("metadata", {}).get("name")
+    }
+    corrections = []
+    for scenario in config.api_scenarios:
+        if scenario.name not in unknown:
+            continue
+        missing = False
+        if resources is not None:
+            for number, step in enumerate(scenario.steps, 1):
+                service = (step.login or step.call).via
+                if service in names:
+                    continue
+                missing = True
+                close = get_close_matches(service, sorted(names), n=1, cutoff=0.6)
+                corrections.append(
+                    Correction(
+                        f"{scenario.name} {number}단계 대상 Service",
+                        service,
+                        close[0] if close else None,
+                        "현재 설정값을 이 점검의 스냅샷에서 찾지 못했습니다. "
+                        + (
+                            "비슷한 이름을 확인한 뒤 설정 파일에 직접 반영하세요."
+                            if close
+                            else "비슷한 리소스가 없어 수정값을 제안할 수 없습니다."
+                        ),
+                    )
+                )
+        if not missing:
+            corrections.append(
+                Correction(
+                    f"기능 점검 {scenario.name}",
+                    None,
+                    None,
+                    "이 점검의 Service 스냅샷이 없어 설정과 비교할 수 없습니다."
+                    if resources is None
+                    else "Service 이름만으로 원인을 판단할 수 없습니다. "
+                    "위 사유와 계정·포트·API 정의를 확인하세요. "
+                    "API 문서와의 자동 비교는 지원하지 않습니다.",
+                )
+            )
+    return corrections
 
 
 def build_steps(engine: Engine, run_id: int, now: datetime) -> tuple[StepsView, bool, str] | None:
