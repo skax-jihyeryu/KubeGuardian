@@ -5,7 +5,7 @@ project:
   id: llm-gateway           # 화면 URL의 프로젝트 ID. Kubernetes namespace와 별개
 target:
   namespace: dev
-schedule: "*/5 * * * *"
+schedule: "0 * * * *"
 core_paths:                 # 사용자 기능 → 서비스 (1차 심각도 판정, docs/05-rules.md §3)
   login: [front-chat, gateway, admin]
   chat: [front-chat, gateway, agent, llm-gateway]

@@ -15,6 +15,7 @@ CONFIG = KubeGuardianConfig.model_validate(
     {
         "project": {"id": "dev"},
         "target": {"namespace": "dev"},
+        "schedule": "*/5 * * * *",
         "core_paths": {"chat": ["gateway", "agent"]},
         "slack": {
             "alert_target": "C0123456789",

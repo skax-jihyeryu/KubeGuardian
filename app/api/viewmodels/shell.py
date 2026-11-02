@@ -1,15 +1,14 @@
 """모든 화면에 붙는 GNB·상단 띠 값 (UI 정의서 §6.2)."""
 
-import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from sqlalchemy import Engine
 
 from api.timefmt import hm
 from core.config import KubeGuardianConfig
 from core.db import CheckResultStore, CheckRunStore, IncidentStore
-from service.notify.notifier import STALL_AFTER
+from core.schedule import next_check, stalled_after
 
 CLUSTER_LABEL = "minikube"  # 프로젝트 표시는 지금 고정 값이다
 
@@ -49,7 +48,7 @@ def build_shell(engine: Engine, config: KubeGuardianConfig, now: datetime) -> Sh
             unknown = unknown_count(result.verdicts, result.symptoms)
             unknown_run = latest[0]
     halted = None
-    if latest is not None and now - latest[1] > STALL_AFTER:
+    if latest is not None and now - latest[1] > stalled_after(config.schedule):
         halted = int((now - latest[1]).total_seconds() // 60)
     return Shell(
         project=config.project.id,
@@ -85,15 +84,6 @@ def _incident_key(final: str | None, first: str | None) -> str | None:
     return SEVERITY[first][0] if first in SEVERITY else None
 
 
-_EVERY_N_MINUTES = re.compile(r"\*/(\d{1,2}) \* \* \* \*")
-
-
 def _next_time(schedule: str, now: datetime) -> str | None:
-    """`*/N * * * *` 형태의 주기만 계산한다. 다른 형태는 표시하지 않는다."""
-    m = _EVERY_N_MINUTES.fullmatch(schedule)
-    if m is None or int(m.group(1)) == 0 or 60 % int(m.group(1)):
-        return None
-    step = int(m.group(1))
-    base = now.replace(second=0, microsecond=0)
-    base -= timedelta(minutes=base.minute % step)
-    return hm(base + timedelta(minutes=step))
+    value = next_check(schedule, now)
+    return hm(value) if value else None

@@ -1,6 +1,6 @@
 # diagnostic-agent: 항상 떠 있는 KubeGuardian Pod (이슈 #28, 기획서 §6.6 조사 실행 위치).
 # worker 컨테이너(`kg worker`): 주기 점검 CronJob이 넣은 조사 대기 이슈를 집어 AI 조사를 하고
-# 알림(M1)을 원인으로 갱신하며, 점검이 15분 넘게 없으면 M7을 보낸다.
+# 알림(M1)을 원인으로 갱신하며, 설정 주기 3회 동안 점검이 없으면 M7을 보낸다.
 # web 컨테이너(#23): 보고서 화면(FastAPI, :8080). 같은 점검 DB를 읽고, 외부 노출 없이 ClusterIP Service와
 # `make kg-web`(kubectl port-forward)으로만 연다 (UI 정의서 §6.8). Slack 명령(#96)은 뒤에 붙인다.
 # CronJob과 같은 점검 DB(PVC kubeguardian-data, cronjob.yaml)를 쓴다. PVC가 RWO라 단일 노드를 전제하고,

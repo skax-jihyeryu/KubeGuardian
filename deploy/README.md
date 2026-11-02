@@ -26,7 +26,7 @@ KubeGuardian을 클러스터 안에서 실행하는 Pod다. 클러스터 주소(
 
 ## 주기 점검 CronJob (`kubeguardian/cronjob.yaml`)
 
-5분마다 `cli.py check --trigger schedule`을 실행해 규칙 점검과 증상 감지 결과를 PVC `kubeguardian-data`의 SQLite(`/data/kubeguardian.db`)에 쌓는다 (`check_run.trigger = schedule`). `make kg-up`이 함께 적용한다.
+매시 정각(1시간 주기) `cli.py check --trigger schedule`을 실행해 규칙 점검과 증상 감지 결과를 PVC `kubeguardian-data`의 SQLite(`/data/kubeguardian.db`)에 쌓는다 (`check_run.trigger = schedule`). `make kg-up`이 함께 적용한다.
 
 - `concurrencyPolicy: Forbid`: 이전 점검이 끝나지 않았으면 다음 회차를 건너뛴다. `activeDeadlineSeconds: 270`으로 다음 회차 전에 끝내고, `backoffLimit: 0`이라 실패해도 재시도하지 않는다.
 - AI 조사는 포함하지 않는다. 사건 지문(#26)이 없어 같은 장애를 5분마다 다시 조사하기 때문이다. #26 뒤에 `investigate`로 바꾼다.
