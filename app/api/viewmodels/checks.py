@@ -7,7 +7,7 @@
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from difflib import get_close_matches
 from typing import Any
 
@@ -26,6 +26,7 @@ from core.db import (
 )
 from core.db.check_results import CheckResult, Phase
 from core.db.evidence import format_evidence_id
+from core.db.evidence_summaries import EvidenceSummary, EvidenceSummaryStore
 from core.db.incidents import Incident
 from core.db.investigations import Investigation
 from core.guard.redact import redact_mapping, redact_text
@@ -192,6 +193,7 @@ class DrawerView:
     collected: str
     raw: str
     truncated: bool
+    summary: EvidenceSummary | None = None
 
 
 # ── 읽기 ────────────────────────────────────────────────────────
@@ -352,7 +354,9 @@ def build_steps(engine: Engine, run_id: int, now: datetime) -> tuple[StepsView, 
     return _steps(d, now), d.live, d.state
 
 
-def build_drawer(engine: Engine, run_id: int, n: int) -> DrawerView | None:
+def build_drawer(
+    engine: Engine, run_id: int, n: int, now: datetime | None = None
+) -> DrawerView | None:
     """이 점검에 묶인 근거만 연다. 다른 점검·점검에 묶이지 않은 근거는 없는 것으로 본다."""
     store = EvidenceStore(engine)
     ev_id = format_evidence_id(n)
@@ -370,6 +374,7 @@ def build_drawer(engine: Engine, run_id: int, n: int) -> DrawerView | None:
         collected=hms(ev.collected_at),
         raw=raw[:RAW_LIMIT],
         truncated=len(raw) > RAW_LIMIT,
+        summary=EvidenceSummaryStore(engine).get(ev_id, now or datetime.now(UTC)),
     )
 
 
