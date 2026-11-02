@@ -498,3 +498,31 @@ def test_unknown_rule_is_counted_in_the_rules_summary(engine, monkeypatch):
     assert got.phases[0].summary.endswith("확인하지 못함 1")
     [v] = [v for v in got.verdicts if v["rule_id"] == "S01"]
     assert "감지기 오류 ValueError" in v["items"][0]["message"]
+
+
+def test_re_enabled_rule_restarts_its_hold_timer(engine):
+    from core.db import RuleSelectionStore
+
+    run_check(_reader("s02/partial"), CONFIG, engine, trigger="schedule", now=NOW)
+    RuleSelectionStore(engine).save(*_all_rules_except("S02"), NOW)
+    run_check(_reader("s02/partial"), CONFIG, engine, trigger="schedule", now=NOW)
+    RuleSelectionStore(engine).save(*_all_rules_except(), NOW)
+
+    out = run_check(
+        _reader("s02/partial"), CONFIG, engine, trigger="schedule", now=NOW + timedelta(days=1)
+    )
+
+    s02 = [s for s in out.signals if s.rule_id == "S02" and s.verdict != "passed"]
+    assert [s.verdict for s in s02] == ["observing"]  # 꺼 둔 동안의 옛 관측으로 detected가 되지 않는다
+
+
+def test_turning_a_rule_off_clears_w01_hold_timestamp(engine):
+    from core.db import RuleSelectionStore
+
+    store = SqliteObservationStore(engine)
+    store.touch("W01", "dev/Deployment/agent", NOW, {"updatedReplicas_changed_at": NOW.isoformat()})
+    RuleSelectionStore(engine).save(*_all_rules_except("W01"), NOW)
+
+    run_check(_reader(), CONFIG, engine, trigger="schedule", now=NOW + timedelta(days=1))
+
+    assert store.get("W01", "dev/Deployment/agent") is None
