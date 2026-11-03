@@ -39,7 +39,8 @@ def test_routes_use_project_id_and_shell_displays_namespace(client, engine):
         assert client.get(f"/dev/{path}").status_code == 404
     page = client.get("/llm-gateway/checks").text
     assert "llm-gateway · minikube" in page
-    assert "네임스페이스 dev" in page
+    assert '<span class="wide"> · dev</span>' in page
+    assert "네임스페이스 dev" not in page
     shell = build_shell(engine, CONFIG, at(30))
     assert shell.project == "llm-gateway" and shell.namespace == "dev"
 
