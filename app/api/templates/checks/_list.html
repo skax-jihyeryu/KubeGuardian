@@ -12,10 +12,7 @@
     </div><div class="frow"><input class="search" type="search" name="q" value="{{ page.filters.q }}" placeholder="점검 내용 검색" aria-label="검색어"><button class="btn" type="submit">검색</button><a href="/{{ p }}/checks">초기화</a></div>
   </form>
   <div{% if page.live %} hx-get="{{ request.url }}" hx-trigger="every 3s" hx-select=".list" hx-target="closest .list" hx-swap="outerHTML"{% endif %}>
-  {% for group in page.groups %}
-    {% if group|length > 1 %}<details><summary class="fold">연속 이상 없음 {{ group|length }}회{% if group[0].advice %} · 권고 {{ group[0].advice }}{% endif %}</summary>{% endif %}
-    {% for row in group %}{% include "checks/_row.html" %}{% endfor %}
-    {% if group|length > 1 %}</details>{% endif %}
+  {% for row in page.rows %}{% include "checks/_row.html" %}
   {% else %}<div class="sec muted">{% if page.filters.q or page.filters.status or page.filters.severity %}조건에 맞는 점검이 없습니다.{% else %}아직 점검 기록이 없습니다.{% endif %}</div>{% endfor %}
   {% if page.next_url %}<a class="crow" href="{{ page.next_url }}">이전 점검 더 보기 →</a>{% endif %}
   </div>

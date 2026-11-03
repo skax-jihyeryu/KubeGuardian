@@ -1,6 +1,6 @@
 """스냅샷을 읽지 않는 페이지 단위 점검 이력."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
@@ -48,7 +48,6 @@ class CheckRow:
     advice: int = 0
     unknown: int = 0
     gap: int = 0
-    calm: bool = False
     url: str = ""
     more_issues: int = 0
 
@@ -59,7 +58,6 @@ class CheckPage:
     filters: CheckFilters
     next_url: str | None
     live: bool = False
-    groups: list[list[CheckRow]] = field(default_factory=list)
 
 
 STATUS = {"running": "진행 중", "done": "완료", "failed": "중단", "halted": "중단"}
@@ -312,7 +310,6 @@ def list_checks(
                 relation,
                 advice,
                 unknown,
-                calm=state == "done" and severity_rank <= 1 and not relation and not unknown,
                 gap=int((started - prior_time).total_seconds() // 60)
                 if prior_time and started - prior_time > stalled_after(schedule)
                 else 0,
@@ -322,13 +319,7 @@ def list_checks(
                 ),
             )
         )
-    groups: list[list[CheckRow]] = []
-    for row in rows:
-        if groups and row.calm and groups[-1][-1].calm and not groups[-1][-1].gap:
-            groups[-1].append(row)
-        else:
-            groups.append([row])
     query = {k: v for k, v in vars(filters).items() if v}
     query["cursor"] = rows[-1].id if rows else 0
     next_url = f"/{project}/checks?{urlencode(query)}" if len(runs) > 50 else None
-    return CheckPage(rows, filters, next_url, any(r.status == "진행 중" for r in rows), groups)
+    return CheckPage(rows, filters, next_url, any(r.status == "진행 중" for r in rows))

@@ -38,15 +38,23 @@ def test_ten_thousand_runs_page_without_snapshot(engine):
     assert older.rows[0].id < page.rows[-1].id
 
 
-def test_calm_group_and_gap(engine):
+def test_normal_runs_remain_individual_latest_first_with_gap(client, engine):
     first = make_run(engine, start=at(-1800))
     finish_check(engine, first, path="C")
     for seconds in (0, 300):
         run = make_run(engine, start=at(seconds))
         finish_check(engine, run, path="C")
     page = list_checks(engine, CheckFilters(), None, at(330))
-    assert len(page.groups[0]) == 2
+    assert [row.id for row in page.rows] == [3, 2, 1]
     assert page.rows[1].gap == 30
+    import re
+
+    for path in ("/dev/checks", f"/dev/checks/{run}"):
+        text = client.get(path).text
+        section = re.search(r'<section class="list.*?</section>', text, re.S).group()
+        assert "<details" not in section
+        ids = re.findall(r'href="/dev/checks/(\d+)\?period=all"', section)
+        assert ids == ["3", "2", "1"]
 
 
 def test_detail_contains_list(client, engine):
