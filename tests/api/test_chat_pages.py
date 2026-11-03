@@ -1,3 +1,4 @@
+from html import escape
 from unittest.mock import patch
 
 from core.db import ChatStore
@@ -254,3 +255,57 @@ def test_post_divider_only_for_different_stored_context(client, engine):
         assert 'role="separator"' not in same.text
         cleared = client.post("/dev/chat/messages", data={"question": "전체 이력 질문"})
         assert "맥락: 전체 이력" in cleared.text
+
+
+def test_new_chat_rotates_id_preserves_records_and_uses_new_id(client, engine):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from core.db.tables import ChatMessageRow
+
+    client.get("/dev/chat")
+    old = client.cookies.get("kg_chat")
+    ChatStore(engine).add(old, "user", "이전 질문", at(1))
+    response = client.post("/dev/chat/new")
+    assert response.status_code == 200
+    new = client.cookies.get("kg_chat")
+    assert new != old and len(new) == 32
+    assert "이전 질문" not in response.text and 'id="chat-empty"' in response.text
+    assert "이전 질문" not in client.get("/dev/chat").text
+    assert client.cookies.get("kg_chat") == new
+    with Session(engine) as session:
+        assert (
+            session.scalar(select(ChatMessageRow.text).where(ChatMessageRow.conversation_id == old))
+            == "이전 질문"
+        )
+    reply = ChatReply(conversation_id=new, text="답변", answer=ChatAnswer(sentences=[]))
+    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+        client.post("/dev/chat/messages", data={"question": "새 질문"})
+    assert answer.call_args.kwargs["conversation_id"] == new
+
+
+def test_new_chat_keeps_screen_context_and_filters(client, engine):
+    from tests.api.seed import make_run, open_incident
+
+    run = make_run(engine)
+    issue = open_incident(engine, run)
+    for params, label in [
+        ({"filters": "period=7d&severity=critical"}, "전체 이력"),
+        ({"run": str(run)}, f"점검 #{run}"),
+        ({"issue": str(issue)}, f"이슈 #{issue}"),
+    ]:
+        response = client.post("/dev/chat/new", params=params)
+        assert response.status_code == 200
+        assert label in response.text
+        assert "data-chat-new" in response.text
+        for key, value in params.items():
+            assert f'name="{key}" value="{escape(value, quote=True)}"' in response.text
+
+
+def test_new_chat_rejects_invalid_context_without_rotating_cookie(client):
+    client.get("/dev/chat")
+    old = client.cookies.get("kg_chat")
+    assert client.post("/dev/chat/new?run=999").status_code == 404
+    assert client.cookies.get("kg_chat") == old
+    assert client.post("/other/chat/new").status_code == 404
+    assert client.get("/dev/chat/new").status_code == 405
