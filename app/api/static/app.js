@@ -51,7 +51,15 @@
     btn.setAttribute('aria-expanded', 'true');
     sessionStorage.setItem('kg-chat-open', '1');
   }
+  function abortChat() {
+    var form = document.querySelector('#chat-panel form');
+    if (form && form.chatPending) {
+      form.chatPending.cancelled = true;
+      htmx.trigger(form, 'htmx:abort');
+    }
+  }
   function closeChat() {
+    abortChat();
     document.getElementById('chat-root').replaceChildren();
     var btn = document.querySelector('[data-chat-toggle]');
     if (btn) btn.setAttribute('aria-expanded', 'false');
@@ -65,6 +73,7 @@
     var example = e.target.closest('[data-question]');
     if (example) {
       var input = document.querySelector('#chat-panel textarea');
+      if (input.readOnly) return;
       input.value = example.dataset.question;
       input.focus();
       input.form.requestSubmit();
@@ -73,13 +82,57 @@
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && document.getElementById('chat-panel')) closeChat();
   });
+  document.body.addEventListener('htmx:beforeRequest', function (e) {
+    if (e.detail.target && e.detail.target.id === 'chat-root') abortChat();
+    var form = e.target;
+    if (!form.matches('#chat-panel form')) return;
+    if (form.chatPending) { e.preventDefault(); return; }
+    var input = form.querySelector('textarea');
+    var messages = document.getElementById('chat-messages');
+    var question = input.value.trim();
+    var turn = document.createElement('div');
+    turn.className = 'chat-pending';
+    var bubble = document.createElement('div');
+    bubble.className = 'q';
+    bubble.textContent = question;
+    var status = document.createElement('div');
+    status.className = 'chat-loading';
+    status.setAttribute('role', 'status');
+    status.textContent = '저장된 이력을 확인해 답변을 작성하고 있습니다…';
+    turn.append(bubble, status);
+    var empty = messages.querySelector('#chat-empty');
+    if (empty) empty.remove();
+    messages.append(turn);
+    var button = form.querySelector('button[type="submit"]');
+    form.chatPending = {turn: turn, status: status, messages: messages,
+      input: input, button: button, question: question};
+    form.setAttribute('aria-busy', 'true');
+    input.readOnly = true;
+    input.value = '';
+    button.textContent = '답변 생성 중';
+    messages.scrollTop = messages.scrollHeight;
+  });
   document.body.addEventListener('htmx:afterRequest', function (e) {
-    if (e.detail.successful && e.target.matches('#chat-panel form')) {
-      var failed = e.detail.xhr.responseText.indexOf('role="alert"') >= 0;
-      if (!failed) e.target.querySelector('textarea').value = '';
-      var messages = document.getElementById('chat-messages');
-      if (messages) messages.scrollTop = messages.scrollHeight;
+    var form = e.target;
+    if (!form.matches('#chat-panel form') || !form.chatPending) return;
+    var pending = form.chatPending;
+    var failed = !e.detail.successful ||
+      e.detail.xhr.responseText.indexOf('role="alert"') >= 0;
+    if (e.detail.successful || pending.cancelled) {
+      pending.turn.remove();
+    } else {
+      pending.turn.className = 'chat-failed';
+      pending.status.className = 'tipblock';
+      pending.status.setAttribute('role', 'alert');
+      pending.status.textContent = '답변을 받지 못했습니다. 연결 상태를 확인한 뒤 다시 보내 주세요.';
     }
+    pending.input.readOnly = false;
+    pending.input.value = failed ? pending.question : '';
+    pending.button.textContent = '보내기';
+    form.removeAttribute('aria-busy');
+    delete form.chatPending;
+    pending.messages.scrollTop = pending.messages.scrollHeight;
+    if (form.isConnected) pending.input.focus();
   });
   if (sessionStorage.getItem('kg-chat-open')) openChat();
 })();
