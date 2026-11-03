@@ -92,7 +92,22 @@ def chat_panel(
     run: str = "",
     filters: str = "",
 ):
-    cid = conversation(request)
+    return render_panel(request, project, engine, conversation(request), issue, run, filters)
+
+
+@router.post("/{p}/chat/new")
+def new_chat(
+    request: Request,
+    project: ProjectDep,
+    engine: EngineDep,
+    issue: str = "",
+    run: str = "",
+    filters: str = "",
+):
+    return render_panel(request, project, engine, uuid4().hex, issue, run, filters)
+
+
+def render_panel(request, project, engine, cid, issue, run, filters):
     with Session(engine) as session:
         stored = list(
             session.scalars(

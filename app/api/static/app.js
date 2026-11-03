@@ -52,6 +52,8 @@
     sessionStorage.setItem('kg-chat-open', '1');
   }
   function abortChat() {
+    var reset = document.querySelector('[data-chat-new]');
+    if (reset) htmx.trigger(reset, 'htmx:abort');
     var form = document.querySelector('#chat-panel form');
     if (form && form.chatPending) {
       form.chatPending.cancelled = true;
@@ -83,7 +85,15 @@
     if (e.key === 'Escape' && document.getElementById('chat-panel')) closeChat();
   });
   document.body.addEventListener('htmx:beforeRequest', function (e) {
-    if (e.detail.target && e.detail.target.id === 'chat-root') abortChat();
+    if (e.target.matches('[data-chat-new]')) {
+      var currentForm = document.querySelector('#chat-panel form');
+      if (currentForm && currentForm.chatPending) { e.preventDefault(); return; }
+      var error = document.querySelector('[data-chat-new-error]');
+      e.target.chatResetError = error;
+      if (error) { error.hidden = true; error.textContent = ''; }
+    }
+    if (e.detail.target && e.detail.target.id === 'chat-root' &&
+        !e.target.matches('[data-chat-new]')) abortChat();
     var form = e.target;
     if (!form.matches('#chat-panel form')) return;
     if (form.chatPending) { e.preventDefault(); return; }
@@ -113,6 +123,13 @@
     messages.scrollTop = messages.scrollHeight;
   });
   document.body.addEventListener('htmx:afterRequest', function (e) {
+    if (e.target.matches('[data-chat-new]') && !e.detail.successful) {
+      var error = e.target.chatResetError;
+      if (error && error.isConnected) {
+        error.textContent = '새 채팅을 시작하지 못했습니다. 다시 시도해 주세요.';
+        error.hidden = false;
+      }
+    }
     var form = e.target;
     if (!form.matches('#chat-panel form') || !form.chatPending) return;
     var pending = form.chatPending;
