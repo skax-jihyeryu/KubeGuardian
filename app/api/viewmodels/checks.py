@@ -288,7 +288,7 @@ def build_check_detail(
     return CheckDetail(
         run_id=run_id,
         project=project,
-        title=f"점검 {md_hm(d.started_at)}",
+        title=f"점검 #{d.run_id} · {md_hm(d.started_at)}",
         short_time=md_hm(d.started_at),
         state=d.state,
         header=_header(d, items, now),

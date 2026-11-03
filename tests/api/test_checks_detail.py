@@ -621,3 +621,17 @@ def test_completed_check_refreshes_header_while_investigation_keeps_polling(clie
     settled = client.get(f"/dev/checks/{run}/steps?live=1&check_state=done")
     assert POLL in settled.text and "HX-Refresh" not in settled.headers
     assert "check_state=done" in detail(client, run).text
+
+
+def test_check_number_visible_in_list_detail_title_and_breadcrumb(client, engine):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    listing = client.get("/dev/checks").text
+    assert f"점검 #{run}" in listing
+    response = detail(client, run)
+    assert response.status_code == 200
+    assert f"<title>점검 #{run} · " in response.text
+    assert f'<h1 class="title">점검 #{run} · ' in response.text
+    crumb = response.text.split('<div class="crumb">', 1)[1].split("</div>", 1)[0]
+    assert f"점검 #{run} · " in crumb
+    assert f"/dev/checks/{run}" in listing
