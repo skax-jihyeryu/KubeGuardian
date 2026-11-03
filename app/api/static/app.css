@@ -64,3 +64,15 @@ button:disabled{cursor:default}
 @media(prefers-reduced-motion:reduce){
   .aux.run>.ic,.gnb[hx-trigger] form .btn-dis>.ic,.loading-spin{animation:none}
 }
+
+/* 이력 채팅: 제출 즉시 질문과 대기 상태를 표시한다. */
+.chat .chat-send{transition:transform .08s ease}
+.chat .chat-send:hover:not(:disabled){background:var(--ink)}
+.chat .chat-send:active:not(:disabled){background:var(--accent-dot);transform:scale(.98)}
+.chat .chat-send:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.chat .chat-send:disabled{background:var(--surface-2);color:var(--muted);cursor:wait}
+.chat .chat-pending,.chat .chat-failed{display:flex;flex-direction:column;gap:12px}
+.chat .chat-loading{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.chat .chat-loading::before{content:"";width:24px;height:8px;flex:none;border-radius:3px;background:var(--accent);animation:chat-loading 1s ease-in-out infinite alternate}
+@keyframes chat-loading{from{opacity:.25}to{opacity:.8}}
+@media(prefers-reduced-motion:reduce){.chat .chat-loading::before{animation:none}.chat .chat-send{transition:none}}

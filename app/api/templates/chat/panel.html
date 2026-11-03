@@ -11,10 +11,9 @@
     {% endfor %}
     {% if pending_context %}<div class="divider" id="chat-pending-context" role="separator">맥락: {{ context }}</div>{% endif %}
   </div>
-  <form class="cf" hx-post="/{{ p }}/chat/messages" hx-target="#chat-messages" hx-swap="beforeend" hx-disabled-elt="find button" hx-indicator="#chat-wait">
+  <form class="cf" hx-post="/{{ p }}/chat/messages" hx-target="#chat-messages" hx-swap="beforeend" hx-disabled-elt="find button">
     <input type="hidden" name="filters" value="{{ filters }}"><input type="hidden" name="issue" value="{{ issue }}"><input type="hidden" name="run" value="{{ run }}">
-    <label class="input"><textarea name="question" required maxlength="500" rows="2" aria-label="질문" placeholder="이력에 질문하세요 (500자 이내)"></textarea><button class="btn" type="submit">보내기</button></label>
-    <span id="chat-wait" class="htmx-indicator s13" role="status">이력을 확인하고 있습니다…</span>
+    <label class="input"><textarea name="question" required maxlength="500" rows="2" aria-label="질문" placeholder="이력에 질문하세요 (500자 이내)"></textarea><button class="btn btn-primary chat-send" type="submit">보내기</button></label>
     <div class="s13 muted">현재 상태 확인은 ‘지금 점검’을 사용하세요.</div>
   </form>
 </aside>
