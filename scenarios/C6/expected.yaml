@@ -1,0 +1,19 @@
+id: C6
+level: L3
+k8s_visible: false
+gate_path: B
+must_signals: []
+allowed_signals: []
+forbidden_signals: ['*']
+expected_cause:
+  - {kind: Deployment, name: llm-gateway}
+  - {kind: Service, name: llm-gateway}
+key_evidence:
+  - id: upstream-deployment-not-allowed
+    desc: '실제 LLM 상류 호출의 403 deployment_not_allowed와 호출 배포명 오류'
+    obtainable: true
+    any_of:
+      - {kind: log_excerpt, subject: '*/Pod/llm-gateway-*', contains: ['403', 'deployment_not_allowed']}
+root_cause: 'llm-gateway의 DB 등록 배포명이 허용되지 않은 배포를 가리켜 실제 LLM 호출이 403 deployment_not_allowed로 실패한다'
+affected_services: [llm-gateway, agent, gateway, front-chat]
+expected_top1: 'llm-gateway의 호출 배포명 오류로 실제 LLM 상류 요청이 403 deployment_not_allowed로 실패'
