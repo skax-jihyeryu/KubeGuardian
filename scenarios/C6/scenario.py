@@ -68,19 +68,16 @@ def verify():
     current = row()
     if current["deployment_name"] != BAD_NAME or not STATE.exists():
         raise RuntimeError("C6 fault is not injected")
-    pods = json.loads(kubectl("get", "pods", "-o", "json"))["items"]
-    relevant = [
-        p
-        for p in pods
-        if p["metadata"].get("labels", {}).get("app")
-        in {"agent", "gateway", "admin", "llm-gateway"}
-    ]
-    if not relevant or any(
-        not p["status"].get("containerStatuses")
-        or not all(c["ready"] for c in p["status"]["containerStatuses"])
-        for p in relevant
-    ):
-        raise RuntimeError("Target Pods must remain Ready; this is not a Pod health fault")
+    for app in ("llm-gateway", "agent", "gateway", "front-chat"):
+        pods = json.loads(kubectl("get", "pods", "-l", f"app={app}", "-o", "json"))["items"]
+        if not pods or any(
+            not any(
+                c["type"] == "Ready" and c["status"] == "True"
+                for c in p["status"].get("conditions", [])
+            )
+            for p in pods
+        ):
+            raise RuntimeError(f"{app} Pod must exist and be Ready; this is not a Pod health fault")
     smoke = subprocess.run(
         ["bash", str(ROOT / "scripts/target/smoke.sh")], cwd=ROOT, capture_output=True, text=True
     )
@@ -88,7 +85,7 @@ def verify():
     if smoke.returncode == 0 or "오류가 발생했습니다" not in output:
         raise RuntimeError("Expected actual chat failure; response omitted")
     injected_at = json.loads(STATE.read_text())["injected_at"]
-    logs = kubectl("logs", "deployment/llm-gateway", "--since-time=" + injected_at)
+    logs = kubectl("logs", "-l", "app=llm-gateway", "--prefix", "--since-time=" + injected_at)
     if "deployment_not_allowed" not in logs or "status=403" not in logs or BAD_NAME not in logs:
         raise RuntimeError("Server-side 403 deployment_not_allowed evidence missing")
     print(

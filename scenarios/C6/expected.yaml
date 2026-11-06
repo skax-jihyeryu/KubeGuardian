@@ -14,6 +14,9 @@ key_evidence:
     obtainable: true
     any_of:
       - {kind: log_excerpt, subject: '*/Pod/llm-gateway-*', contains: ['403', 'deployment_not_allowed']}
+not_a_cause:
+  - text: "agent는 정상이다 (llm-gateway가 돌려준 403 오류를 그대로 전한 것)"
+    resource: {kind: Deployment, name: agent}
 root_cause: 'llm-gateway의 DB 등록 배포명이 허용되지 않은 배포를 가리켜 실제 LLM 호출이 403 deployment_not_allowed로 실패한다'
 affected_services: [llm-gateway, agent, gateway, front-chat]
 expected_top1: 'llm-gateway의 호출 배포명 오류로 실제 LLM 상류 요청이 403 deployment_not_allowed로 실패'
