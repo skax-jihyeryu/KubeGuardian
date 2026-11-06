@@ -104,7 +104,7 @@
         {%- if d.evidence %}
         <table class="tbl dense"><thead><tr><th>번호</th><th>결과 요약</th><th>대상</th><th>단계</th><th>시각</th></tr></thead><tbody>
           {%- for e in d.evidence %}
-          <tr><td>{{ evlinks(p, d.run_id, [e.n]) }}</td><td>{{ e.content }} <span class="kind">{{ e.kind }}</span></td><td>{{ e.subject }}</td><td class="muted">{{ e.stage }}</td><td class="t">{{ e.time }}</td></tr>
+          <tr><td class="nowrap">{{ evlinks(p, d.run_id, [e.n]) }}</td><td>{{ e.content }} <span class="kind">{{ e.kind }}</span></td><td class="subj">{{ e.subject }}</td><td class="muted nowrap">{{ e.stage }}</td><td class="t nowrap">{{ e.time }}</td></tr>
           {%- endfor %}
         </tbody></table>
         {%- else %}

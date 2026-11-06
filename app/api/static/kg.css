@@ -166,6 +166,7 @@ ul.facts li::before{content:"";width:5px;height:5px;border-radius:50%;background
 .tbl{width:100%;border-collapse:collapse;font-size:14px;line-height:20px}
 .tbl th{font-weight:600;color:var(--muted);text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap;font-size:13px}
 .tbl td{padding:12px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl td.subj{overflow-wrap:anywhere;min-width:12em}
 .tbl.dense td{padding:8px 12px;vertical-align:middle}
 .tbl tr.rowmuted td{color:var(--muted)}
 .verd{font-weight:600;white-space:nowrap}
@@ -210,8 +211,8 @@ ul.facts li::before{content:"";width:5px;height:5px;border-radius:50%;background
 .stp.todo .pt{background:var(--surface);border:1.5px solid var(--muted)}
 .stp.todo .hd b,.stp.todo .hd .sum{color:var(--muted)}
 .stp.cur .pt{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.stp .hd{display:flex;align-items:baseline;gap:8px;min-height:28px;padding:2px 0;font-size:14px;line-height:22px}
-.stp .hd .chev{align-self:center;color:var(--muted)}
+.stp .hd{display:flex;align-items:flex-start;gap:8px;min-height:28px;padding:2px 0;font-size:14px;line-height:22px}
+.stp .hd .chev{align-self:flex-start;margin-top:4px;color:var(--muted)}
 .stp .hd b{font-weight:600;min-width:64px}
 .stp .hd .sum{flex:1;min-width:0}
 .stp .hd .tm{font:400 12.5px/18px var(--mono);color:var(--muted);white-space:nowrap}
