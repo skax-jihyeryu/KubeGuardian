@@ -78,12 +78,14 @@ _AUTH_HEADER = re.compile(
     r"(?:(?:Basic|Bearer|Digest|Token|ApiKey|Negotiate)[ \t]+)?)[^\s\"'\\,;]+",
     re.IGNORECASE,
 )
-# Cookie·Set-Cookie 값은 `;`·`=`를 담으므로 줄 끝까지 가린다.
-_COOKIE_HEADER = re.compile(
-    r"(?P<head>(?<![A-Za-z0-9_.\-])(?:Set-)?Cookie[ \t]*:[ \t]*)[^\n]+", re.IGNORECASE
-)
-_COOKIE_JSON = re.compile(
-    r"(?P<head>\\?[\"'](?:Set-)?Cookie\\?[\"'][ \t]*:[ \t]*\\?[\"'])[^\"'\\\n]+", re.IGNORECASE
+# Cookie·Set-Cookie 값은 `;`·`=`·공백을 담으므로 `:`·`=` 구분자 모두 구분자 뒤를 통째로 가린다.
+# 값은 RFC 6265상 `"`·`\\`·줄바꿈을 담지 못하므로 거기서 멈춘다. 따옴표로 열린 값은 같은 따옴표에서,
+# 따옴표 없는 값은 (`Cookie: a=1; b=2`처럼 공백을 담으므로) 줄 끝이나 `"`에서 끝난다.
+_COOKIE = re.compile(
+    r"(?P<head>(?<![A-Za-z0-9_.\-])\\?[\"']?(?:Set-)?Cookie\\?[\"']?[ \t]*[:=][ \t]*"
+    r"(?:\\?(?P<q>[\"']))?)"
+    r"(?(q)(?:(?!(?P=q))[^\r\n\"\\])+|[^\r\n\"\\]+)",
+    re.IGNORECASE,
 )
 _CLI_FLAG = re.compile(
     r"(?<![^\s\"'\[,])--(?P<key>[A-Za-z0-9_.\-]+)[ \t]+(?P<val>[^\s\"'\-][^\s\"',]*)"
@@ -122,8 +124,7 @@ def redact_text(text: str) -> str:
     text = _KNOWN_TOKEN.sub(MASK, text)
     text = _BEARER.sub(rf"\g<head>{MASK}", text)
     text = _AUTH_HEADER.sub(rf"\g<head>{MASK}", text)
-    text = _COOKIE_HEADER.sub(rf"\g<head>{MASK}", text)
-    text = _COOKIE_JSON.sub(rf"\g<head>{MASK}", text)
+    text = _COOKIE.sub(rf"\g<head>{MASK}", text)
     text = _CLI_FLAG.sub(_mask_cli_flag, text)
     return _redact_key_values(text)
 

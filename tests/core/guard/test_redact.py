@@ -276,6 +276,28 @@ def test_auth_and_cookie_headers_in_text_are_masked(text, expected):
 
 
 @pytest.mark.parametrize(
+    "text, expected",
+    [
+        ('cookie="sid=abc; x=1" status=200', 'cookie="***" status=200'),
+        ("Cookie=sid=abc", "Cookie=***"),
+        ("cookie=sid=abc&x=1", "cookie=***"),
+        ('{\\"Cookie\\":\\"sid=abc; x=1\\"}', '{\\"Cookie\\":\\"***\\"}'),
+        ("{'Cookie': 'sid=x', 'Host': 'a'}", "{'Cookie': '***', 'Host': 'a'}"),
+        (
+            '{"ts":"t","msg":"Cookie: sid=abc","status":500,"path":"/api"}',
+            '{"ts":"t","msg":"Cookie: ***","status":500,"path":"/api"}',
+        ),
+        ('msg="GET / Cookie: sid=abc" level=info', 'msg="GET / Cookie: ***" level=info'),
+        ("Cookie: sid=abc\r\nHost: x", "Cookie: ***\r\nHost: x"),
+        ("Cookie: a=1; b=2 status=200", "Cookie: ***"),
+    ],
+)
+def test_cookie_assignment_forms_are_masked_without_eating_context(text, expected):
+    assert redact_text(text) == expected
+    assert redact_text(expected) == expected
+
+
+@pytest.mark.parametrize(
     "text",
     [
         "cookie_name: sessionid",
