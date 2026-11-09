@@ -10,7 +10,8 @@ from core.db.incident_acks import IncidentAck
 from core.db.incidents import Incident
 from core.guard.redact import redact_text
 from service.alerts.fingerprint import OTHER_FEATURE
-from service.model import Report
+from service.checks.detectors.catalog import CATALOG
+from service.model import Report, Signal
 from service.model.report import JUDGEMENT_LABEL, severity_for
 
 DISPLAY_TZ = ZoneInfo("Asia/Seoul")  # 운영자에게 보이는 시각
@@ -104,6 +105,21 @@ def mention_line(user_ids: Sequence[str]) -> list[str]:
     return ["👤 담당: " + " ".join(f"<@{u}>" for u in user_ids)]
 
 
+_RULE_NOTE = "📋 규칙 기반 진단 결과입니다. 근본 원인은 확인하지 않았습니다."
+_RULE_LINES = 3  # 규칙 결과 요약에 보이는 적발 수
+
+
+def rule_summary(findings: Sequence[Signal], lead: str | None = None) -> str:
+    """규칙 감지(경로 A) 알림의 상태 줄: AI 조사 중이라 하지 않고 규칙 결과를 요약한다 (#185)."""
+    lines = [lead] if lead else []
+    for f in findings[:_RULE_LINES]:
+        lines.append(f"• {clean(f.rule_id)} {clean(CATALOG[f.rule_id].name)} — {clean(f.subject)}")
+    if len(findings) > _RULE_LINES:
+        lines.append(f"• 외 {len(findings) - _RULE_LINES}건")
+    lines.append(_RULE_NOTE)
+    return "\n".join(lines)
+
+
 def _detected(namespace, incident, reason, at, url, status_line, owners=()):
     return "\n".join(
         [
@@ -125,17 +141,15 @@ def first_alert(
     at: datetime,
     url: str,
     owners: Sequence[str] = (),
+    findings: Sequence[Signal] = (),
 ) -> str:
-    """M1 1차 감지. AI 조사를 기다리지 않고 보낸다."""
-    return _detected(
-        namespace,
-        incident,
-        reason,
-        at,
-        url,
-        "🔍 원인을 조사하고 있습니다. 조사가 끝나면 이 메시지를 갱신합니다.",
-        owners,
+    """M1 1차 감지. AI 조사를 기다리지 않고 보낸다. 규칙 감지(findings)면 규칙 결과로 끝낸다."""
+    status = (
+        rule_summary(findings)
+        if findings
+        else "🔍 원인을 조사하고 있습니다. 조사가 끝나면 이 메시지를 갱신합니다."
     )
+    return _detected(namespace, incident, reason, at, url, status, owners)
 
 
 def changed_alert(
@@ -147,18 +161,19 @@ def changed_alert(
     url: str,
     owners: Sequence[str] = (),
     escalated: bool = False,
+    findings: Sequence[Signal] = (),
 ) -> str:
-    """M1 갱신: 지문이 바뀌거나 심각도가 올라 같은 이슈에서 다시 조사한다."""
+    """M1 갱신: 지문이 바뀌거나 심각도가 올라 같은 이슈에서 다시 조사한다.
+
+    규칙 감지(findings)면 조사하지 않고 바뀐 규칙 결과를 보인다.
+    """
     why = "심각도가 올라" if escalated else "상황이 바뀌어(새 신호·다른 실패 단계)"
-    return _detected(
-        namespace,
-        incident,
-        reason,
-        at,
-        url,
-        f"🔍 {why} 원인을 다시 조사하고 있습니다.",
-        owners,
+    status = (
+        rule_summary(findings, f"🔄 {why} 규칙 결과를 갱신했습니다.")
+        if findings
+        else f"🔍 {why} 원인을 다시 조사하고 있습니다."
     )
+    return _detected(namespace, incident, reason, at, url, status, owners)
 
 
 def cause_update(

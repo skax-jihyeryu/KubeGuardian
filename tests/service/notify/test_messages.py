@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 
 from core.db.incidents import Incident
-from service.model import Issue, Report
+from service.model import Issue, Report, Signal
 from service.notify import messages
 from tests.api.seed import at
 
@@ -84,6 +84,24 @@ def test_first_alert_is_itemized():
         f"• 감지: {messages.hhmm(NOW)} 점검",
         "• 사유: 적발: S01",
         "🔍 원인을 조사하고 있습니다. 조사가 끝나면 이 메시지를 갱신합니다.",
+        "🔗 이슈: http://kg.local/dev/issues/7",
+    ]
+
+
+def test_rule_first_alert_summarizes_rules_without_investigating_notice():
+    findings = [
+        Signal(rule_id="S01", verdict="detected", subject="dev/Service/agent", severity="critical"),
+        Signal(rule_id="S04", verdict="detected", subject="dev/Service/gateway", severity="info"),
+    ]
+
+    lines = messages.first_alert(
+        "dev", incident(), "적발: S01, S04", 1, NOW, URL, findings=findings
+    ).splitlines()
+
+    assert lines[3:] == [
+        "• S01 selector에 맞는 Pod 없음 — dev/Service/agent",
+        "• S04 서비스 주소 설정 오류 — dev/Service/gateway",
+        "📋 규칙 기반 진단 결과입니다. 근본 원인은 확인하지 않았습니다.",
         "🔗 이슈: http://kg.local/dev/issues/7",
     ]
 

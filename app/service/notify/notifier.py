@@ -2,8 +2,9 @@
 
 - 주기 점검이 긴급·주의 새 이슈를 열면 AI 조사를 기다리지 않고 M1(1차 감지)을 보낸다.
 - 조사가 끝나면 같은 M1을 원인으로 갱신하고(M1u) 스레드에 M9 답글을 단다. 미완·실패도 알린다.
-- 지문이 바뀌면 M1을 "다시 조사 중"으로 갱신한다. 해결되면 스레드 + 채널에 M3를 보낸다.
-  직접 점검(화면·CLI)에서 해결돼도 같다.
+- 규칙 감지(경로 A)는 AI 조사 없이 M1에 규칙 결과를 담는다 (조사 중 문구·M1u·M9 없음, #185).
+- 지문이 바뀌면 M1을 "다시 조사 중"(경로 A는 규칙 결과)으로 갱신한다.
+  해결되면 스레드 + 채널에 M3를 보낸다. 직접 점검(화면·CLI)에서 해결돼도 같다.
 - 재알림은 점검과 무관하게 작업자가 판단한다 (check_reminders). 열린 이슈의 M1 스레드에 M2를 달고,
   첫 M2는 M1 발송 + first_after, 다음은 마지막 M2 + then_every다. 확인(ack)되면 멈춘다 (#156).
 - 점검이 주기 세 배 넘게 돌지 않으면 M7을 한 번 보낸다 (호출은 diagnostic-agent 작업자, #28).
@@ -11,6 +12,7 @@
 """
 
 import re
+from collections.abc import Sequence
 from contextlib import suppress
 from datetime import datetime, timedelta
 from typing import Any
@@ -28,7 +30,7 @@ from core.log.logging import get_logging
 from core.schedule import stalled_after
 from service.agent.base import AgentResult
 from service.alerts.incidents import IncidentChange
-from service.model import GateResult
+from service.model import GateResult, Signal
 from service.notify import messages
 from service.notify.parent import reconcile_parent
 from service.notify.sender import DRY_RUN_PREFIX, Sender
@@ -76,17 +78,19 @@ class Notifier:
         self, run_id: int, gate: GateResult, changes: list[IncidentChange], now: datetime
     ) -> None:
         self.check_unknown(run_id, now)
+        # 규칙 감지(경로 A)는 AI 조사 중이라 안내하지 않고 규칙 결과를 알린다 (#185)
+        findings = gate.signals if gate.path == "A" else []
         for change in changes:
             incident = self._incidents.get(change.incident_id)
             if incident is None:
                 continue
             if change.action == "opened":
-                self._first_alert(incident, gate.reason, run_id, now)
+                self._first_alert(incident, gate.reason, run_id, now, findings)
             elif change.action == "changed":
-                self._changed(incident, gate.reason, run_id, now, change.escalated)
+                self._changed(incident, gate.reason, run_id, now, change.escalated, findings)
             elif change.action == "continued":
                 if not self._thread(incident):  # 1차 알림이 실패했거나 dry-run이었다 → 다시 보낸다
-                    self._first_alert(incident, gate.reason, run_id, now)
+                    self._first_alert(incident, gate.reason, run_id, now, findings)
             elif change.action == "resolved" and (thread := self._thread(incident)):
                 text = messages.recovery(self._ns, incident, now, self._url)
                 self._post("M3", incident.id, text, now, thread=thread, broadcast=True)
@@ -220,25 +224,47 @@ class Notifier:
 
     # ── 내부 ──
 
-    def _first_alert(self, incident: Incident, reason: str, run_id: int, now: datetime) -> None:
+    def _first_alert(
+        self,
+        incident: Incident,
+        reason: str,
+        run_id: int,
+        now: datetime,
+        findings: Sequence[Signal] = (),
+    ) -> None:
         if incident.first_severity not in ALERTED:
             return
         text = messages.first_alert(
-            self._ns, incident, reason, run_id, now, self._url, self._owners(incident)
+            self._ns, incident, reason, run_id, now, self._url, self._owners(incident), findings
         )
         ts = self._post("M1", incident.id, text, now, blocks=self._blocks(incident, text))
         if ts:
             self._incidents.set_slack_ts(incident.id, ts)
 
     def _changed(
-        self, incident: Incident, reason: str, run_id: int, now: datetime, escalated: bool = False
+        self,
+        incident: Incident,
+        reason: str,
+        run_id: int,
+        now: datetime,
+        escalated: bool = False,
+        findings: Sequence[Signal] = (),
     ) -> None:
         thread = self._thread(incident)
         if thread is None:
-            self._first_alert(incident, reason, run_id, now)  # 전에는 알리지 않던 심각도로 바뀜
+            # 전에는 알리지 않던 심각도로 바뀜
+            self._first_alert(incident, reason, run_id, now, findings)
             return
         text = messages.changed_alert(
-            self._ns, incident, reason, run_id, now, self._url, self._owners(incident), escalated
+            self._ns,
+            incident,
+            reason,
+            run_id,
+            now,
+            self._url,
+            self._owners(incident),
+            escalated,
+            findings,
         )
         self._update("M1u", incident, thread, text, now)
         self._call_new_owners(incident, thread, now)

@@ -626,3 +626,33 @@ def test_trace_id_of_the_investigation_span_is_stored(engine, monkeypatch):
 
     [inv] = InvestigationStore(engine).for_check(out.run_id)
     assert inv.trace_id is not None and len(inv.trace_id) == 32
+
+
+def test_rule_incident_recovery_and_continuation_flow_is_unchanged(engine):
+    from datetime import timedelta
+
+    from core.db import AlertStore, IncidentStore, InvestigationQueue
+    from service.notify.notifier import Notifier
+    from service.notify.sender import DryRunSender
+
+    def check(case, minutes):
+        out = _scheduled(engine, case, status=200, minutes=minutes)
+        at = NOW + timedelta(minutes=minutes)
+        Notifier(engine, SCENARIO_CONFIG, DryRunSender()).after_check(
+            out.run_id, out.gate, out.incidents, at
+        )
+        return out
+
+    opened = check("s01/detected", 0)
+    continued = check("s01/detected", 5)
+    resolved = check(None, 10)
+
+    assert [c.action for c in (opened.incidents[0], continued.incidents[0])] == [
+        "opened",
+        "continued",
+    ]
+    incident_id = opened.incidents[0].incident_id
+    assert resolved.incidents[0].action == "resolved"
+    assert IncidentStore(engine).get(incident_id).status == "resolved"
+    assert [a.kind for a in AlertStore(engine).for_incident(incident_id)] == ["M1", "M3"]
+    assert InvestigationQueue(engine).claim(NOW, timedelta(hours=1)) is None
