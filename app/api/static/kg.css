@@ -167,7 +167,8 @@ ul.facts li::before{content:"";width:5px;height:5px;border-radius:50%;background
 .tbl{width:100%;border-collapse:collapse;font-size:14px;line-height:var(--lh-table)}
 .tbl th{font-weight:600;color:var(--muted);text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap;font-size:13px}
 .tbl td{padding:12px;border-bottom:1px solid var(--line);vertical-align:top}
-.tbl td.subj{overflow-wrap:anywhere;min-width:12em}
+.tbl td.subj{overflow-wrap:anywhere;min-width:8em}
+.tblwrap{overflow-x:auto}
 .tbl.dense td{padding:8px 12px;vertical-align:middle}
 .tbl tr.rowmuted td{color:var(--muted)}
 .verd{font-weight:600;white-space:nowrap}
@@ -216,7 +217,8 @@ ul.facts li::before{content:"";width:5px;height:5px;border-radius:50%;background
 .stp .hd .chev{align-self:flex-start;margin-top:4px;color:var(--muted)}
 .stp .hd b{font-weight:600;min-width:64px}
 .stp .hd .sum{flex:1;min-width:0}
-.stp .hd .tm{font:400 12.5px/18px var(--mono);color:var(--muted);white-space:nowrap}
+.stp .hd .tm{font:400 12.5px/22px var(--mono);color:var(--muted);white-space:nowrap}
+.stp .hd .aux,.stp .hd .s13{line-height:22px}
 .stp .sbody{padding:2px 0 8px;font-size:14px;line-height:22px}
 .curcard{background:var(--accent-soft);border-radius:8px;padding:8px 12px 12px;margin-left:-8px}
 .curcard .hd{padding-left:0}
@@ -269,6 +271,7 @@ ul.facts li::before{content:"";width:5px;height:5px;border-radius:50%;background
 .evn{display:inline-flex;gap:6px;margin-top:12px}
 .evn span{font:400 12.5px/18px var(--mono);padding:0 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
 .evn span.on{border-color:var(--accent);color:var(--accent);font-weight:500}
+@media(min-width:961px){.app:has(#chat-panel) .detail{padding-right:424px}}
 .chat{position:absolute;right:0;top:96px;bottom:0;width:400px;background:var(--surface);border-left:1px solid var(--line);box-shadow:0 0 16px rgba(0,0,0,.10);z-index:4;display:flex;flex-direction:column}
 .chat .ch{padding:14px 16px 12px;border-bottom:1px solid var(--line)}
 .chat .ch .t1{display:flex;align-items:center;justify-content:space-between;font:600 16px/24px var(--sans)}
