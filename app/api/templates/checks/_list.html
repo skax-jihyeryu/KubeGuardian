@@ -4,7 +4,7 @@
     <div class="frow">
     {% for name, label, choices in [
       ('period','기간',[('all','전체 기간'),('1d','최근 24시간'),('7d','최근 7일'),('30d','최근 30일')]),
-      ('severity','심각도',[('','모든 심각도'),('critical','긴급'),('warning','주의'),('info','잠재 위험'),('tip','개선 권고'),('calm','이상 없음')]),
+      ('severity','심각도',[('','모든 심각도'),('critical','긴급'),('warning','주의'),('info','잠재 위험'),('tip','개선 권고'),('calm','정상')]),
       ('relation','이슈 관계',[('','모든 관계'),('opened','열림'),('continued','이어짐'),('resolved','해결'),('none','관계없음')]),
       ('trigger','실행 방식',[('','모든 실행'),('schedule','주기 점검'),('ui','직접 점검'),('check','CLI 점검'),('investigate','CLI 조사')]),
       ('status','점검 상태',[('','모든 상태'),('running','진행 중'),('done','완료'),('unknown','일부 확인하지 못함'),('halted','중단')])
