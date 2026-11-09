@@ -43,6 +43,7 @@ from service.agent.investigator.v1.coverage import (
     find_gaps,
     mark_unobserved,
 )
+from service.agent.investigator.v1.edge_table import classify, error_lines, select_edges
 from service.agent.investigator.v1.state import (
     InvestigationPlan,
     InvestigationState,
@@ -66,6 +67,11 @@ EVENTS_MINUTES = 30
 # 이 호출은 전체 상한(20)에는 들어가지만, start_issue가 문제당 카운터를 0으로 되돌리므로
 # 문제당 상한(8)에는 들어가지 않는다. 사전 확인은 최대 2(토폴로지·이벤트) + 1(시나리오) + 4 = 7회다.
 PRELIMINARY_LOG_CALLS = 4
+# 호출 구간 근거표(#246): 구간 수와 구간 로그 조회(호출하는 쪽, 경로 밖 받는 쪽) 상한. 사전 확인은
+# 최대 7 + 3 = 10회다. 구간 조회 전에 문제당 카운터를 0으로 되돌려 문제당 상한(8)에 걸리지
+# 않게 한다.
+PRELIMINARY_EDGE_CALLS = 3
+PRELIMINARY_EDGE_LOG_CALLS = 3
 _ERROR_GREP = "error|exception|fail|timeout|refused|429|502|503|504"
 _PRELIMINARY_LOG_ARGS = {"tail": 5, "since_seconds": 1800, "grep": _ERROR_GREP}
 _OLD_TOOL_EXCERPT_CHARS = 1600
@@ -83,6 +89,11 @@ _RETRY_NOTE = (
 def _is_ready(pod: dict) -> bool:
     conditions = (pod.get("status") or {}).get("conditions") or []
     return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+
+
+def ordered_pods(hierarchy: dict, ready: dict[str, bool], service: str) -> list[str]:
+    """서비스의 Pod 이름. Ready가 아닌 Pod를 앞에 두고, 그다음 이름순이다."""
+    return sorted((p.pod for p in hierarchy.get(service, [])), key=lambda n: (ready[n], n))
 
 
 def build_graph(agent: "InvestigatorV1"):
@@ -136,25 +147,31 @@ def build_graph(agent: "InvestigatorV1"):
         fact = Fact(statement=f"{name}: {result.summary}", evidence_ids=[result.evidence_id])
         return fact, result.ok
 
-    def failed_path_pods(state: InvestigationState) -> list[str]:
-        """실패한 시나리오가 지나는 서비스의 Pod. 서비스마다 하나씩 돌고 나서 다음 Pod를 돈다.
-
-        서비스 안에서는 Ready가 아닌 Pod를 앞에 두고, 그다음 이름순이다.
-        """
-        symptoms = state["request"].symptoms
-        services = ctx.scenario_services.get(symptoms[0].scenario, []) if symptoms else []
-        if not services:
-            return []
+    def cluster_pods() -> tuple[dict, dict[str, bool]] | None:
+        """서비스별 Pod 계층과 Pod별 Ready. 읽지 못했으면 None."""
         try:
             snapshot = read(tool_ctx, "Service", "ReplicaSet", "Pod")
             hierarchy = service_hierarchy(snapshot)
         except Exception:  # noqa: BLE001 — Pod를 못 읽어도 조사는 계속한다
+            return None
+        if hierarchy is None:
+            return None
+        return hierarchy, {p["metadata"]["name"]: _is_ready(p) for p in snapshot.items("Pod") or []}
+
+    def scenario_path(state: InvestigationState) -> list[str]:
+        symptoms = state["request"].symptoms
+        return ctx.scenario_services.get(symptoms[0].scenario, []) if symptoms else []
+
+    def failed_path_pods(state: InvestigationState, cluster) -> list[str]:
+        """실패한 시나리오가 지나는 서비스의 Pod. 서비스마다 하나씩 돌고 나서 다음 Pod를 돈다.
+
+        서비스 안에서는 Ready가 아닌 Pod를 앞에 두고, 그다음 이름순이다.
+        """
+        services = scenario_path(state)
+        if not services or cluster is None:
             return []
-        ready = {p["metadata"]["name"]: _is_ready(p) for p in snapshot.items("Pod") or []}
-        pods = {
-            s: sorted((p.pod for p in (hierarchy or {}).get(s, [])), key=lambda n: (ready[n], n))
-            for s in services
-        }
+        hierarchy, ready = cluster
+        pods = {s: ordered_pods(hierarchy, ready, s) for s in services}
         rounds = max(map(len, pods.values()), default=0)
         ordered = [pods[s][i] for i in range(rounds) for s in services if i < len(pods[s])]
         return ordered[:PRELIMINARY_LOG_CALLS]
@@ -169,6 +186,105 @@ def build_graph(agent: "InvestigatorV1"):
         else:
             return None
         return Fact(statement=statement, evidence_ids=[result.evidence_id])
+
+    def edge_table_fact(path: list[str], topology, cluster, path_logs: dict):
+        """실패 경로의 호출 구간마다 관찰 사실 한 줄을 모은 Fact, 새로 쓴 근거 번호, 관찰 기록."""
+        edges = select_edges(topology.data.get("edges") or [], path, PRELIMINARY_EDGE_CALLS)
+        if not edges:
+            return None, [], []
+        hierarchy, ready = cluster or ({}, {})
+        topo_id = topology.evidence_id
+        ids, obs, rows = [topo_id], [], []
+        left = PRELIMINARY_EDGE_LOG_CALLS
+        target_logs: dict[str, tuple[int | None, list[str], list[str], str]] = {}
+
+        def lookup(pod: str, extra: dict):
+            """(결과 또는 None, 사유). 구간 로그 조회 상한이나 도구 상한이면 결과가 없다."""
+            nonlocal left
+            if left <= 0:
+                return None, "조회하지 못함(호출 상한)"
+            left -= 1
+            args = {"pod": pod, **extra}
+            if (result := run_tool("get_pod_logs", args)) is None:
+                return None, "조회하지 못함(호출 상한)"
+            ids.append(result.evidence_id)
+            if not result.ok or result.data.get("match_count"):
+                obs.append(observation(result.evidence_id, "get_pod_logs", args, result.ok))
+            return result, ""
+
+        def target_side(target: str):
+            """(오류 줄 수 또는 None, 오류 원문 줄, 인용 근거, 사유)"""
+            if target in target_logs:
+                return target_logs[target]
+            pods = ordered_pods(hierarchy, ready, target)
+            if not pods:
+                found = (None, [], [], "받는 쪽 Pod 정보 없음")
+            else:
+                done = [path_logs[p] for p in pods if p in path_logs]
+                if not done:
+                    result, why = lookup(pods[0], _PRELIMINARY_LOG_ARGS)
+                    done = [result] if result else []
+                good = [r for r in done if r.ok]
+                if good:
+                    lines = [x for r in good for x in r.data.get("lines") or []]
+                    count = sum(r.data.get("match_count") or 0 for r in good)
+                    found = (count, lines, [r.evidence_id for r in good], "")
+                elif done:
+                    found = (None, [], [r.evidence_id for r in done], done[0].summary)
+                else:
+                    found = (None, [], [], why)
+            target_logs[target] = found
+            return found
+
+        for n, e in enumerate(edges, 1):
+            src, tgt = e["source"], e["target"]
+            callers = ordered_pods(hierarchy, ready, src)
+            caller_errors, caller_lines, caller_ids, caller_why = (
+                None,
+                [],
+                [],
+                "호출하는 쪽 Pod 정보 없음",
+            )
+            if callers:
+                host_args = {"tail": 5, "since_seconds": 1800, "grep": tgt}
+                result, caller_why = lookup(callers[0], host_args)
+                if result is not None and result.ok:
+                    matched = result.data.get("lines") or []
+                    caller_lines = error_lines(matched)
+                    caller_errors, caller_ids = len(caller_lines), [result.evidence_id]
+                elif result is not None:
+                    caller_ids, caller_why = [result.evidence_id], result.summary
+            count, lines, target_ids, target_why = target_side(tgt)
+            target_errors = None if count is None else len(error_lines(lines))
+            tpods = ordered_pods(hierarchy, ready, tgt)
+            tready = (
+                f"받는 쪽 {tgt} Pod Ready {sum(ready[p] for p in tpods)}/{len(tpods)} [{topo_id}]"
+                if cluster
+                else f"받는 쪽 {tgt} Pod 정보 없음"
+            )
+            cite = lambda ev: f" [{', '.join(ev)}]" if ev else ""  # noqa: E731
+            caller_text = (
+                f"호출하는 쪽 {callers[0]} 로그의 '{tgt}' 일치 줄 중 오류 키워드 {caller_errors}줄"
+                f"{cite(caller_ids)}"
+                if caller_errors is not None
+                else f"호출하는 쪽 로그 {caller_why}{cite(caller_ids)}"
+            )
+            target_text = (
+                f"받는 쪽 오류 로그 {target_errors}줄{cite(target_ids)}"
+                if target_errors is not None
+                else f"받는 쪽 오류 로그 {target_why}{cite(target_ids)}"
+            )
+            port = f" (포트 {e['port']})" if e.get("port") else ""
+            row = [
+                f"{n}. {src} → {tgt}{port}: {caller_text}; {tready}; {target_text}"
+                f" => {classify(caller_errors, target_errors)}"
+            ]
+            row += [f"  호출하는 쪽: {x[:_FACT_LINE_MAX]}" for x in caller_lines[:2]]
+            row += [f"  받는 쪽: {x[:_FACT_LINE_MAX]}" for x in error_lines(lines)[:2]]
+            rows.append("\n".join(row))
+        evidence_ids = list(dict.fromkeys([*ids, *(i for r in target_logs.values() for i in r[2])]))
+        statement = "\n".join(["호출 구간 근거표 (관찰 사실, 원인 판단 아님):", *rows])
+        return Fact(statement=statement, evidence_ids=evidence_ids), evidence_ids, obs
 
     def issue_title(state: InvestigationState, index: int) -> str:
         issues = state["triage"].issues
@@ -203,23 +319,40 @@ def build_graph(agent: "InvestigatorV1"):
                     for n in (failed or scenario.scenario_names)[:1]
                 ]
             facts, obs = [], []
+            topology = None
             for name, args in calls:
-                if called := call_tool(name, args):
-                    fact, ok = called
+                if result := run_tool(name, args):
+                    fact = Fact(
+                        statement=f"{name}: {result.summary}", evidence_ids=[result.evidence_id]
+                    )
                     facts.append(fact)
-                    obs.append(observation(fact.evidence_ids[0], name, args, ok))
+                    obs.append(observation(result.evidence_id, name, args, result.ok))
+                    if name == "get_topology" and result.ok:
+                        topology = result
             s.evidence_ids = [i for f in facts for i in f.evidence_ids]
             if state["request"].gate_path == "B" and "get_pod_logs" in tools:
-                for pod in failed_path_pods(state):
+                cluster = cluster_pods()
+                path_logs = {}
+                for pod in failed_path_pods(state, cluster):
                     args = {"pod": pod, **_PRELIMINARY_LOG_ARGS}
                     if (result := run_tool("get_pod_logs", args)) is None:
                         continue
+                    path_logs[pod] = result
                     s.evidence_ids.append(result.evidence_id)
                     if fact := error_log_fact(pod, result):
                         facts.append(fact)
                     # 일치 줄이 없거나 실패한 조회는 로그를 확인한 것으로 세지 않는다 (커버리지)
                     if not result.ok or result.data.get("match_count"):
                         obs.append(observation(result.evidence_id, "get_pod_logs", args, result.ok))
+                if topology is not None and scenario_path(state):
+                    ctx.budget.start_issue()  # 사전 확인 호출은 문제당 상한에 넣지 않는다
+                    table, used, edge_obs = edge_table_fact(
+                        scenario_path(state), topology, cluster, path_logs
+                    )
+                    if table:
+                        facts.append(table)
+                        obs += edge_obs
+                        s.evidence_ids += [i for i in used if i not in s.evidence_ids]
         return {
             "facts": facts,
             "seen": state["seen"] + s.evidence_ids,
