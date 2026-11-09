@@ -322,7 +322,7 @@ def list_checks(
                 run_id,
                 md_hm(started),
                 Sev(*severity) if severity else None,
-                redact_text(summary or "이상 없음"),
+                redact_text(summary or "정상"),
                 TRIGGER_LABEL.get(trigger, trigger),
                 "일부 확인하지 못함"
                 if state == "done" and unknown

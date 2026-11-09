@@ -24,8 +24,8 @@
           {%- set label, dots = h.judgement %}
           <span class="conf"><span class="dots" aria-hidden="true">{% for i in range(3) %}<i{% if i >= dots %} class="e"{% endif %}></i>{% endfor %}</span>판단: {{ label }}</span>
           {%- endif %}
-          {%- elif h.kind == "calm" %}
-          <span class="calm" style="font-size:16px;font-weight:700">{{ ic("check-circle", "ok-ic") }}이상 없음</span>
+          {%- elif h.kind == "calm" and not h.unknown %}
+          <span class="calm check-ok" style="font-size:16px;font-weight:700">{{ ic("check-circle") }}정상</span>
           {%- endif %}
           {%- for i in h.issues %}
           <a class="mono s14" href="/{{ p }}/issues/{{ i.id }}">이슈 #{{ i.id }} {{ i.label }} {{ ic("arrow-right", "ic14") }}</a>
