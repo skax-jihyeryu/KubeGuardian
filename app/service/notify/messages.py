@@ -162,8 +162,11 @@ def changed_alert(
     owners: Sequence[str] = (),
     escalated: bool = False,
     findings: Sequence[Signal] = (),
+    investigated: bool = True,
 ) -> str:
     """M1 갱신: 지문이 바뀌거나 심각도가 올라 같은 이슈에서 다시 조사한다.
+
+    이전 AI 조사가 없었으면(investigated=False) "다시"를 쓰지 않는다 (규칙 진단에서 넘어온 경우).
 
     규칙 감지(findings)면 조사하지 않고 바뀐 규칙 결과를 보인다.
     """
@@ -171,7 +174,7 @@ def changed_alert(
     status = (
         rule_summary(findings, f"🔄 {why} 규칙 결과를 갱신했습니다.")
         if findings
-        else f"🔍 {why} 원인을 다시 조사하고 있습니다."
+        else f"🔍 {why} 원인을 {'다시 ' if investigated else ''}조사하고 있습니다."
     )
     return _detected(namespace, incident, reason, at, url, status, owners)
 

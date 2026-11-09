@@ -276,3 +276,26 @@ def test_worker_skips_ai_for_rule_request_queued_before_deploy(engine, caplog):
     assert f"[작업] 이슈 #{iid} 규칙 감지 요청이라 AI 조사 생략" in caplog.text
     assert InvestigationQueue(engine).queued_run(iid) is None
     assert [a.kind for a in AlertStore(engine).for_incident(iid)] == []  # 조사 결과 알림 없음
+
+
+def test_claimed_ai_job_is_superseded_when_incident_turns_into_rule_detection(engine):
+    # B 조사가 집힌 뒤 지문이 바뀌어 규칙 감지(A)가 되면 조사는 밀려나 결과·M1u를 남기지 않는다
+    iid = _opened(engine)
+    queue = InvestigationQueue(engine)
+    job = queue.claim(NOW, timedelta(minutes=10))
+    at = NOW + timedelta(minutes=5)
+    out = run_check(
+        FixtureReader(*raw_cluster("s01/detected")),
+        SCENARIO_CONFIG,
+        engine,
+        trigger="schedule",
+        now=at,
+        http=FakeHttp({("gateway", "/chat"): 500}),
+    )
+    assert out.gate.path == "A" and out.incidents[0].action == "changed"
+    queue_investigations(engine, SCENARIO_CONFIG, out, trigger="schedule", now=at)
+
+    notifier = Notifier(engine, CONFIG, DryRunSender())
+    assert complete_job(engine, notifier, job, None, at) is False
+    assert IncidentStore(engine).get(iid).investigation == "rule"
+    assert "M1u" not in [a.kind for a in AlertStore(engine).for_incident(iid)]

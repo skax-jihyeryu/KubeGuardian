@@ -622,18 +622,18 @@ def _gate(d: _Loaded) -> GateLine | None:
         return GateLine(
             f"조사 시작 — {why} (대기 중)", True, "작업자가 조사를 가져가면 시작합니다."
         )
+    if path == "A":
+        return GateLine(
+            "조사 안 함 — 규칙 기반 진단 결과",
+            False,
+            "규칙이 장애를 적발해 AI 원인 조사를 하지 않고 규칙 근거로 보여 줍니다.",
+        )
     continued = [inc for inc, action in d.links if action == "continued"]
     if continued:
         return GateLine(
             f"조사 안 함 — 이슈 #{continued[0].id}에 이어짐",
             False,
             "같은 문제가 이어져 다시 조사하지 않습니다.",
-        )
-    if path == "A":
-        return GateLine(
-            "조사 안 함 — 규칙 기반 진단 결과",
-            False,
-            "규칙이 장애를 적발해 AI 원인 조사를 하지 않고 규칙 근거로 보여 줍니다.",
         )
     return GateLine("조사 안 함 — 조사 요청이 기록되지 않음", False, "")
 

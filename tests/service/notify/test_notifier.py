@@ -207,9 +207,27 @@ def test_direct_check_resolution_also_sends_recovery(env):
     assert sender.posts[-1]["text"].startswith("✅")
 
 
+def _finished_ai_investigation(engine, incident_id):
+    from datetime import UTC, datetime
+
+    from core.db import CheckRunStore, InvestigationStore
+
+    run = CheckRunStore(engine).create("schedule", NOW)
+    InvestigationStore(engine).start(
+        check_run_id=run,
+        incident_id=incident_id,
+        run_key="t",
+        agent="investigator:v1",
+        trigger="schedule",
+        now=datetime.now(UTC),
+    )
+
+
 def test_changed_fingerprint_updates_first_alert(env):
-    _, sender, check = env
+    engine, sender, check = env
     check([], NOW, symptoms=[_failed(2)])
+
+    _finished_ai_investigation(engine, 1)  # 이전 AI 조사가 있어야 "다시"다
 
     check([], NOW + timedelta(minutes=5), symptoms=[_failed(3)])
 
@@ -261,7 +279,8 @@ def test_rule_to_symptom_change_resumes_investigation_notice(env):
 
     check([], NOW + timedelta(minutes=5), symptoms=[_failed()])
 
-    assert "원인을 다시 조사하고 있습니다" in sender.updates[0]["text"]
+    update = sender.updates[0]["text"]  # 이전 AI 조사가 없었으므로 "다시"가 없다
+    assert "원인을 조사하고 있습니다" in update and "다시" not in update
 
 
 def test_symptom_to_rule_change_replaces_investigating_notice(env):
@@ -816,3 +835,13 @@ def test_reminder_after_escalation_ignores_m2_sent_while_warning(tmp_path):
     assert len(_m2(sender)) == 2
     notifier.check_reminders(NOW + timedelta(hours=3))  # then_every 없음 → 더는 없다
     assert len(_m2(sender)) == 2
+
+
+def test_rule_first_alert_keeps_owner_mention_line(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path)
+
+    check([_sig()], NOW)
+
+    text = sender.posts[0]["text"]
+    assert "📋 규칙 기반 진단 결과입니다" in text and MENTION in text
+    assert text.index("📋") < text.index(MENTION) < text.index("🔗 이슈")

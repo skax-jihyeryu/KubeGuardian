@@ -41,8 +41,13 @@ class RuleReport:
     failed_features: list[FailedFeature]
 
 
-def build_rule_report(result: CheckResult | None) -> RuleReport | None:
-    """경로 A 점검의 적발 항목. 장애 신호 적발이 없으면 None."""
+def build_rule_report(
+    result: CheckResult | None, targets: set[tuple[str, str]] | None = None
+) -> RuleReport | None:
+    """경로 A 점검의 적발 항목. 장애 신호 적발이 없으면 None.
+
+    targets(이슈의 (규칙 ID, 대상))를 주면 그 이슈의 적발만 남긴다 (한 점검에 이슈 여럿).
+    """
     if result is None or result.gate_path != "A":
         return None
     findings = []
@@ -52,6 +57,8 @@ def build_rule_report(result: CheckResult | None) -> RuleReport | None:
             continue
         for item in rule.get("items", []):
             if item.get("verdict") != "detected":
+                continue
+            if targets and (spec.id, item.get("subject")) not in targets:
                 continue
             sev = SEVERITY.get(item.get("severity") or "")
             findings.append(

@@ -21,7 +21,13 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from core.config import KubeGuardianConfig
-from core.db import AlertStore, CheckRunStore, IncidentAckStore, IncidentStore
+from core.db import (
+    AlertStore,
+    CheckRunStore,
+    IncidentAckStore,
+    IncidentStore,
+    InvestigationStore,
+)
 from core.db.alerts import Alert
 from core.db.incidents import Incident
 from core.db.tables import AlertRow, CheckResultRow
@@ -265,6 +271,7 @@ class Notifier:
             self._owners(incident),
             escalated,
             findings,
+            bool(InvestigationStore(self._engine).for_incident(incident.id)),
         )
         self._update("M1u", incident, thread, text, now)
         self._call_new_owners(incident, thread, now)
