@@ -13,6 +13,7 @@ load_context → preliminary → triage → plan → act ⇄ tools → write_rep
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
 from core.guard.validate import validate_report
+from service.agent._common.language import KOREAN_ONLY_NOTE, han_fields
 from service.agent._common.prompts import load_prompt
 from service.agent._common.structured import invoke_structured
 from service.agent._common.tool_adapter import to_langchain_tool, wrap_tool_output
@@ -48,6 +50,8 @@ from service.tools._common import read
 
 if TYPE_CHECKING:
     from service.agent.investigator.v1.agent import InvestigatorV1
+
+logger = logging.getLogger(__name__)
 
 KNOWLEDGE_DIR = Path(__file__).parents[3] / "knowledge"
 EVENTS_MINUTES = 30
@@ -373,7 +377,14 @@ def build_graph(agent: "InvestigatorV1"):
             history.append(
                 HumanMessage(prompt("report", issue=issue, facts=render_facts(state["facts"])))
             )
-            report = invoke_structured(agent.llm("report"), Report, history, usage=ctx.usage)
+            llm = agent.llm("report")
+            report = invoke_structured(llm, Report, history, usage=ctx.usage)
+            # 한자(중국어) 문장이 섞이면 1회만 다시 쓰게 한다. 시간이 없으면 건너뛴다 (#230)
+            if han_fields(report) and not ctx.budget.time_over():
+                history.append(HumanMessage(KOREAN_ONLY_NOTE))
+                report = invoke_structured(llm, Report, history, usage=ctx.usage)
+            if bad := han_fields(report):
+                logger.warning("보고서에 한자가 남았다: %s", ", ".join(bad))
         return {"report": report, "report_attempts": attempts}
 
     def validate(state: InvestigationState) -> InvestigationState:

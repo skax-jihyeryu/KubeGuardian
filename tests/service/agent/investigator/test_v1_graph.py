@@ -1557,3 +1557,58 @@ def test_preliminary_log_failure_cannot_support_a_chain_hop():
     assert result.status == "done", result.error
     first = next(s for s in result.steps if s.node == "stop_check")
     assert "호출 체인 1번째 지점에 유효한 근거가 없습니다" in first.detail["gaps"]
+
+
+ZH = "gateway 调用外部 endpoint 时收到 403，下游错误导致聊天返回错误答案"
+
+
+def test_chinese_conclusion_is_rewritten_once_and_korean_kept():
+    bad = json.loads(_report(["ev-1"]))
+    bad["conclusion"] = ZH
+    script = [TRIAGE, PLAN, AIMessage(content="조사 완료"), json.dumps(bad), _report(["ev-1"])]
+    result, llm, _ = _run(script)
+
+    assert result.status == "done"
+    assert result.report.conclusion == "gateway 주소 env가 localhost"
+    assert [s.node for s in result.steps].count("write_report") == 1  # 노드 재진입이 아니다
+    assert "한국어로 다시 작성" in str(llm.calls[-1][-1].content)
+
+
+def test_chinese_remaining_after_rewrite_keeps_report_and_warns(caplog):
+    bad = json.dumps({**json.loads(_report(["ev-1"])), "conclusion": ZH})
+    script = [TRIAGE, PLAN, AIMessage(content="조사 완료"), bad, bad]
+    result, _, _ = _run(script)
+
+    assert result.status == "done"
+    assert result.report.conclusion == ZH
+    assert "한자" in caplog.text and "conclusion" in caplog.text
+
+
+def test_korean_report_is_not_rewritten():
+    result, llm, _ = _run([TRIAGE, PLAN, AIMessage(content="조사 완료"), _report(["ev-1"])])
+
+    assert result.status == "done"
+    assert not any("한국어로 다시 작성" in str(c[-1].content) for c in llm.calls)
+
+
+def test_chinese_rewrite_skipped_when_time_is_over():
+    clock = Clock()
+    bad = json.dumps({**json.loads(_report(["ev-1"])), "conclusion": ZH})
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        lambda: (setattr(clock, "t", 999), bad)[1],
+    ]
+    result, llm, _ = _run(script, clock=clock)
+
+    assert result.report.conclusion == ZH
+    assert not any("한국어로 다시 작성" in str(c[-1].content) for c in llm.calls)
+
+
+def test_hangul_and_evidence_text_are_not_flagged():
+    from service.agent._common.language import han_fields
+    from service.model import Report
+
+    r = Report.model_validate_json(_report(["ev-1"], verification="로그에서 확인"))
+    assert han_fields(r) == []
