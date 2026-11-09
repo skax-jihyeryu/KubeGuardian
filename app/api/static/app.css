@@ -81,3 +81,5 @@ button:disabled{cursor:default}
 .chat .chat-new:hover:not(:disabled){background:var(--surface-2)}
 .chat .chat-new:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .chat .chat-new:disabled{color:var(--muted);cursor:wait}
+/* 근거 전체 표: 요약 줄만 보이게 접는다 */
+details.evfold>summary{cursor:pointer;color:var(--muted);margin-bottom:8px}
