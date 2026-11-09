@@ -11,7 +11,7 @@ if [[ -f "$STATE" ]]; then
 fi
 original="$(current_value)"
 if [[ "$original" != "http://${HOST}:"* ]]; then
-  echo "$NS/Deployment/$DEPLOY의 $ENV_NAME이 예상 형식(http://${HOST}:<포트>)이 아니다: ${original:-없음}" >&2
+  echo "${NS}/Deployment/${DEPLOY}의 ${ENV_NAME}이 예상 형식(http://${HOST}:<포트>)이 아니다: ${original:-없음}" >&2
   exit 1
 fi
 injected="$(typo_value "$original")"

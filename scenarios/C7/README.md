@@ -6,7 +6,7 @@
 |---|---|
 | `expected.yaml` | 정답 원인, 영향 서비스, 기대 1순위, `k8s_visible` |
 | `inject.sh` | 장애 주입 |
-| `verify_symptom.sh` | 증상 발생 확인. 실패하면 그 실행은 무효 |
+| `verify_symptom.sh` | 증상 발생 확인(채팅 호출 5xx만 증상, 환경 문제는 무효). 실패하면 그 실행은 무효 |
 | `reset.sh` | 원복 |
 | `lib.sh` | 공용 안전 검사·주입값 계산 |
 

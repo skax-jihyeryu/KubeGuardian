@@ -16,7 +16,8 @@ key_evidence:
     # 값은 get_topology의 unresolved edge(target agent. 또는 agent-)나 gateway 로그의 업스트림 실패 주소로 확인한다
     obtainable: true
     any_of:
-      - {kind: resource, subject: "*/Topology/*", contains: [unresolved, "agent"]}
+      - {kind: resource, subject: "*/Topology/*", contains: ['"agent."', unresolved]}
+      - {kind: resource, subject: "*/Topology/*", contains: ['"agent-"', unresolved]}
       - {kind: log_excerpt, subject: "*/Pod/gateway-*", contains: "Name or service not known"}
 not_a_cause:
   - text: "agent는 정상이다 (gateway가 잘못된 주소로 호출할 뿐)"
