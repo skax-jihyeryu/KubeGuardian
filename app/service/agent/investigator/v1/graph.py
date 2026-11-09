@@ -13,13 +13,16 @@ load_context → preliminary → triage → plan → act ⇄ tools → write_rep
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
+from core.error.service_exception import ServiceException
 from core.guard.validate import validate_report
+from service.agent._common.language import KOREAN_ONLY_NOTE, cited_ids, han_fields
 from service.agent._common.prompts import load_prompt
 from service.agent._common.structured import invoke_structured
 from service.agent._common.tool_adapter import to_langchain_tool, wrap_tool_output
@@ -49,6 +52,8 @@ from service.tools._common import read
 if TYPE_CHECKING:
     from service.agent.investigator.v1.agent import InvestigatorV1
 
+logger = logging.getLogger(__name__)
+
 KNOWLEDGE_DIR = Path(__file__).parents[3] / "knowledge"
 EVENTS_MINUTES = 30
 # 경로 B 사전 확인에서 실패 경로 서비스의 오류 줄을 모으는 get_pod_logs 호출 수.
@@ -60,6 +65,9 @@ _PRELIMINARY_LOG_ARGS = {"tail": 5, "since_seconds": 1800, "grep": _ERROR_GREP}
 _FACT_LINE_MAX = 200  # Fact 문장에 넣는 로그 한 줄의 상한
 NEXT_ISSUE_MIN_SECONDS = 40  # 남은 시간이 이보다 적으면 다음 문제를 조사하지 않는다
 _NOT_INVESTIGATED = "(예산 부족으로 조사하지 못함)"
+REPORT_SECONDS = (
+    25  # 보고서 한 번 쓰는 데 드는 예상 시간. 남은 시간이 이보다 적으면 한자 재작성을 하지 않는다
+)
 _RETRY_NOTE = (
     "결론에 실제 근거 번호(ev-N)가 없습니다. 도구 결과에 있는 근거 번호를 인용해 다시 쓰세요."
 )
@@ -355,6 +363,31 @@ def build_graph(agent: "InvestigatorV1"):
                 messages.append(ToolMessage(content, tool_call_id=call["id"]))
         return {"messages": messages, "seen": seen, "observations": obs, "limited": limited}
 
+    def rewrite_if_han(llm, report: Report, history: list) -> Report:
+        """한자 문장이 섞인 보고서를 1회 다시 쓰게 한다 (#230). 나쁜 재작성은 버린다."""
+        if not han_fields(report):
+            return report
+        if ctx.budget.remaining_seconds() < REPORT_SECONDS:
+            logger.warning("한자가 있으나 남은 시간이 적어 재작성하지 않는다")
+            return report
+        ask = [
+            *history,
+            AIMessage(content=report.model_dump_json()),
+            HumanMessage(KOREAN_ONLY_NOTE),
+        ]
+        try:
+            second = invoke_structured(llm, Report, ask, usage=ctx.usage)
+        except ServiceException as e:
+            logger.warning("한자 재작성에 실패해 첫 보고서를 유지한다: %s", e)
+            return report
+        if bad := han_fields(second):
+            logger.warning("재작성 뒤에도 한자가 남아 첫 보고서를 유지한다: %s", ", ".join(bad))
+            return report
+        if not cited_ids(second) >= cited_ids(report):
+            logger.warning("재작성본이 근거 번호를 잃어 첫 보고서를 유지한다")
+            return report
+        return second
+
     def write_report(state: InvestigationState) -> InvestigationState:
         attempts = state["report_attempts"] + 1
         with agent.step("write_report", attempt=attempts):
@@ -373,7 +406,9 @@ def build_graph(agent: "InvestigatorV1"):
             history.append(
                 HumanMessage(prompt("report", issue=issue, facts=render_facts(state["facts"])))
             )
-            report = invoke_structured(agent.llm("report"), Report, history, usage=ctx.usage)
+            llm = agent.llm("report")
+            report = invoke_structured(llm, Report, history, usage=ctx.usage)
+            report = rewrite_if_han(llm, report, history)
         return {"report": report, "report_attempts": attempts}
 
     def validate(state: InvestigationState) -> InvestigationState:
