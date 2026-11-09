@@ -16,6 +16,7 @@ from sqlalchemy import Engine
 from core.config import KubeGuardianConfig
 from core.db import InvestigationQueue, InvestigationStore
 from core.db.investigation_queue import Job
+from core.guard.redact import redact_text
 from core.log.logging import get_logging
 from service.agent.base import AgentResult
 from service.alerts.incidents import investigation_result
@@ -48,6 +49,11 @@ def complete_job(
         logger.warning(f"이슈 #{job.incident_id} 알림 실패: {type(e).__name__}")
     status, final_severity = investigation_result(result)
     return queue.complete(job, status, final_severity)
+
+
+def _one_line(text: str, limit: int = 100) -> str:
+    text = " ".join(redact_text(text).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 class Worker:
@@ -91,8 +97,14 @@ class Worker:
         job = self._queue.claim(self._clock(), STALE_CLAIM)
         if job is None:
             return None
+        logger.info(f"[작업] 조사 대기 집음: 이슈 #{job.incident_id} (점검 #{job.check_run_id})")
         result = self._investigate(job)
-        complete_job(self._engine, self._notifier, job, result, self._clock())
+        kept = complete_job(self._engine, self._notifier, job, result, self._clock())
+        ok = result is not None and result.status != "failed"
+        outcome = (
+            result.status if ok else f"실패 {_one_line(result.error if result else '')}".strip()
+        ) + ("" if kept else ", 새 요청에 밀림")
+        logger.info(f"[작업] 이슈 #{job.incident_id} 조사 마침: {outcome}")
         return job.incident_id
 
     def _investigate(self, job: Job) -> AgentResult | None:

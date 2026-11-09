@@ -24,6 +24,7 @@ from core.db.alerts import Alert
 from core.db.incidents import Incident
 from core.db.tables import AlertRow, CheckResultRow
 from core.error.service_exception import ServiceException
+from core.log.logging import get_logging
 from core.schedule import stalled_after
 from service.agent.base import AgentResult
 from service.alerts.incidents import IncidentChange
@@ -31,6 +32,8 @@ from service.model import GateResult
 from service.notify import messages
 from service.notify.parent import reconcile_parent
 from service.notify.sender import DRY_RUN_PREFIX, Sender
+
+logger = get_logging()
 
 
 def parse_duration(text: str) -> timedelta:
@@ -352,6 +355,13 @@ class Notifier:
         error: str | None,
     ) -> None:
         self._last_error = error
+        where = "dry-run" if self._sender.dry_run else "Slack"
+        target = f"이슈 #{incident_id}" if incident_id is not None else "이슈 없음"
+        logger.info(
+            f"[알림] {kind} 발송 {target} ({where})"
+            if error is None
+            else f"[알림] {kind} 발송 실패 {target} ({where}): {error}"
+        )
         self.sent.append(kind if error is None else f"{kind} 실패({error})")
         self._alerts.add(
             kind=kind,

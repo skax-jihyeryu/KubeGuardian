@@ -26,6 +26,7 @@ from service.agent import registry
 from service.agent.base import AgentResult, RunContext
 from service.model import InvestigationRequest, Topology, Trigger
 from service.pipeline.check import CheckOutcome, clean_symptom
+from service.pipeline.flow_log import FlowLogSteps, log_end, log_start
 from service.sensors.topology import build_topology
 from service.tools import build_tools
 
@@ -153,6 +154,8 @@ def run_request(
         except SQLAlchemyError as e:  # 기록 없이 조사한다 (조사가 기록보다 중요하다)
             logger.warning(f"조사 기록 시작 실패: {type(e).__name__}")
             investigation_id = None
+        label = _label(investigation_id)
+        log_start(label, request, incident_id=incident_id, reason=gate_reason)
         try:
             result = _run_agent(
                 agent_cls,
@@ -172,10 +175,17 @@ def run_request(
             error = (
                 INTERRUPTED if isinstance(e, SystemExit | KeyboardInterrupt) else type(e).__name__
             )
-            _finish(store, investigation_id, AgentResult(status="failed", error=error))
+            failed = AgentResult(status="failed", error=error)
+            _finish(store, investigation_id, failed)
+            log_end(label, failed)
             raise
+        log_end(label, result)
         _finish(store, investigation_id, result)  # 판단 수준까지 붙은 보고서를 남긴다
         return result
+
+
+def _label(investigation_id: int | None) -> str:
+    return "-" if investigation_id is None else f"#{investigation_id}"
 
 
 def _run_agent(
@@ -202,7 +212,10 @@ def _run_agent(
         scenario_services={
             s.name: config.core_paths.get(s.feature, []) for s in config.api_scenarios
         },
-        **({} if investigation_id is None else {"steps": store.steps_sink(investigation_id)}),
+        steps=FlowLogSteps(
+            _label(investigation_id),
+            None if investigation_id is None else store.steps_sink(investigation_id),
+        ),
     )
     agent = agent_cls(llm_factory=llm_factory, tools=build_tools(config), ctx=ctx)
     result = agent.run(request)
