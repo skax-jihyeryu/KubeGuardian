@@ -188,3 +188,32 @@ def test_app_api_auth_accepts_own_org_template_and_is_optional():
 def test_app_api_auth_requires_allowlist_and_matching_extract(apis, auth):
     with pytest.raises(ValidationError):
         KubeGuardianConfig(target={"namespace": "dev"}, app_apis=apis, app_api_auth=auth)
+
+
+def _slack(**extra):
+    return KubeGuardianConfig.model_validate(
+        {"target": {"namespace": "dev"}, "slack": {"alert_target": "C0123456789", **extra}}
+    )
+
+
+def test_slack_owners_and_mention_are_optional_with_defaults():
+    slack = _slack().slack
+    assert slack.owners == {} and slack.mention == ["critical"]
+
+
+def test_slack_owners_accepts_user_ids():
+    slack = _slack(owners={"agent": ["U0123456789", "W0123456789"]}).slack
+    assert slack.owners == {"agent": ["U0123456789", "W0123456789"]}
+
+
+@pytest.mark.parametrize(
+    "user", ["@hong", "hong", "u0123456789", "U123", "C0123456789", "<@U0123456789>"]
+)
+def test_slack_owners_rejects_non_user_id(user):
+    with pytest.raises(ValidationError, match="사용자 ID"):
+        _slack(owners={"agent": [user]})
+
+
+def test_slack_mention_rejects_unknown_severity():
+    with pytest.raises(ValidationError):
+        _slack(mention=["info"])

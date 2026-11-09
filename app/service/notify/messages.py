@@ -1,6 +1,7 @@
 """Slack 메시지 본문 (UI 정의서 §2). 요약과 링크만 담고 전체 보고서는 화면에서 본다."""
 
 import re
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -85,20 +86,39 @@ def subject(incident: Incident) -> str:
     return ", ".join(incident.services) or "서비스"
 
 
-def _detected(namespace, incident, reason, at, url, status_line):
+_USER_ID = re.compile(r"[UW][A-Z0-9]{8,}")
+
+
+def mention_line(user_ids: Sequence[str]) -> list[str]:
+    """담당자 멘션 줄. 검증된 Slack 사용자 ID로만 토큰을 만들고 이스케이프하지 않는다."""
+    if not user_ids:
+        return []
+    if not all(_USER_ID.fullmatch(u) for u in user_ids):
+        raise ValueError("Slack 사용자 ID가 아니다")
+    return ["👤 담당: " + " ".join(f"<@{u}>" for u in user_ids)]
+
+
+def _detected(namespace, incident, reason, at, url, status_line, owners=()):
     return "\n".join(
         [
             _head(namespace, incident.first_severity, f"{subject(incident)} 장애"),
             f"• 감지: {hhmm(at)} 점검",
             f"• 사유: {clean(reason)}",
             status_line,
+            *mention_line(owners),
             f"🔗 이슈: {url}/issues/{incident.id}",
         ]
     )
 
 
 def first_alert(
-    namespace: str, incident: Incident, reason: str, run_id: int, at: datetime, url: str
+    namespace: str,
+    incident: Incident,
+    reason: str,
+    run_id: int,
+    at: datetime,
+    url: str,
+    owners: Sequence[str] = (),
 ) -> str:
     """M1 1차 감지. AI 조사를 기다리지 않고 보낸다."""
     return _detected(
@@ -108,11 +128,18 @@ def first_alert(
         at,
         url,
         "🔍 원인을 조사하고 있습니다. 조사가 끝나면 이 메시지를 갱신합니다.",
+        owners,
     )
 
 
 def changed_alert(
-    namespace: str, incident: Incident, reason: str, run_id: int, at: datetime, url: str
+    namespace: str,
+    incident: Incident,
+    reason: str,
+    run_id: int,
+    at: datetime,
+    url: str,
+    owners: Sequence[str] = (),
 ) -> str:
     """M1 갱신: 지문이 바뀌어 같은 이슈에서 다시 조사한다."""
     return _detected(
@@ -122,6 +149,7 @@ def changed_alert(
         at,
         url,
         "🔍 상황이 바뀌어(새 신호·다른 실패 단계) 원인을 다시 조사하고 있습니다.",
+        owners,
     )
 
 
@@ -133,6 +161,7 @@ def cause_update(
     error: str | None,
     run_id: int,
     url: str,
+    owners: Sequence[str] = (),
 ) -> str:
     """M1 원인 갱신. 조사 미완·실패면 제목 앞에 표시하고 아는 데까지만 담는다."""
     mark = _MARK.get(status, "")
@@ -145,6 +174,7 @@ def cause_update(
                 _head(namespace, incident.first_severity, f"{subject(incident)} 장애", mark),
                 f"원인을 확정하지 못했습니다{why}. "
                 "규칙 점검·증상 결과는 점검 상세에서 볼 수 있습니다.",
+                *mention_line(owners),
                 link,
             ]
         )
@@ -169,7 +199,7 @@ def cause_update(
             lines.append(f"• {emoji} {sev} {clean(i.title)}")
     if status == "incomplete":
         lines.append("⚠️ 조사 상한에 닿아 확인하지 못한 것이 있습니다 (보고서의 확인 범위 참고).")
-    lines.append(link)
+    lines += [*mention_line(owners), link]
     return "\n".join(lines)
 
 

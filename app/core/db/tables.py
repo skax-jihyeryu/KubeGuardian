@@ -131,7 +131,8 @@ class AlertRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     incident_id: Mapped[int | None] = mapped_column(ForeignKey("incident.id"), index=True)
-    # M1 / M1u(갱신) / M9 / M2 / M3 / M7. TEST는 kg slack-test가 남긴 연결 확인(실제 알림 아님)
+    # M1 / M1u(갱신) / M1m(호출 답글) / M9 / M2 / M3 / M7.
+    # TEST는 kg slack-test가 남긴 연결 확인(실제 알림 아님)
     kind: Mapped[str] = mapped_column(String(8))
     channel: Mapped[str] = mapped_column(String(128))
     ts: Mapped[str | None] = mapped_column(String(32))  # Slack 메시지 ID (실패면 None)
