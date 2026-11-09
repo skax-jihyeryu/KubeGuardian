@@ -101,6 +101,52 @@ def test_steps_fragment_lists_tool_calls_with_evidence_links(client, investigati
     assert POLL in res.text
 
 
+def test_completed_investigation_expands_only_steps_with_details(client, engine):
+    run, ev = _chat_failed(engine)
+    second_ev = add_evidence(engine, run)
+    foreign_ev = add_evidence(engine, make_run(engine))
+    inc = open_incident(engine, run)
+    iid = start_investigation(
+        engine,
+        run,
+        inc,
+        [
+            step("preliminary", 10, evidence_ids=[ev]),
+            step(
+                "triage",
+                11,
+                detail={"issues": [f"채팅 요청 실패 [{ev}]", f"작업자 연결 실패 [{second_ev}]"]},
+            ),
+            step(
+                "plan",
+                12,
+                detail={"hypotheses": [f"배포 이름을 잘못 설정했다 [{ev}, {foreign_ev}, ev-9999]"]},
+            ),
+            step("validate", 14, detail={"conclusion_supported": True, "demoted": []}),
+        ],
+    )
+    finish_investigation(engine, iid, report(evidence_ids=(ev,)))
+
+    html = client.get(f"/dev/checks/{run}/steps").text
+    preliminary = html.split('data-k="사전 확인"', 1)[1].split("</details>", 1)[0]
+    plan = html.split('data-k="계획"', 1)[1].split("</details>", 1)[0]
+    assert f"?ev={int(ev[3:])}" in preliminary.split('class="sbody"', 1)[1]
+    plan_summary, plan_body = plan.split('class="sbody"', 1)
+    assert "채팅 요청 실패" in plan_summary and "①" not in plan_summary
+    assert (
+        plan_summary.index("채팅 요청 실패")
+        < plan_summary.index(f"?ev={int(ev[3:])}")
+        < plan_summary.index("작업자 연결 실패")
+        < plan_summary.index(f"?ev={int(second_ev[3:])}")
+    )
+    assert "배포 이름을 잘못 설정했다" in plan_body
+    assert all(f"?ev={int(ev[3:])}" in part for part in (plan_summary, plan_body))
+    assert f"?ev={int(foreign_ev[3:])}" not in plan
+    assert "?ev=9999" not in plan and "[ev-" not in plan
+    assert "근거 검증 통과" in html
+    assert 'data-k="보고서·검증"' not in html
+
+
 def test_polling_stops_when_investigation_finishes(client, engine, investigating):
     run, _, iid, ev, _ = investigating
     finish_investigation(engine, iid, report(evidence_ids=(ev,)))

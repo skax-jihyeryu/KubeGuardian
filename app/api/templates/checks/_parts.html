@@ -4,6 +4,14 @@
 {%- for n in numbers %}{{ evlink(p, run, n) }}{% endfor -%}
 {%- endmacro %}
 
+{% macro step_summary(s, p, run) -%}
+{%- if s.cited_summary -%}
+  {%- for text, ev in s.cited_summary %}{% if not loop.first %} · {% endif %}{{ text }} {{ evlinks(p, run, ev) }}{% endfor -%}
+{%- else -%}
+  {{ s.summary }} {{ evlinks(p, run, s.evidence) }}
+{%- endif -%}
+{%- endmacro %}
+
 {#- 조사 중 진행 표시. 폴링 응답이 같은 id로 바꿔 끼운다(hx-swap-oob). -#}
 {% macro progress_box(steps, oob=false) -%}
 <div id="progress-box"{% if oob %} hx-swap-oob="true"{% endif %}>
@@ -32,9 +40,11 @@
 </div>
 {%- elif s.state == "todo" -%}
 <div class="stp todo"><span class="pt"></span><div class="hd"><b>{{ s.title }}</b><span class="sum">{{ s.summary }}</span></div></div>
+{%- elif not (s.lines or s.cited_lines or s.collect or s.rules or s.table or s.calls) -%}
+<div class="stp"><span class="pt"></span><div class="hd"><b>{{ s.title }}</b><span class="sum">{{ step_summary(s, p, run) }}</span><span class="tm">{{ s.time }}</span></div></div>
 {%- else -%}
 <details class="stp" data-k="{{ s.title }}"{% if open %} open{% endif %}>
-  <summary class="hd"><span class="pt"></span>{{ ic("chevron-right", "ic14 chev") }}<b>{{ s.title }}</b><span class="sum">{{ s.summary }} {{ evlinks(p, run, s.evidence) }}</span><span class="tm">{{ s.time }}</span></summary>
+  <summary class="hd"><span class="pt"></span>{{ ic("chevron-right", "ic14 chev") }}<b>{{ s.title }}</b><span class="sum">{{ step_summary(s, p, run) }}</span><span class="tm">{{ s.time }}</span></summary>
   <div class="sbody">
     {%- if s.collect %}
     <div class="sigtbl">
@@ -61,6 +71,7 @@
     {%- endif %}
     {%- endif %}
     {%- for line in s.lines %}<div class="s13">{{ line }}</div>{% endfor %}
+    {%- for text, ev in s.cited_lines %}<div class="s13">{{ text }} {{ evlinks(p, run, ev) }}</div>{% endfor %}
     {%- if s.table %}
     <div class="sigtbl">
       {%- for name, text, ev in s.table %}<span class="k">{{ name }}</span><span>{{ text }}{{ evlinks(p, run, ev) }}</span>{% endfor %}

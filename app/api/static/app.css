@@ -49,6 +49,7 @@ h3.sub{font-size:17px;line-height:25px}
 .stp .hd{gap:10px;min-height:32px;padding-block:4px}
 .stp .hd .tm{font-size:13px;line-height:24px}
 .stp .sbody .s13{font-size:14px;line-height:22px}
+.stp .sbody .sigtbl{align-items:baseline}
 .stp .hd .aux{white-space:normal}
 .stp .pt{top:10px}
 .stp::before{top:23px}

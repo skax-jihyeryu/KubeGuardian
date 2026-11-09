@@ -6,9 +6,11 @@
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from difflib import get_close_matches
+from functools import cache
 from typing import Any
 
 from sqlalchemy import Engine
@@ -100,6 +102,8 @@ class StepView:
     progress: tuple[int, int] | None = None  # (도구 호출 수, 문제당 예산)
     collect: list["CollectRow"] = field(default_factory=list)  # 정보 수집 단계
     rules: "RuleSummary | None" = None  # 점검 규칙 단계
+    cited_summary: list[tuple[str, list[int]]] = field(default_factory=list)
+    cited_lines: list[tuple[str, list[int]]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -302,7 +306,7 @@ def build_check_detail(
         passed_text=passed_text,
         advice_text=advice_text,
         gate=_gate(d),
-        steps=_steps(d, now),
+        steps=_steps(engine, d, now),
         evidence=evidence,
         live=d.live,
         error=result.error if result else None,
@@ -376,7 +380,7 @@ def build_steps(engine: Engine, run_id: int, now: datetime) -> tuple[StepsView, 
     d = _load(engine, run_id, now)
     if d is None:
         return None
-    return _steps(d, now), d.live, d.state
+    return _steps(engine, d, now), d.live, d.state
 
 
 def _log_caption(data: dict) -> str:
@@ -857,6 +861,11 @@ class RuleSummary:
     developer_lines: tuple[str, ...] = ()
     excluded: tuple[str, ...] = ()
 
+    def __bool__(self) -> bool:
+        return bool(
+            self.findings or self.advice or self.stages or self.developer_lines or self.excluded
+        )
+
 
 def _rule_name(rid: str) -> str:
     spec = CATALOG.get(rid)
@@ -948,7 +957,7 @@ def _phase_view(d: _Loaded, result: CheckResult, p: Phase, title: str) -> StepVi
 _SYMPTOM_STATUS = {"passed": "통과", "failed": "실패", "unknown": "확인하지 못함"}
 
 
-def _steps(d: _Loaded, now: datetime) -> StepsView:
+def _steps(engine: Engine, d: _Loaded, now: datetime) -> StepsView:
     check_steps = _check_steps(d)
     inv = d.investigation
     if inv is None:
@@ -969,7 +978,7 @@ def _steps(d: _Loaded, now: datetime) -> StepsView:
         check_steps,
         f"조사 과정 — {md_hm(d.started_at)} 점검 ({TRIGGER_LABEL.get(d.trigger, d.trigger)})",
         _inv_meta(d, inv, now),
-        _inv_steps(d),
+        _inv_steps(engine, d),
         None,
         _progress(d),
     )
@@ -1009,7 +1018,42 @@ def _args_text(args: dict[str, Any]) -> str:
     return ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in safe.items())
 
 
-def _inv_steps(d: _Loaded) -> list[StepView]:
+_PLAN_REFS = re.compile(r"\[\s*ev-[0-9]{4,10}(?:\s*,\s*ev-[0-9]{4,10})*\s*\]")
+
+
+def _plan_step(
+    engine: Engine, run_id: int, triage: AgentStep | None, plans: list[AgentStep]
+) -> StepView:
+    check_run_of = cache(EvidenceStore(engine).check_run_of)
+
+    def cited(text: str) -> tuple[str, list[int]]:
+        ids = []
+
+        def extract(match: re.Match[str]) -> str:
+            ids.extend(part.strip() for part in match[0][1:-1].split(","))
+            return ""
+
+        text = _PLAN_REFS.sub(extract, redact_text(text)).strip()
+        return text, [int(ev[3:]) for ev in dict.fromkeys(ids) if check_run_of(ev) == run_id]
+
+    titles = triage.detail.get("issues", []) if triage else []
+    issues = [cited(t) for t in titles if isinstance(t, str)] if isinstance(titles, list) else []
+    hypotheses = [
+        cited(hypothesis)
+        for plan in plans
+        if isinstance(items := plan.detail.get("hypotheses"), list)
+        for hypothesis in items
+        if isinstance(hypothesis, str) and hypothesis.strip()
+    ]
+    return StepView(
+        "계획",
+        time=_step_time((plans or [triage])[0]),
+        cited_summary=[line for line in issues if any(line)],
+        cited_lines=[line for line in hypotheses if any(line)],
+    )
+
+
+def _inv_steps(engine: Engine, d: _Loaded) -> list[StepView]:
     steps = d.inv_steps
     running = d.inv_state == "running"
     out: list[StepView] = []
@@ -1018,7 +1062,12 @@ def _inv_steps(d: _Loaded) -> list[StepView]:
     if pre is not None:
         ev = _ev_numbers(pre.evidence_ids)
         out.append(
-            StepView("사전 확인", f"{len(ev)}건 확인" if ev else "", _step_time(pre), evidence=ev)
+            StepView(
+                "사전 확인",
+                f"{len(ev)}건 확인" if ev else "확인한 근거 없음",
+                _step_time(pre),
+                table=[("확인한 근거", "", ev)] if ev else [],
+            )
         )
     elif running:
         out.append(StepView("사전 확인", "아직 하지 않음", state="todo"))
@@ -1026,9 +1075,7 @@ def _inv_steps(d: _Loaded) -> list[StepView]:
     triage = next((s for s in steps if s.node == "triage"), None)
     plans = [s for s in steps if s.node == "plan"]
     if triage is not None or plans:
-        titles = (triage.detail.get("issues") if triage else None) or []
-        summary = " ".join(f"{_CIRCLED[i]} {redact_text(str(t))}" for i, t in enumerate(titles[:9]))
-        out.append(StepView("계획", summary, _step_time((plans or [triage])[0])))
+        out.append(_plan_step(engine, d.run_id, triage, plans))
     elif running:
         out.append(StepView("계획", "아직 하지 않음", state="todo"))
 
@@ -1055,13 +1102,16 @@ def _inv_steps(d: _Loaded) -> list[StepView]:
 
     check = next((s for s in reversed(steps) if s.node == "validate"), None)
     if check is not None:
-        out.append(StepView("보고서·검증", _validate_text(check), _step_time(check)))
+        demoted = check.detail.get("demoted")
+        lines = [
+            redact_text(item)
+            for item in (demoted if isinstance(demoted, list) else [])
+            if isinstance(item, str) and item.strip()
+        ]
+        out.append(StepView("보고서·검증", _validate_text(check), _step_time(check), lines=lines))
     elif running:
         out.append(StepView("보고서·검증", "아직 하지 않음", state="todo"))
     return out
-
-
-_CIRCLED = "①②③④⑤⑥⑦⑧⑨"
 
 
 def _validate_text(step: AgentStep) -> str:
