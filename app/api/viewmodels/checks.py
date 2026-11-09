@@ -102,6 +102,7 @@ class StepView:
     progress: tuple[int, int] | None = None  # (도구 호출 수, 문제당 예산)
     collect: list["CollectRow"] = field(default_factory=list)  # 정보 수집 단계
     rules: "RuleSummary | None" = None  # 점검 규칙 단계
+    cited_summary: list[tuple[str, list[int]]] = field(default_factory=list)
     cited_lines: list[tuple[str, list[int]]] = field(default_factory=list)
 
 
@@ -860,6 +861,11 @@ class RuleSummary:
     developer_lines: tuple[str, ...] = ()
     excluded: tuple[str, ...] = ()
 
+    def __bool__(self) -> bool:
+        return bool(
+            self.findings or self.advice or self.stages or self.developer_lines or self.excluded
+        )
+
 
 def _rule_name(rid: str) -> str:
     spec = CATALOG.get(rid)
@@ -1041,10 +1047,9 @@ def _plan_step(
     ]
     return StepView(
         "계획",
-        " · ".join(text for text, _ in issues),
-        _step_time((plans or [triage])[0]),
-        evidence=list(dict.fromkeys(n for _, refs in issues for n in refs)),
-        cited_lines=hypotheses,
+        time=_step_time((plans or [triage])[0]),
+        cited_summary=[line for line in issues if any(line)],
+        cited_lines=[line for line in hypotheses if any(line)],
     )
 
 

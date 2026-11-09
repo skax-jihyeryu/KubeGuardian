@@ -103,6 +103,7 @@ def test_steps_fragment_lists_tool_calls_with_evidence_links(client, investigati
 
 def test_completed_investigation_expands_only_steps_with_details(client, engine):
     run, ev = _chat_failed(engine)
+    second_ev = add_evidence(engine, run)
     foreign_ev = add_evidence(engine, make_run(engine))
     inc = open_incident(engine, run)
     iid = start_investigation(
@@ -111,7 +112,11 @@ def test_completed_investigation_expands_only_steps_with_details(client, engine)
         inc,
         [
             step("preliminary", 10, evidence_ids=[ev]),
-            step("triage", 11, detail={"issues": [f"채팅 요청 실패 [{ev}]"]}),
+            step(
+                "triage",
+                11,
+                detail={"issues": [f"채팅 요청 실패 [{ev}]", f"작업자 연결 실패 [{second_ev}]"]},
+            ),
             step(
                 "plan",
                 12,
@@ -128,6 +133,12 @@ def test_completed_investigation_expands_only_steps_with_details(client, engine)
     assert f"?ev={int(ev[3:])}" in preliminary.split('class="sbody"', 1)[1]
     plan_summary, plan_body = plan.split('class="sbody"', 1)
     assert "채팅 요청 실패" in plan_summary and "①" not in plan_summary
+    assert (
+        plan_summary.index("채팅 요청 실패")
+        < plan_summary.index(f"?ev={int(ev[3:])}")
+        < plan_summary.index("작업자 연결 실패")
+        < plan_summary.index(f"?ev={int(second_ev[3:])}")
+    )
     assert "배포 이름을 잘못 설정했다" in plan_body
     assert all(f"?ev={int(ev[3:])}" in part for part in (plan_summary, plan_body))
     assert f"?ev={int(foreign_ev[3:])}" not in plan
