@@ -384,7 +384,7 @@ def _log_caption(data: dict) -> str:
         span or None,
         "앞부분 더 있음" if data.get("more_before") else None,
     ]
-    return " · ".join(str(p) for p in parts if p)
+    return redact_text(" · ".join(str(p) for p in parts if p))
 
 
 def build_drawer(
@@ -399,7 +399,8 @@ def build_drawer(
     if ev is None:
         return None
     is_log = ev.kind == "log_excerpt"
-    log_lines = [str(x) for x in ev.data.get("lines") or []] if is_log else None
+    lines = ev.data.get("lines")
+    log_lines = [str(x) for x in lines] if is_log and isinstance(lines, list) else None
     raw = json.dumps(redact_mapping(ev.data), ensure_ascii=False, indent=2, default=str)
     return DrawerView(
         n=n,

@@ -465,3 +465,17 @@ def test_log_fact_lines_render_in_terminal_box(client, engine):
     assert "abcdefgh12345678" not in text
     assert "get_pod_logs: 오류 2건" in text and "get_pod_logs: 오류 2건" not in box
     assert text.count('class="term"') == 1  # 로그가 아닌 사실은 그대로 글로 보인다
+
+
+def test_log_fact_keeps_inner_double_space_and_strips_only_leading_indent(client, engine):
+    from service.model import Fact
+
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    ev = add_evidence(engine, run, data={"lines": ["x"], "match_count": 1})
+    facts = [Fact(statement="get_pod_logs: 오류 1건\n  ERROR  x  y\nWARN  z", evidence_ids=[ev])]
+    inv = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, inv, report(evidence_ids=(ev,), preliminary_facts=facts))
+    text = client.get(f"/dev/issues/{inc}").text
+    box = text[text.index('class="term"') : text.index("</pre>", text.index('class="term"'))]
+    assert ">ERROR  x  y\nWARN  z<" in box + "<"

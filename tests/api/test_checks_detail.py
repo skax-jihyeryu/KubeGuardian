@@ -665,3 +665,21 @@ def test_non_log_evidence_drawer_has_no_terminal_box(client, engine):
     finish_check(engine, run, path="C")
     ev = add_evidence(engine, run, kind="resource", data={"phase": "Running"})
     assert 'class="term"' not in detail(client, run, f"?ev={int(ev[3:])}").text
+
+
+def test_failed_log_fetch_evidence_drawer_has_no_terminal_box(client, engine):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    ev = add_evidence(engine, run, data={"error": "로그를 가져오지 못했습니다"})
+    res = detail(client, run, f"?ev={int(ev[3:])}")
+    assert 'class="term"' not in res.text
+    assert "일치한 줄 없음" not in res.text
+
+
+def test_empty_log_lines_evidence_drawer_says_no_match_without_box(client, engine):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    ev = add_evidence(engine, run, data={"line_count": 0, "lines": []})
+    res = detail(client, run, f"?ev={int(ev[3:])}")
+    assert 'class="term"' not in res.text
+    assert "일치한 줄 없음" in res.text
