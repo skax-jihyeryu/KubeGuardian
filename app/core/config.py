@@ -156,6 +156,8 @@ class SlackConfig(_Strict):
     # 알림 링크의 보고서 화면 주소 (UI 정의서 §1.2: <report_url>/checks/{run}, /issues/{id})
     report_url: str = DEFAULT_REPORT_URL
     # 서비스 이름 → 담당자 Slack 사용자 ID. 이슈 1차 알림에서 @멘션한다 (#199)
+    # 키는 Kubernetes Service 이름(Pod를 선택하는 Service, 없으면 Deployment 이름).
+    # 이슈의 영향 서비스 이름과 같다
     owners: dict[str, list[str]] = {}
     mention: list[Literal["critical", "warning"]] = ["critical"]  # 멘션할 1차 심각도
 

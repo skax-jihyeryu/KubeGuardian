@@ -10,6 +10,7 @@
 - 보내지 못해도 점검·조사는 계속한다. 모든 메시지는 알림 이력(alert)에 남는다 (dry-run 포함).
 """
 
+import re
 from contextlib import suppress
 from datetime import datetime, timedelta
 from typing import Any
@@ -39,6 +40,7 @@ def parse_duration(text: str) -> timedelta:
 
 ALERTED = ("critical", "warning")  # 알림은 긴급·주의만 (잠재 위험·개선 권고는 화면에만)
 _DRY_CHANNEL = "(dry-run)"
+_MENTIONED = re.compile(r"<@([UW][A-Z0-9]{8,})>")
 NO_ACK_REMINDER_CAP = 3  # 확인 수단이 없을 때 require_ack 정책의 리마인드 상한
 
 
@@ -233,6 +235,20 @@ class Notifier:
             self._ns, incident, reason, run_id, now, self._url, self._owners(incident)
         )
         self._update("M1u", incident, thread, text, now)
+        self._call_new_owners(incident, thread, now)
+
+    def _call_new_owners(self, incident: Incident, thread: str, now: datetime) -> None:
+        """수정(M1u)으로 붙은 멘션은 Slack이 알리지 않는다. 새 담당자는 스레드 답글로 부른다."""
+        called = {
+            user
+            for a in self._alerts.for_incident(incident.id)
+            if a.kind in ("M1", "M1m") and not a.error
+            for user in _MENTIONED.findall(a.text)
+        }
+        new = [o for o in self._owners(incident) if o not in called]
+        if new:
+            text = "\n".join(["상황이 바뀌어 담당자를 부릅니다.", *messages.mention_line(new)])
+            self._post("M1m", incident.id, text, now, thread=thread)
 
     def _owners(self, incident: Incident) -> list[str]:
         """멘션할 담당자: 정책에 든 1차 심각도면 영향 서비스 담당자의 합집합(순서 유지)."""

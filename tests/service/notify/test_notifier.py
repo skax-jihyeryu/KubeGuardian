@@ -569,6 +569,31 @@ def test_changed_alert_update_keeps_mention(tmp_path):
     assert sender.updates and MENTION in sender.updates[-1]["text"]
 
 
+def test_escalation_to_critical_calls_owner_in_thread_reply(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path, mention=["critical"])
+    check([_sig(severity="warning")], NOW)
+    check([_sig(), _sig(rule="S02")], NOW + timedelta(minutes=5))  # 지문이 바뀌어야 갱신된다
+    [reply] = [p for p in sender.posts if p["thread"]]
+    assert "<@U0123456789>" in reply["text"]
+
+
+def test_joined_service_calls_only_new_owner(tmp_path):
+    _, sender, check, _ = _owner_env(
+        tmp_path, owners={"agent": ["U0123456789"], "db": ["U9876543210"]}
+    )
+    check([_sig()], NOW)
+    check([_sig(), _sig(rule="S02", service="db")], NOW + timedelta(minutes=5))
+    [reply] = [p for p in sender.posts if p["thread"]]
+    assert "<@U9876543210>" in reply["text"] and "<@U0123456789>" not in reply["text"]
+
+
+def test_no_new_owner_sends_no_reply(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path)
+    check([_sig()], NOW)
+    check([_sig(), _sig(rule="S02")], NOW + timedelta(minutes=5))
+    assert not [p for p in sender.posts if p["thread"]]
+
+
 def test_multiple_services_union_deduped(tmp_path):
     _, sender, check, _ = _owner_env(
         tmp_path, owners={"agent": ["U0123456789"], "db": ["U0123456789", "U9876543210"]}

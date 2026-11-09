@@ -33,6 +33,7 @@ from core.guard.redact import redact_text
 ALERT_LABEL = {
     "M1": "이슈 알림",
     "M1u": "원인 갱신",
+    "M1m": "담당자 호출 답글",
     "M2": "리마인더",
     "M3": "복구 알림",
     "M7": "점검 중단 알림",
