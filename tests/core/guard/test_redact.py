@@ -236,6 +236,55 @@ def test_complete_pem_is_unchanged_by_the_cut_rule():
     assert redact_text(result) == result
 
 
+_L64 = "MIIEpAIBAAKCAQEAzzQ9" + "abcdefghijklmnopqrstuvwxyz0123456789+/ABCDEF"  # 64자 base64 줄
+
+
+def test_pem_body_without_begin_or_end_is_masked():
+    assert len(_L64) == 64
+    result = redact_text(f"starting\n{_L64}\n{_L64}\n{_L64}\nserver ready")
+    assert result == f"starting\n{MASK}\nserver ready"
+    assert redact_text(result) == result
+
+
+def test_pem_body_with_padded_last_line_is_masked():
+    result = redact_text(f"{_L64}\n{_L64}\nQUJDRA==\nnext")
+    assert result == f"{MASK}\nnext"
+
+
+def test_pem_body_with_crlf_is_masked():
+    result = redact_text(f"a\r\n{_L64}\r\n{_L64}\r\nb")
+    assert "MIIEpAIB" not in result and result.startswith("a\r\n") and result.endswith("b")
+
+
+def test_single_64_char_line_is_kept():
+    text = f"x\n{_L64}\ny"
+    assert redact_text(text) == text
+
+
+def test_ordinary_lines_after_cut_pem_body_are_kept():
+    # 마지막 줄에 `=` 패딩이 없으면 일반 단어(`after`)와 구분할 수 없어 가리지 않는다.
+    result = redact_text(f"{_L64}\n{_L64}\nafter\nINFO done")
+    assert result == f"{MASK}\nafter\nINFO done"
+
+
+def test_consecutive_hex_digest_lines_are_kept():
+    d = "a" * 64
+    text = f"{d}\n{d}"
+    assert redact_text(text) == text
+
+
+def test_lines_longer_than_64_chars_are_not_pem_body():
+    text = f"{_L64}x\n{_L64}x"
+    assert redact_text(text) == text
+
+
+def test_pem_body_masking_is_linear_on_many_lines():
+    text = "\n".join([_L64[:63] + "!"] * 20000)
+    start = time.perf_counter()
+    redact_text(text)
+    assert time.perf_counter() - start < 2
+
+
 def test_begin_without_end_still_masks_everything_after():
     result = redact_text(f"a\n-----BEGIN RSA PRIVATE KEY-----\n{_B64}\nlater line")
     assert result == f"a\n-----BEGIN RSA PRIVATE KEY-----{MASK}"

@@ -3,6 +3,12 @@
 규칙 (기획서 §6.5):
 - URL 자격 증명 `scheme://user:pass@host`, `redis://:pass@host` → 비밀번호만 `***`로 바꾼다.
 - PEM 개인 키 → BEGIN·END 줄은 두고 본문을 `***`로 바꾼다.
+  로그가 잘려 BEGIN·END 중 한쪽이 없어도 본문을 가린다. BEGIN만 있으면 뒤를 모두,
+  END만 있으면 END 앞에 이어진 base64 줄을 가린다. 둘 다 없이 본문만 남은 경우는
+  **정확히 64자인 base64 줄이 2줄 이상 연속**일 때 그 줄들(바로 뒤에 `=` 패딩으로 끝나는
+  마지막 줄이 있으면 그것도)을 가린다. 64자 한 줄은 일반 값(해시·ID)과 구분하지 못해 두고,
+  64자 16진수만으로 된 줄(sha256 다이제스트)과 64자가 아닌 줄은 본문으로 보지 않는다.
+  패딩 없는 짧은 마지막 줄은 일반 줄과 구분할 수 없어 남는다 (과잉 마스킹 방지).
 - `Bearer <토큰>`(8자 이상), `Authorization: [Basic|Bearer|...] <값>` → 값을 `***`로 바꾼다.
 - 형식이 알려진 토큰(Slack `xox?-`, GitHub `ghp_`, `sk-`, JWT) → 통째로 `***`로 바꾼다.
 - `이름=값`, `이름: 값`, `"이름": "값"`, `이름 => 값`, `--이름 값`에서 이름이 민감하면 값을 가린다.
@@ -64,6 +70,13 @@ _PEM = re.compile(
     r"(?P<head>-----BEGIN [A-Z ]*PRIVATE KEY-----).*?(?P<tail>-----END [A-Z ]*PRIVATE KEY-----|\Z)",
     re.DOTALL,
 )
+# BEGIN·END가 모두 잘려 본문만 남은 경우: 64자 base64 줄이 2줄 이상 연속이면 가린다.
+# 줄 시작에서만 시도하고 줄마다 한 번씩만 읽어 선형이다. 64자 16진수 줄(다이제스트)은 제외한다.
+_PEM_BODY_LINE = r"(?![0-9a-fA-F]{64}\r?$)[A-Za-z0-9+/]{64}"
+_PEM_BODY = re.compile(
+    rf"^{_PEM_BODY_LINE}(?:\r?\n{_PEM_BODY_LINE})+(?:\r?\n[A-Za-z0-9+/]*={{1,2}})?(?=\r?$)",
+    re.MULTILINE,
+)
 _URL_USERINFO = re.compile(
     r"(?P<head>(?<![A-Za-z0-9+.\-])[A-Za-z][A-Za-z0-9+.\-]*://[^\s/:@]*:)[^\s/@]+(?=@)"
 )
@@ -120,6 +133,7 @@ def redact_text(text: str) -> str:
     """문자열 안의 비밀값을 `***`로 바꾼다."""
     text = _PEM.sub(rf"\g<head>{MASK}\g<tail>", text)
     text = _mask_orphan_pem_end(text)
+    text = _PEM_BODY.sub(MASK, text)
     text = _URL_USERINFO.sub(rf"\g<head>{MASK}", text)
     text = _KNOWN_TOKEN.sub(MASK, text)
     text = _BEARER.sub(rf"\g<head>{MASK}", text)
