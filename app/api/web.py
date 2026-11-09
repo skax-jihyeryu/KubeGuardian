@@ -14,13 +14,14 @@ from api import timefmt
 from api.deps import get_config, get_engine, get_now
 from api.viewmodels.shell import Shell
 from core.config import KubeGuardianConfig
+from core.guard.redact import redact_text
 
 API_DIR = Path(__file__).parent
 STATIC_DIR = API_DIR / "static"
 
 # autoescape를 켠다. 로그·LLM 문자열을 |safe로 내보내지 않는다 (Review Focus 1)
 _env = Environment(loader=FileSystemLoader(API_DIR / "templates"), autoescape=True)
-_env.filters.update(hm=timefmt.hm, hms=timefmt.hms, md_hm=timefmt.md_hm)
+_env.filters.update(hm=timefmt.hm, hms=timefmt.hms, md_hm=timefmt.md_hm, redact=redact_text)
 templates = Jinja2Templates(env=_env)
 
 _ID = re.compile(r"[1-9]\d{0,9}")  # SQLite 정수 범위를 넘는 값은 조회하기 전에 없는 것으로 본다

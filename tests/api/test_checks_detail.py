@@ -635,3 +635,51 @@ def test_check_number_visible_in_list_detail_title_and_breadcrumb(client, engine
     crumb = response.text.split('<div class="crumb">', 1)[1].split("</div>", 1)[0]
     assert f"점검 #{run} · " in crumb
     assert f"/dev/checks/{run}" in listing
+
+
+def test_log_evidence_drawer_shows_terminal_box_with_masked_lines(client, engine):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    ev = add_evidence(
+        engine,
+        run,
+        data={
+            "container": "agent",
+            "line_count": 2,
+            "first_time": "00:38:03",
+            "last_time": "00:38:06",
+            "more_before": True,
+            "lines": ["ERROR 429 Too Many Requests", "Authorization: Bearer abcdefgh12345678"],
+        },
+    )
+    res = detail(client, run, f"?ev={int(ev[3:])}")
+    box = res.text[res.text.index('class="term"') :]
+    assert "ERROR 429 Too Many Requests" in box.split("</pre>")[0]
+    assert "agent · 2줄 · 00:38:03~00:38:06 · 앞부분 더 있음" in res.text
+    assert "abcdefgh12345678" not in box.split("</pre>")[0]
+    assert res.text.index('class="term"') < res.text.index("AI 요약")
+
+
+def test_non_log_evidence_drawer_has_no_terminal_box(client, engine):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    ev = add_evidence(engine, run, kind="resource", data={"phase": "Running"})
+    assert 'class="term"' not in detail(client, run, f"?ev={int(ev[3:])}").text
+
+
+def test_failed_log_fetch_evidence_drawer_has_no_terminal_box(client, engine):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    ev = add_evidence(engine, run, data={"error": "로그를 가져오지 못했습니다"})
+    res = detail(client, run, f"?ev={int(ev[3:])}")
+    assert 'class="term"' not in res.text
+    assert "일치한 줄 없음" not in res.text
+
+
+def test_empty_log_lines_evidence_drawer_says_no_match_without_box(client, engine):
+    run = make_run(engine)
+    finish_check(engine, run, path="C")
+    ev = add_evidence(engine, run, data={"line_count": 0, "lines": []})
+    res = detail(client, run, f"?ev={int(ev[3:])}")
+    assert 'class="term"' not in res.text
+    assert "일치한 줄 없음" in res.text

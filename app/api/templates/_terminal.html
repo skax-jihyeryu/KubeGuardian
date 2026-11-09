@@ -1,0 +1,4 @@
+{#- 로그 줄을 터미널 박스로 보인다. 줄은 마스킹(redact)을 거쳐 내보낸다. 근거 서랍과 이슈 보고서가 함께 쓴다. -#}
+{% macro terminal(lines, caption=None) -%}
+<div class="termwrap">{% if caption %}<div class="termcap">{{ caption }}</div>{% endif %}<pre class="term" tabindex="0" aria-label="로그">{% for line in lines %}{{ line|redact }}{{ "\n" if not loop.last }}{% endfor %}</pre></div>
+{%- endmacro %}
