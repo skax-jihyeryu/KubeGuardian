@@ -10,8 +10,8 @@
   <div class="doc">
     <div class="crumb"><a href="/{{ p }}/checks">{{ p }}</a>›<a href="/{{ p }}/checks">점검 이력</a>›<span>점검 #{{ d.run_id }} · {{ d.short_time }}</span></div>
     <h1 class="title">{{ d.title }}
-      {%- if d.state == "running" %}<span class="aux run" style="font-weight:400">{{ ic("spin") }}점검 중</span>
-      {%- elif d.steps.progress %}<span class="aux run" style="font-weight:400">{{ ic("spin") }}조사 중</span>{% endif %}</h1>
+      {% if d.state == "running" %}<span class="aux run" style="font-weight:400">{{ ic("spin") }}점검 중</span>
+      {% elif d.steps.progress %}<span class="aux run" style="font-weight:400">{{ ic("spin") }}조사 중</span>{% endif %}</h1>
     <nav class="jump" aria-label="절 바로가기"><a href="#s-judge">판정</a><span>·</span>{% if d.rule_report %}<a href="#s-rule">규칙 진단</a><span>·</span>{% endif %}<a href="#s-inv">점검 과정</a><span>·</span><a href="#s-ev">근거</a></nav>
 
     <div class="paper">
