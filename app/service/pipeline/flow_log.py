@@ -32,7 +32,8 @@ def _titles(items: list[Any]) -> str:
 def _target(args: dict[str, Any]) -> str:
     if args.get("kind") and args.get("name"):
         return f"{args['kind']}/{args['name']}"
-    return " ".join(str(v) for v in args.values())
+    values = [v for v in args.values() if v not in (None, "") and not isinstance(v, bool)]
+    return " ".join(str(v) for v in values)
 
 
 def describe_step(step: AgentStep) -> str | None:

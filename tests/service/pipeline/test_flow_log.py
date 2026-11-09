@@ -136,3 +136,28 @@ def test_log_functions_never_raise(monkeypatch):
 
     log_start("#1", Req(), incident_id=1, reason="x")
     log_end("#1", AgentResult(status="failed", error="e"))
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "expected"),
+    [
+        (
+            "get_resource",
+            {"kind": "ReplicaSet", "name": None, "label_selector": "app=gateway"},
+            "도구 get_resource ReplicaSet app=gateway",
+        ),
+        (
+            "get_resource",
+            {"kind": "Pod", "name": None, "label_selector": None},
+            "도구 get_resource Pod",
+        ),
+        (
+            "get_pod_logs",
+            {"pod": "gateway-5cb", "container": "gateway", "previous": False, "tail": 60},
+            "도구 get_pod_logs gateway-5cb gateway 60",
+        ),
+    ],
+)
+def test_tool_target_skips_none_and_booleans(caplog, tool, args, expected):
+    FlowLogSteps("#12").record(_step("tools", tool=tool, args=args))
+    assert _lines(caplog) == [f"[조사 #12] {expected}"]
