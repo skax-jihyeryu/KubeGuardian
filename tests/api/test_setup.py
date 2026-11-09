@@ -47,7 +47,7 @@ def test_rules_groups_and_candidates(setup_client):
     assert "N02" not in main
     assert "N02" in fold
     assert 'value="N02"' not in response.text
-    assert "<details class=\"future\" open" not in response.text
+    assert '<details class="future" open' not in response.text
     assert "향후 계획 11개" in fold
     assert "향후 계획 2개" in main
     assert 'value="C05" aria-label="C05 점검 사용" checked' in response.text
