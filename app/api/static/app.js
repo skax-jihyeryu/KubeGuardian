@@ -36,6 +36,23 @@
   });
 })();
 
+/* 근거 전체 표는 접혀 있다. 바로가기(#s-ev)나 #evidence 주소로 들어오면 펼친다. */
+(function () {
+  function openEvidence() {
+    if (location.hash !== "#s-ev" && location.hash !== "#evidence") return;
+    var d = document.getElementById("evidence");
+    if (!d) return;
+    d.open = true;
+    document.getElementById("s-ev").scrollIntoView();
+  }
+  window.addEventListener("hashchange", openEvidence);
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest('.jump a[href="#s-ev"]');
+    if (a) setTimeout(openEvidence, 0);
+  });
+  openEvidence();
+})();
+
 /* 질문 패널은 페이지 이동 뒤에도 열린 상태를 유지한다. */
 (function () {
   function openChat() {

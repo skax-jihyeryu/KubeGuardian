@@ -459,6 +459,24 @@ def test_evidence_table_lists_this_checks_evidence_with_links(client, engine):
     assert "근거" in text
 
 
+def test_evidence_table_is_folded_in_closed_details_with_count(client, engine):
+    run, ev = _chat_failed(engine)
+    text = detail(client, run).text
+    sec = text[text.index('id="s-ev"') :]
+    assert '<details class="evfold" id="evidence">' in sec
+    assert "open" not in sec[sec.index("<details") : sec.index(">", sec.index("<details"))]
+    assert "<summary" in sec and "건 · 번호를 누르면" in sec
+    assert sec.index("<details") < sec.index('class="tblwrap"')
+
+
+def test_evidence_without_rows_is_not_folded(client, engine):
+    run = make_run(engine)
+    text = detail(client, run).text
+    sec = text[text.index('id="s-ev"') :]
+    assert "<details" not in sec
+    assert "이 점검에 묶인 근거가 없습니다" in sec
+
+
 def test_running_elapsed_marker_is_server_anchored_and_static_after_completion(
     client, engine, clock
 ):
