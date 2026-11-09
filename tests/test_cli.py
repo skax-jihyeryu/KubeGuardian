@@ -854,3 +854,36 @@ def test_worker_once_does_not_start_summary_thread(tmp_path, monkeypatch):
     args, started = _worker_with_summary_spy(tmp_path, monkeypatch, "--once")
     cli.main(args, make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")))
     assert started == []
+
+
+def test_print_investigation_masks_secrets(capsys):
+    from cli import print_investigation
+    from service.agent.base import AgentResult
+    from service.model import Report
+
+    report = Report.model_validate(
+        {
+            "conclusion": "접속 실패 password=hunter2xyz",
+            "confidence": "high",
+            "impact_scope": "채팅",
+            "issues": [
+                {
+                    "rank": 1,
+                    "title": "토큰 Bearer abcdefgh12345678",
+                    "impact": "core_path_broken",
+                    "confidence": "high",
+                }
+            ],
+            "actions": [],
+            "judgement": "confirmed",
+            "judgement_basis": "로그 token=topsecretvalue",
+        }
+    )
+
+    print_investigation(AgentResult(status="done", report=report, error="Bearer abcdefgh12345678"))
+    print_investigation(AgentResult(status="failed", error="password=hunter2xyz"))
+
+    out = capsys.readouterr().out
+    assert "접속 실패" in out and "***" in out
+    for secret in ("hunter2xyz", "abcdefgh12345678", "topsecretvalue"):
+        assert secret not in out
