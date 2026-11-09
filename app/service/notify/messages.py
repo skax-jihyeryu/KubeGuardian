@@ -72,6 +72,12 @@ def code(text: str) -> str:
     return f"`{command}`"
 
 
+def severity_prefix(severity: str | None) -> str:
+    """알림 첫 줄의 심각도 표시. 이 앞부분으로 어느 심각도 때 보낸 메시지인지 안다."""
+    emoji, label = _SEVERITY.get(severity or "", ("", ""))
+    return f"{emoji} *{label} · "
+
+
 def _head(namespace: str, severity: str | None, title: str, mark: str = "") -> str:
     emoji, label = _SEVERITY.get(severity or "", ("", ""))
     lead = f"{label} · " if label else ""
@@ -140,15 +146,17 @@ def changed_alert(
     at: datetime,
     url: str,
     owners: Sequence[str] = (),
+    escalated: bool = False,
 ) -> str:
-    """M1 갱신: 지문이 바뀌어 같은 이슈에서 다시 조사한다."""
+    """M1 갱신: 지문이 바뀌거나 심각도가 올라 같은 이슈에서 다시 조사한다."""
+    why = "심각도가 올라" if escalated else "상황이 바뀌어(새 신호·다른 실패 단계)"
     return _detected(
         namespace,
         incident,
         reason,
         at,
         url,
-        "🔍 상황이 바뀌어(새 신호·다른 실패 단계) 원인을 다시 조사하고 있습니다.",
+        f"🔍 {why} 원인을 다시 조사하고 있습니다.",
         owners,
     )
 

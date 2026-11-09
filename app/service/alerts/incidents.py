@@ -27,12 +27,11 @@ from core.config import KubeGuardianConfig
 from core.db import IncidentStore
 from core.db.incidents import Incident
 from service.alerts.fingerprint import Fingerprint, compute_fingerprint
+from service.checks.gate import _RANK
 from service.model import GateResult, Signal, Symptom, Trigger
 
 if TYPE_CHECKING:
     from service.agent.base import AgentResult
-
-_SEVERITY_RANK = {"info": 0, "warning": 1, "critical": 2}
 
 Action = Literal["opened", "continued", "changed", "seen", "resolved"]
 
@@ -42,6 +41,7 @@ class IncidentChange:
     incident_id: int
     action: Action
     severity: str | None  # 1차 심각도
+    escalated: bool = False  # changed인데 1차 심각도가 올라갔다 (알림 문구·리마인더 기준)
 
     @property
     def needs_investigation(self) -> bool:
@@ -127,17 +127,18 @@ def _follow(
     if matched is None:
         incident_id = store.open(fp.key, detail, gate.severity, run_id, now)
         return IncidentChange(incident_id, "opened", gate.severity)
-    if matched.fingerprint == fp.key and not _escalated(matched.first_severity, gate.severity):
+    escalated = _escalated(matched.first_severity, gate.severity)
+    if matched.fingerprint == fp.key and not escalated:
         store.touch(matched.id, run_id, now, "continued")
         return IncidentChange(matched.id, "continued", matched.first_severity)
     store.change(matched.id, fp.key, detail, gate.severity, run_id, now)
-    return IncidentChange(matched.id, "changed", gate.severity)
+    return IncidentChange(matched.id, "changed", gate.severity, escalated)
 
 
 def _escalated(before: str | None, after: str | None) -> bool:
     """1차 심각도가 올라갔는가. 지문에는 심각도가 들지 않아 같은 지문에서도 올라갈 수 있다.
     내려가는 경우는 올리지 않는다 (이미 알린 심각도를 유지하고 다시 알리지 않음)."""
-    return _SEVERITY_RANK.get(after or "", -1) > _SEVERITY_RANK.get(before or "", -1)
+    return _RANK.get(after or "", -1) > _RANK.get(before or "", -1)
 
 
 def _gone(

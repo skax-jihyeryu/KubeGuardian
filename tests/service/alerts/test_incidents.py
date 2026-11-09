@@ -98,6 +98,7 @@ def test_severity_escalation_with_same_fingerprint_is_changed(engine):
         "critical",
         True,
     )
+    assert esc.escalated
     assert IncidentStore(engine).get(first.incident_id).first_severity == "critical"
     [again] = checks.run([_sig(severity="critical")])
     assert again.action == "continued"  # 올라간 뒤에는 같은 심각도라 다시 갱신하지 않는다

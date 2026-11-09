@@ -49,6 +49,14 @@ def report(**kw):
     return Report(**values)
 
 
+def test_changed_alert_mentions_escalation_only_when_escalated():
+    inc = incident()
+    plain = messages.changed_alert("dev", inc, "r", 1, NOW, URL)
+    raised = messages.changed_alert("dev", inc, "r", 1, NOW, URL, escalated=True)
+    assert "심각도가 올라" in raised and "심각도가 올라" not in plain
+    assert "새 신호" in plain
+
+
 def all_messages():
     inc = incident()
     later = NOW + timedelta(minutes=31)
