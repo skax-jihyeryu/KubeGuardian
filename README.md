@@ -76,3 +76,33 @@ Kubernetes 진단 대상은 별도의 `target.namespace: dev` 설정이며, 프�
 OpenAPI·관리자 권한은 필요하지 않으며, 계정과 토큰은 LLM·근거·로그로 전달하지 않는다.
 이 조회는 조사 에이전트의 `query_app_api` 도구이며, 주기/직접 점검의 `api_scenarios`와 별개다.
 할당량 API는 관리자 권한이 필요하고 used/remaining이 null이라 연결·소진 판단 범위에서 제외한다.
+
+## 운영 로그
+
+시연·운영에서 흐름은 로그로 본다. 비밀값은 마스킹하고 긴 문장은 자른다.
+
+```bash
+kubectl -n kubeguardian logs -f deploy/diagnostic-agent -c worker   # 조사 흐름
+kubectl -n kubeguardian logs job/<kg-check-...>                      # 점검 결과
+```
+
+작업자 로그 (조사 번호는 조사 기록의 번호):
+
+```text
+[작업] 조사 대기 집음: 이슈 #5 (점검 #41)
+[조사 #12] 시작: 이슈 #5 경로 A — <게이트 사유>
+[조사 #12] 사전 확인: 근거 3건
+[조사 #12] 선별: 문제 1개 — <제목>
+[조사 #12] 계획: 가설 2개 — <제목> / <제목>
+[조사 #12] 도구 get_resource Deployment/admin → 근거 ev-0031
+[조사 #12] 재조사: 빈틈 1개            (재조사할 때만)
+[조사 #12] 상한 도달 (time)            (상한에 닿았을 때만)
+[조사 #12] 가설 판정: <제목> 지지 / <제목> 반증
+[조사 #12] 결론: <결론 80자> (판단 수준 확정, 165s, 도구 12회)
+[알림] M1u 발송 이슈 #5 (Slack)       (종류 M1·M1u·M9·M2·M3, dry-run 또는 Slack. 본문은 남기지 않음)
+[작업] 이슈 #5 조사 마침: done
+```
+
+점검 출력(`kg check`·`kg investigate`·CronJob)은 기본이 간단 모드다. 수집 실패, 적발·관찰 중·확인하지 못함,
+증상 감지, 게이트, 이슈만 남기고 통과는 `통과 120건 · 규칙 14개`로 줄인다.
+규칙 × 대상 전체는 `--verbose`로 본다 (`kg check --verbose`).

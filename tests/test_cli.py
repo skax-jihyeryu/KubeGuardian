@@ -1,4 +1,5 @@
 import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -887,3 +888,29 @@ def test_print_investigation_masks_secrets(capsys):
     assert "접속 실패" in out and "***" in out
     for secret in ("hunter2xyz", "abcdefgh12345678", "topsecretvalue"):
         assert secret not in out
+
+
+def test_check_default_output_is_brief_and_counts_passes(tmp_path, capsys):
+    cli.main(_args(tmp_path), make_reader=lambda cfg: FixtureReader(*raw_cluster()))
+    out = capsys.readouterr().out
+    assert "  통과  " not in out
+    assert "대상 없음" not in out
+    assert "게이트: 경로 C" in out
+    assert re.search(r"통과 \d+건 · 규칙 \d+개", out)
+
+
+def test_check_brief_keeps_detected_rule_header_only(tmp_path, capsys):
+    cli.main(_args(tmp_path), make_reader=lambda cfg: FixtureReader(*raw_cluster("s01/detected")))
+    out = capsys.readouterr().out
+    assert "S01 selector에 맞는 Pod 없음" in out
+    assert "적발(critical)  dev/Service/agent" in out
+    assert "N01 노드 NotReady" not in out  # 적발한 규칙만 제목을 찍는다
+
+
+def test_check_verbose_prints_every_rule_and_target(tmp_path, capsys):
+    cli.main([*_args(tmp_path), "--verbose"], make_reader=lambda cfg: FixtureReader(*raw_cluster()))
+    out = capsys.readouterr().out
+    assert "  통과  " in out
+    assert "통과 " in out and "건 · 규칙" not in out
+    assert "N01 노드 NotReady" in out
+    assert "대상 없음" in out

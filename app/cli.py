@@ -121,7 +121,7 @@ def check(
     reader = make_reader(config)
     engine = _open_db(args.db)
     outcome = run_check(reader, config, engine, trigger=args.trigger, http=make_http(config))
-    print_outcome(outcome)
+    print_outcome(outcome, args.verbose)
     notifier = _notifier(engine, config, make_sender(config))
     _notify(lambda: notifier.after_check(outcome.run_id, outcome.gate, outcome.incidents, _now()))
     _queue(engine, config, outcome, args.trigger)  # 1차 알림 뒤에 (작업자가 집는다)
@@ -146,7 +146,7 @@ def investigate(
     outcome = run_check(
         reader, config, engine, trigger=args.trigger, http=http, user_symptom=symptom
     )
-    print_outcome(outcome)
+    print_outcome(outcome, args.verbose)
     notifier = _notifier(engine, config, make_sender(config))
     # 1차 감지 알림은 AI 조사를 기다리지 않는다
     _notify(lambda: notifier.after_check(outcome.run_id, outcome.gate, outcome.incidents, _now()))
@@ -375,17 +375,23 @@ def print_investigation(result: AgentResult | None) -> None:
     print(f"근거 {len(report.evidence_ids)}건")
 
 
-def print_outcome(out: CheckOutcome) -> None:
+def print_outcome(out: CheckOutcome, verbose: bool = False) -> None:
+    """점검 결과를 출력한다. 기본(간단)은 통과·대상 없음을 줄이고 건수만 남긴다. verbose는 전부."""
     snap = out.snapshot
     print(f"점검 #{out.run_id}  {snap.namespace}  {snap.collected_at.isoformat()}")
     for kind, reason in snap.failed.items():
         print(f"수집 실패: {kind} ({reason})")
+    passed = 0
     for rule in CATALOG.values():
-        print(f"\n{rule.id} {rule.name}")
         signals = [s for s in out.signals if s.rule_id == rule.id]
+        passed += sum(s.verdict == "passed" for s in signals)
+        shown = signals if verbose else [s for s in signals if s.verdict != "passed"]
+        if not verbose and not shown:
+            continue
+        print(f"\n{rule.id} {rule.name}")
         if not signals:
             print("  대상 없음")
-        for s in signals:
+        for s in shown:
             label = VERDICT_LABEL[s.verdict] + (f"({s.severity})" if s.severity else "")
             line = f"  {label}  {s.subject}"
             if s.values:
@@ -393,6 +399,8 @@ def print_outcome(out: CheckOutcome) -> None:
             if s.message:
                 line += f"  {s.message}"
             print(line)
+    if not verbose:
+        print(f"\n통과 {passed}건 · 규칙 {len(CATALOG)}개 (전체 보기: --verbose)")
     if out.symptoms:
         print("\n증상 감지")
         for sym in out.symptoms:
@@ -431,6 +439,9 @@ def main(
         default="check",
         help="실행 방식 (CronJob은 schedule)",
     )
+    p_check.add_argument(
+        "--verbose", action="store_true", help="통과·대상 없음까지 규칙 × 대상 전체를 출력한다"
+    )
     p_inv = sub.add_parser("investigate", help="점검 뒤 게이트가 열리면 조사 에이전트를 실행한다")
     p_inv.add_argument("symptom", nargs="?", help="사용자 증상 (선택, 최대 500자)")
     p_inv.add_argument("--config", default=get_setting().KG_CONFIG_PATH, help="kubeguardian.yaml")
@@ -440,6 +451,9 @@ def main(
         choices=["investigate", "schedule"],
         default="investigate",
         help="실행 방식 (기본: investigate)",
+    )
+    p_inv.add_argument(
+        "--verbose", action="store_true", help="통과·대상 없음까지 규칙 × 대상 전체를 출력한다"
     )
     p_ask = sub.add_parser("ask", help="저장된 점검·이슈·알림 이력에 대해 질문한다")
     p_ask.add_argument("question", help="질문 (최대 500자)")
