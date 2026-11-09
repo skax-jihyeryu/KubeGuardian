@@ -9,6 +9,8 @@
   마지막 줄이 있으면 그것도)을 가린다. 64자 한 줄은 일반 값(해시·ID)과 구분하지 못해 두고,
   64자 16진수만으로 된 줄(sha256 다이제스트)과 64자가 아닌 줄은 본문으로 보지 않는다.
   패딩 없는 짧은 마지막 줄은 일반 줄과 구분할 수 없어 남는다 (과잉 마스킹 방지).
+  들여쓴 본문은 들여쓰기를 남기고 가린다. 인증서·공개 키 BEGIN/END 블록 안의 본문은 두며,
+  줄 앞 접두사(타임스탬프)와 JSON 이스케이프(`\\n`) 본문은 다루지 않는다.
 - `Bearer <토큰>`(8자 이상), `Authorization: [Basic|Bearer|...] <값>` → 값을 `***`로 바꾼다.
 - 형식이 알려진 토큰(Slack `xox?-`, GitHub `ghp_`, `sk-`, JWT) → 통째로 `***`로 바꾼다.
 - `이름=값`, `이름: 값`, `"이름": "값"`, `이름 => 값`, `--이름 값`에서 이름이 민감하면 값을 가린다.
@@ -37,6 +39,7 @@
 """
 
 import re
+from bisect import bisect_right
 from typing import Any
 
 MASK = "***"
@@ -72,11 +75,17 @@ _PEM = re.compile(
 )
 # BEGIN·END가 모두 잘려 본문만 남은 경우: 64자 base64 줄이 2줄 이상 연속이면 가린다.
 # 줄 시작에서만 시도하고 줄마다 한 번씩만 읽어 선형이다. 64자 16진수 줄(다이제스트)은 제외한다.
-_PEM_BODY_LINE = r"(?![0-9a-fA-F]{64}\r?$)[A-Za-z0-9+/]{64}"
+# 줄 앞 들여쓰기(YAML 블록 스칼라)는 허용하고 첫 줄의 들여쓰기는 남긴다.
+# 줄 앞 접두사(타임스탬프 등)와 JSON 이스케이프된 `\n` 본문은 다루지 않는다.
+_PEM_BODY_LINE = r"[ \t]*(?![0-9a-fA-F]{64}\r?$)[A-Za-z0-9+/]{64}"
 _PEM_BODY = re.compile(
-    rf"^{_PEM_BODY_LINE}(?:\r?\n{_PEM_BODY_LINE})+(?:\r?\n[A-Za-z0-9+/]*={{1,2}})?(?=\r?$)",
+    rf"^(?P<indent>[ \t]*)(?![0-9a-fA-F]{{64}}\r?$)[A-Za-z0-9+/]{{64}}"
+    rf"(?:\r?\n{_PEM_BODY_LINE})+(?:\r?\n[ \t]*[A-Za-z0-9+/]*={{1,2}})?(?=\r?$)",
     re.MULTILINE,
 )
+# 개인 키가 아닌 BEGIN/END 블록(인증서·공개 키)의 본문은 비밀이 아니라서 가리지 않는다.
+_NON_KEY_BEGIN = re.compile(r"-----BEGIN (?![A-Z ]*PRIVATE KEY)[A-Z ]+-----")
+_ANY_END = re.compile(r"-----END [A-Z ]+-----")
 _URL_USERINFO = re.compile(
     r"(?P<head>(?<![A-Za-z0-9+.\-])[A-Za-z][A-Za-z0-9+.\-]*://[^\s/:@]*:)[^\s/@]+(?=@)"
 )
@@ -133,7 +142,7 @@ def redact_text(text: str) -> str:
     """문자열 안의 비밀값을 `***`로 바꾼다."""
     text = _PEM.sub(rf"\g<head>{MASK}\g<tail>", text)
     text = _mask_orphan_pem_end(text)
-    text = _PEM_BODY.sub(MASK, text)
+    text = _mask_pem_body(text)
     text = _URL_USERINFO.sub(rf"\g<head>{MASK}", text)
     text = _KNOWN_TOKEN.sub(MASK, text)
     text = _BEARER.sub(rf"\g<head>{MASK}", text)
@@ -141,6 +150,36 @@ def redact_text(text: str) -> str:
     text = _COOKIE.sub(rf"\g<head>{MASK}", text)
     text = _CLI_FLAG.sub(_mask_cli_flag, text)
     return _redact_key_values(text)
+
+
+def _non_key_pem_spans(text: str) -> list[tuple[int, int]]:
+    """인증서·공개 키 BEGIN~END 구간. 구간 안은 건너뛰고 찾아 선형이다."""
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    while (begin := _NON_KEY_BEGIN.search(text, pos)) is not None:
+        end = _ANY_END.search(text, begin.end())
+        if end is None:
+            break
+        spans.append((begin.start(), end.end()))
+        pos = end.end()
+    return spans
+
+
+def _mask_pem_body(text: str) -> str:
+    """BEGIN·END 없는 PEM 본문을 가린다. 인증서·공개 키 블록 안의 본문은 둔다."""
+    if "-----BEGIN" not in text:
+        return _PEM_BODY.sub(lambda m: m.group("indent") + MASK, text)
+    spans = _non_key_pem_spans(text)
+
+    starts = [a for a, _ in spans]
+
+    def repl(m: re.Match[str]) -> str:
+        i = bisect_right(starts, m.start()) - 1
+        if i >= 0 and m.start() < spans[i][1]:
+            return m.group(0)
+        return m.group("indent") + MASK
+
+    return _PEM_BODY.sub(repl, text)
 
 
 def _mask_orphan_pem_end(text: str) -> str:
