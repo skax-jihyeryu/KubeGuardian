@@ -62,12 +62,18 @@ class AlertStore:
             return [_to_alert(r) for r in s.scalars(stmt)]
 
     def list_alerts(
-        self, since: datetime | None = None, incident_id: int | None = None, limit: int = 20
+        self,
+        since: datetime | None = None,
+        incident_id: int | None = None,
+        limit: int = 20,
+        until: datetime | None = None,
     ) -> list[Alert]:
-        """최신순 알림 목록. 이력 질의용."""
+        """최신순 알림 목록. since·until(포함)은 sent_at 기준. 이력 질의용."""
         stmt = select(AlertRow)
         if since is not None:
             stmt = stmt.where(AlertRow.sent_at >= require_aware(since))
+        if until is not None:
+            stmt = stmt.where(AlertRow.sent_at <= require_aware(until))
         if incident_id is not None:
             stmt = stmt.where(AlertRow.incident_id == incident_id)
         with Session(self._engine) as s:

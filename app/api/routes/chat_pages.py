@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from api.deps import get_llm_factory
+from api.timefmt import date_range
 from api.web import ConfigDep, EngineDep, ProjectDep, templates
 from core.db import ChatStore, CheckRunStore, EvidenceStore, IncidentStore
 from core.db.tables import ChatMessageRow
@@ -72,15 +73,24 @@ def filter_values(value: str) -> dict[str, str]:
         elif key == "days":
             if raw.isascii() and raw.isdecimal() and 0 < int(raw) <= 365:
                 result[key] = str(int(raw))
+        elif key in ("from", "to"):
+            result[key] = raw  # 아래에서 날짜 범위로 한꺼번에 검증한다
         elif key == "q":
             text = flatten_text(raw)
             if text:
                 result[key] = text[:MAX_FILTER_Q]
+    start, end = date_range(result.pop("from", ""), result.pop("to", ""))
+    result |= {k: v for k, v in (("from", start), ("to", end)) if v}
     return result
 
 
 def filter_context(value: str) -> str:
-    return ", ".join(f"{k}={v}" for k, v in filter_values(value).items())
+    values = filter_values(value)
+    start, end = values.pop("from", ""), values.pop("to", "")
+    parts = [f"{k}={v}" for k, v in values.items()]
+    if start or end:
+        parts.append(f"기간 {start}~{end}")
+    return ", ".join(parts)
 
 
 @router.get("/{p}/chat")
