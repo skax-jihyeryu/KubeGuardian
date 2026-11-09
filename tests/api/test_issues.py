@@ -441,3 +441,27 @@ def test_cause_chain_shows_order_provenance_and_escaped_observation(client, engi
     assert "하위 서비스 오류 전달" in text
     assert "&lt;script&gt;429 수신&lt;/script&gt;" in text
     assert f"/dev/checks/{run}?ev=1" in text
+
+
+def test_log_fact_lines_render_in_terminal_box(client, engine):
+    from service.model import Fact
+
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    ev = add_evidence(engine, run, data={"lines": ["ERROR 429"], "match_count": 1})
+    other = add_evidence(engine, run, kind="resource", data={"phase": "Running"})
+    facts = [
+        Fact(
+            statement="get_pod_logs: 오류 2건\n  ERROR 429 Too Many\n  Bearer abcdefgh12345678",
+            evidence_ids=[ev],
+        ),
+        Fact(statement="상태 확인\n  둘째 줄", evidence_ids=[other]),
+    ]
+    inv = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, inv, report(evidence_ids=(ev,), preliminary_facts=facts))
+    text = client.get(f"/dev/issues/{inc}").text
+    box = text[text.index('class="term"') : text.index("</pre>", text.index('class="term"'))]
+    assert "ERROR 429 Too Many" in box
+    assert "abcdefgh12345678" not in text
+    assert "get_pod_logs: 오류 2건" in text and "get_pod_logs: 오류 2건" not in box
+    assert text.count('class="term"') == 1  # 로그가 아닌 사실은 그대로 글로 보인다

@@ -198,6 +198,8 @@ class DrawerView:
     raw: str
     truncated: bool
     summary: EvidenceSummary | None = None
+    log_lines: list[str] | None = None  # 로그 근거의 줄. 마스킹은 터미널 박스가 한다
+    log_caption: str = ""
 
 
 # ── 읽기 ────────────────────────────────────────────────────────
@@ -372,6 +374,19 @@ def build_steps(engine: Engine, run_id: int, now: datetime) -> tuple[StepsView, 
     return _steps(d, now), d.live, d.state
 
 
+def _log_caption(data: dict) -> str:
+    """터미널 박스 위 한 줄. 있는 값만 이어 붙인다."""
+    span = "~".join(str(data[k]) for k in ("first_time", "last_time") if data.get(k))
+    parts = [
+        data.get("container"),
+        "이전 컨테이너" if data.get("previous") else None,
+        f"{data['line_count']}줄" if data.get("line_count") is not None else None,
+        span or None,
+        "앞부분 더 있음" if data.get("more_before") else None,
+    ]
+    return " · ".join(str(p) for p in parts if p)
+
+
 def build_drawer(
     engine: Engine, run_id: int, n: int, now: datetime | None = None
 ) -> DrawerView | None:
@@ -383,6 +398,8 @@ def build_drawer(
     ev = store.get(ev_id)
     if ev is None:
         return None
+    is_log = ev.kind == "log_excerpt"
+    log_lines = [str(x) for x in ev.data.get("lines") or []] if is_log else None
     raw = json.dumps(redact_mapping(ev.data), ensure_ascii=False, indent=2, default=str)
     return DrawerView(
         n=n,
@@ -393,6 +410,8 @@ def build_drawer(
         raw=raw[:RAW_LIMIT],
         truncated=len(raw) > RAW_LIMIT,
         summary=EvidenceSummaryStore(engine).get(ev_id, now or datetime.now(UTC)),
+        log_lines=log_lines,
+        log_caption=_log_caption(ev.data) if log_lines is not None else "",
     )
 
 

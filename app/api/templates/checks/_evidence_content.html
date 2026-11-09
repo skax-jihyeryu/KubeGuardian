@@ -1,6 +1,11 @@
+{% from "_terminal.html" import terminal %}
 {%- set summary_url = "/" ~ p ~ "/checks/" ~ run_id ~ "/evidence/" ~ drawer.n ~ "/summary" %}
 {%- set target = "#evidence-content-" ~ drawer.n %}
 {%- set summary = drawer.summary %}
+{%- if drawer.log_lines is not none %}
+<h3 style="margin-top:16px">로그</h3>
+{{ terminal(drawer.log_lines, drawer.log_caption) }}
+{%- endif %}
 <div id="evidence-content-{{ drawer.n }}"
   {%- if summary is none %}
   hx-post="{{ summary_url }}" hx-trigger="load" hx-target="this" hx-swap="outerHTML"

@@ -80,6 +80,7 @@ class IssueDetail:
     evidence: dict[str, tuple[int, int]]
     live: bool
     investigation_state: str
+    log_evidence: frozenset[str] = frozenset()  # 로그 근거 id. 사전 확인의 로그 사실을 가린다
     ack_state: str = ""  # 머리 줄에 보이는 확인 상태. 긴급 열림이 아니면 비어 있다
 
 
@@ -213,9 +214,12 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
         else:
             timeline.append(event)
     evidence = {}
+    log_evidence = set()
     if selected and selected.report:
         for e in EvidenceStore(engine).list_for_run(selected.check_run_id, limit=10000):
             evidence[e.id] = (selected.check_run_id, int(e.id.split("-")[1]))
+            if e.kind == "log_excerpt":
+                log_evidence.add(e.id)
     ack = IncidentAckStore(engine).get(incident_id)
     ack_state = ""
     if ack:
@@ -229,5 +233,6 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
         evidence,
         state in {"queued", "running"},
         state,
+        frozenset(log_evidence),
         ack_state,
     )
