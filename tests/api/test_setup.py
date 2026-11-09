@@ -55,6 +55,9 @@ def test_rules_groups_and_candidates(setup_client):
     response = setup_client.get("/dev/setup/rules?view=kind&rule=S03")
     assert "Service" in response.text
     assert "targetPort 불일치" in response.text
+    main, fold = response.text.split('<details class="future"', 1)
+    assert "P01" not in main
+    assert "P01" in fold
     assert setup_client.get("/dev/setup/rules?view=bad").status_code == 400
     assert setup_client.get("/dev/setup/rules?rule=bad").status_code == 404
 

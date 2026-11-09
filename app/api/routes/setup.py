@@ -30,7 +30,7 @@ def _context(engine, config, now, tab):
         "shell": build_shell(engine, config, now),
         "tab": tab,
         "service_names": services(config),
-        "rule_count": len(CATALOG) + 11,
+        "rule_count": len(CATALOG),
         "feature_count": len(config.api_scenarios),
     }
 
