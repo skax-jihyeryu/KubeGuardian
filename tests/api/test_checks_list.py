@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
@@ -324,3 +326,67 @@ def test_unfinished_check_summary_does_not_claim_normal(engine):
     assert list_checks(engine, CheckFilters(), None, at(300)).rows[0].summary == "점검 중단"
     store.finish(run, "failed", at(30), None, [], [], error="RuntimeError")
     assert list_checks(engine, CheckFilters(), None, at(40)).rows[0].summary == "점검 실패"
+
+
+def _runs_around_kst_midnight(engine):
+    """KST 11/02 23:59, 11/03 00:00, 11/03 23:59, 11/04 00:00."""
+    starts = [
+        datetime(2026, 11, 2, 14, 59, tzinfo=UTC),
+        datetime(2026, 11, 2, 15, 0, tzinfo=UTC),
+        datetime(2026, 11, 3, 14, 59, tzinfo=UTC),
+        datetime(2026, 11, 3, 15, 0, tzinfo=UTC),
+    ]
+    return [make_run(engine, start=s) for s in starts]
+
+
+def test_date_range_uses_kst_days_inclusive(engine):
+    ids = _runs_around_kst_midnight(engine)
+    now = datetime(2026, 11, 9, tzinfo=UTC)
+    page = list_checks(
+        engine, CheckFilters.from_query({"from": "2026-11-03", "to": "2026-11-03"}), None, now
+    )
+    assert [r.id for r in page.rows] == [ids[2], ids[1]]
+    only_from = list_checks(engine, CheckFilters.from_query({"from": "2026-11-04"}), None, now)
+    assert [r.id for r in only_from.rows] == [ids[3]]
+    only_to = list_checks(engine, CheckFilters.from_query({"to": "2026-11-02"}), None, now)
+    assert [r.id for r in only_to.rows] == [ids[0]]
+
+
+def test_date_range_overrides_quick_period(engine):
+    ids = _runs_around_kst_midnight(engine)
+    now = datetime(2026, 11, 9, tzinfo=UTC)
+    filters = CheckFilters.from_query({"period": "1d", "from": "2026-11-03", "to": "2026-11-03"})
+    assert [r.id for r in list_checks(engine, filters, None, now).rows] == [ids[2], ids[1]]
+
+
+def test_invalid_or_reversed_dates_are_ignored(engine):
+    ids = _runs_around_kst_midnight(engine)
+    now = datetime(2026, 11, 9, tzinfo=UTC)
+    for query in (
+        {"from": "2026-13-01"},
+        {"from": "2026/11/03"},
+        {"from": "20261103"},
+        {"from": "２０２６-11-03"},
+        {"from": "2026-11-03T00:00"},
+        {"from": "x' OR 1=1 --"},
+        {"from": "2026-11-04", "to": "2026-11-03"},
+    ):
+        filters = CheckFilters.from_query(query)
+        assert filters.date_from == filters.date_to == "", query
+        assert len(list_checks(engine, filters, None, now).rows) == len(ids), query
+
+
+def test_date_range_persists_in_page_and_links(client, engine):
+    for i in range(51):
+        make_run(engine, start=datetime(2026, 11, 3, 1, 0, tzinfo=UTC) + timedelta(minutes=i))
+    response = client.get("/dev/checks?from=2026-11-03&to=2026-11-03")
+    assert 'name="from" value="2026-11-03"' in response.text
+    assert 'name="to" value="2026-11-03"' in response.text
+    assert "from=2026-11-03" in response.text and "to=2026-11-03" in response.text
+    next_url = list_checks(
+        engine,
+        CheckFilters.from_query({"from": "2026-11-03", "to": "2026-11-03"}),
+        None,
+        datetime(2026, 11, 9, tzinfo=UTC),
+    ).next_url
+    assert "from=2026-11-03" in next_url and "to=2026-11-03" in next_url

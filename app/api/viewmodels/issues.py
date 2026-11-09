@@ -108,10 +108,11 @@ def list_issues(
     severity: str = "",
     q: str = "",
     since: datetime | None = None,
+    until: datetime | None = None,
 ):
     rows = [
         issue_row(engine, inc)
-        for inc in IncidentStore(engine).list_incidents(since=since, limit=1000)
+        for inc in IncidentStore(engine).list_incidents(since=since, until=until, limit=1000)
     ]
     return [
         r

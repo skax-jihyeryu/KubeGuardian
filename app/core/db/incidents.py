@@ -117,12 +117,18 @@ class IncidentStore:
         return self._list(select(IncidentRow).where(IncidentRow.status == "open"))
 
     def list_incidents(
-        self, since: datetime | None = None, status: str | None = None, limit: int = 20
+        self,
+        since: datetime | None = None,
+        status: str | None = None,
+        limit: int = 20,
+        until: datetime | None = None,
     ) -> list[Incident]:
-        """최신순 이슈 목록. since는 opened_at 기준. 이력 질의용."""
+        """최신순 이슈 목록. since·until(포함)은 opened_at 기준. 이력 질의용."""
         stmt = select(IncidentRow)
         if since is not None:
             stmt = stmt.where(IncidentRow.opened_at >= require_aware(since))
+        if until is not None:
+            stmt = stmt.where(IncidentRow.opened_at <= require_aware(until))
         if status is not None:
             stmt = stmt.where(IncidentRow.status == status)
         with Session(self._engine) as s:
