@@ -193,6 +193,18 @@ def test_secrets_with_escaped_chars_are_masked_everywhere():
     assert "SECRET" not in text
 
 
+@pytest.mark.parametrize("alert", [messages.first_alert, messages.changed_alert])
+def test_alert_reason_secret_is_masked(alert):
+    text = alert("dev", incident(), "x password=hunter2xyz", 1, NOW, URL)
+    assert "hunter2xyz" not in text
+
+
+def test_unknown_item_secret_is_masked():
+    text = messages.unknown("dev", ["S01 · token=abcd1234efgh", "x password=hunter2xyz"], 3, URL)
+    assert "abcd1234efgh" not in text
+    assert "hunter2xyz" not in text
+
+
 def test_unknown_without_failed_step_has_no_none():
     text = messages.unknown("dev", ["기능 점검 chat"], 3, URL)
     assert "None" not in text
