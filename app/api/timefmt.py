@@ -28,6 +28,16 @@ def md_hm(value: datetime) -> str:
     return kst(value).strftime("%m/%d %H:%M")
 
 
+_ANSWER_TIMESTAMP = re.compile(
+    r"\b(\d{4}-\d{2}-\d{2})[T ]([0-2]\d:[0-5]\d):[0-5]\d(?:\.\d+)?(?![\d:])"
+)
+
+
+def answer_minutes(text: str) -> str:
+    """채팅 답변의 날짜가 붙은 시각을 분 단위로 표시한다."""
+    return _ANSWER_TIMESTAMP.sub(r"\1 \2", text)
+
+
 def seconds_text(seconds: float) -> str:
     """48초, 2분 5초."""
     total = max(0, int(seconds))
