@@ -222,7 +222,8 @@ class ListIssues(HistoryTool):
     name = "list_issues"
     description = (
         "이슈 목록(최신순). status·keyword(서비스·기능·규칙·대상 부분 일치)로 거르고, "
-        "since·until로 열린 시각 기간을 좁힌다."
+        "until을 주면 since~until 기간 중 열려 있던 이슈(기간 전에 열려 계속 열렸거나 "
+        "기간 중 해결된 이슈 포함), until 없이 since만 주면 그 이후에 열린 이슈만."
     )
 
     class Input(_Window):

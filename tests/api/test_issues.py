@@ -1,5 +1,7 @@
 """이슈 화면은 저장된 보고서만 읽고 다른 이슈의 보고서를 섞지 않는다."""
 
+from datetime import UTC, datetime
+
 import pytest
 
 from core.db import AlertStore, IncidentStore
@@ -501,3 +503,43 @@ def test_issue_list_date_range_kst(client, engine):
     )
     # 상세로 가는 링크에도 기간이 남는다
     assert "from=2026-11-02" in client.get("/dev/issues?from=2026-11-02&to=2026-11-02").text
+
+
+def test_issue_list_ignores_extreme_dates(client, engine):
+    open_incident(engine, make_run(engine))
+    for query in ("to=9999-12-31", "from=0001-01-01", "from=0001-01-01&to=9999-12-31"):
+        response = client.get(f"/dev/issues?{query}")
+        assert response.status_code == 200, query
+        assert response.text.count('class="irow') == 1, query
+
+
+def test_issue_list_selects_all_days_when_dates_set(client, engine):
+    open_incident(engine, make_run(engine))
+    html = client.get("/dev/issues?days=7&from=2026-11-02").text
+    assert '<option value="0" selected>' in html and '<option value="7" selected>' not in html
+    assert "days=" not in html.split('class="irow', 1)[1].split('"', 3)[2]
+    assert '<option value="7" selected>' in client.get("/dev/issues?days=7").text
+
+
+def test_issue_list_kst_midnight_boundary(client, engine):
+    run = make_run(engine)
+    store = IncidentStore(engine)
+    late = store.open(
+        "fp-a",
+        {"path": "B", "features": ["chat"]},
+        "critical",
+        run,
+        datetime(2026, 11, 2, 14, 59, tzinfo=UTC),
+    )  # KST 11/02 23:59
+    early = store.open(
+        "fp-b",
+        {"path": "B", "features": ["chat"]},
+        "critical",
+        run,
+        datetime(2026, 11, 2, 15, 0, tzinfo=UTC),
+    )  # KST 11/03 00:00
+    store.resolve(late, make_run(engine), datetime(2026, 11, 2, 14, 59, 30, tzinfo=UTC))
+    on_third = client.get("/dev/issues?from=2026-11-03&to=2026-11-03").text
+    assert f"#{early}" in on_third and f"#{late}" not in on_third
+    on_second = client.get("/dev/issues?from=2026-11-02&to=2026-11-02").text
+    assert f"#{late}" in on_second and f"#{early}" not in on_second

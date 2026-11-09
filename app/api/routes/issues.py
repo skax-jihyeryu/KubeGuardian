@@ -28,9 +28,17 @@ def window(now, days: int, date_from: str, date_to: str):
     return (now - timedelta(days=days) if 0 < days <= 365 else None), None
 
 
+def shown_days(days: int, date_from: str, date_to: str) -> int:
+    """날짜를 고르면 빠른 선택은 '전체 기간'(0)으로 보인다."""
+    start, end = date_range(date_from, date_to)
+    return 0 if start or end else days
+
+
 def filter_query(status, severity, q, days, date_from, date_to) -> str:
     start, end = date_range(date_from, date_to)
-    query = {"status": status, "severity": severity, "q": q, "days": days}
+    query = {"status": status, "severity": severity, "q": q}
+    if not (start or end):  # 날짜가 있으면 빠른 선택은 링크에 싣지 않는다
+        query["days"] = days
     return urlencode({**query, **{k: v for k, v in (("from", start), ("to", end)) if v}})
 
 
@@ -53,7 +61,7 @@ def issues_home(
         "issues/list.html",
         build_shell(engine, config, now),
         rows=list_issues(engine, status, severity, q, *window(now, days, date_from, date_to)),
-        days=days,
+        days=shown_days(days, date_from, date_to),
         status=status,
         severity=severity,
         q=q,
@@ -90,7 +98,7 @@ def issue_detail(
         status=status,
         severity=severity,
         q=q,
-        days=days,
+        days=shown_days(days, date_from, date_to),
         filter_query=filter_query(status, severity, q, days, date_from, date_to),
         **dates(date_from, date_to),
         d=detail,

@@ -36,12 +36,17 @@ class CheckFilters:
             if k not in ("date_from", "date_to")
         }
         start, end = date_range(query.get("from"), query.get("to"))
+        if start or end:  # 날짜가 빠른 선택보다 우선하므로 선택은 '전체 기간'으로 보인다
+            fields["period"] = "all"
         return cls(**fields, date_from=start, date_to=end)
 
     def query(self) -> dict[str, str]:
         """값이 있는 필터만 주소 파라미터 이름으로."""
+        dated = bool(self.date_from or self.date_to)
         return {
-            {"date_from": "from", "date_to": "to"}.get(k, k): v for k, v in vars(self).items() if v
+            {"date_from": "from", "date_to": "to"}.get(k, k): v
+            for k, v in vars(self).items()
+            if v and not (dated and k == "period")
         }
 
 

@@ -390,3 +390,22 @@ def test_date_range_persists_in_page_and_links(client, engine):
         datetime(2026, 11, 9, tzinfo=UTC),
     ).next_url
     assert "from=2026-11-03" in next_url and "to=2026-11-03" in next_url
+
+
+def test_dates_reset_quick_period_filter():
+    filters = CheckFilters.from_query({"period": "7d", "from": "2026-11-03"})
+    assert filters.period == "all"
+    assert "period" not in filters.query() and filters.query()["from"] == "2026-11-03"
+    assert CheckFilters.from_query({"period": "7d"}).period == "7d"
+
+
+def test_checks_page_selects_all_period_when_dates_set(client):
+    html = client.get("/dev/checks?period=7d&from=2026-11-03").text
+    assert '<option value="all" selected>' in html and '<option value="7d" selected>' not in html
+
+
+def test_checks_page_ignores_extreme_dates(client):
+    for query in ("to=9999-12-31", "from=0001-01-01", "from=0001-01-01&to=9999-12-31"):
+        response = client.get(f"/dev/checks?{query}")
+        assert response.status_code == 200, query
+        assert 'name="from" value=""' in response.text and 'name="to" value=""' in response.text

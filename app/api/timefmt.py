@@ -42,10 +42,11 @@ def parse_date(raw: object) -> str:
     if not isinstance(raw, str) or not _DATE.fullmatch(raw):
         return ""
     try:
-        date.fromisoformat(raw)
+        parsed = date.fromisoformat(raw)
     except ValueError:
         return ""
-    return raw
+    # 1970 미만·9999는 시각 변환·하루 더하기에서 넘치므로 무시한다
+    return raw if 1970 <= parsed.year <= 9998 else ""
 
 
 def date_range(raw_from: object, raw_to: object) -> tuple[str, str]:
