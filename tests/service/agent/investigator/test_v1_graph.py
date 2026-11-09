@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import BaseModel
 
@@ -76,7 +76,9 @@ def _fake_tool(tool_name: str):
                 subject=f"dev/Service/{args.name or 'all'}",
                 source=f"GET {tool_name}",
                 summary=f"{tool_name} 결과",
-                data={"ok": True},
+                data={"ok": True, "detail": "x" * 6000}
+                if args.name and args.name.startswith("verbose-")
+                else {"ok": True},
             )
 
     return Fake()
@@ -193,6 +195,31 @@ def test_graph_runs_end_to_end_and_report_cites_saved_evidence():
     assert result.report.evidence_ids == ["ev-3"]  # 없는 번호는 검증기가 지운다
     assert len(ctx.evidence.saved) == 3
     assert [f.evidence_ids for f in result.report.preliminary_facts] == [["ev-1"], ["ev-2"]]
+
+
+def test_later_tool_calls_receive_shortened_old_results_but_report_keeps_full_evidence():
+    result, llm, ctx = _run(
+        [
+            TRIAGE,
+            PLAN,
+            _tool_call(1, args={"kind": "Service", "name": "verbose-first"}),
+            _tool_call(2, args={"kind": "Service", "name": "verbose-latest"}),
+            AIMessage(content="조사 완료"),
+            _report(["ev-3", "ev-4"]),
+        ]
+    )
+
+    assert result.status == "done", result.error
+    earlier = [m for m in llm.calls[3] if isinstance(m, ToolMessage)]
+    investigation = [m for m in llm.calls[4] if isinstance(m, ToolMessage)]
+    report = [m for m in llm.calls[5] if isinstance(m, ToolMessage)]
+    assert [m.tool_call_id for m in investigation] == ["c1", "c2"]
+    assert "ev-3" in investigation[0].content
+    assert len(investigation[0].content) < len(earlier[0].content) // 2
+    assert investigation[1].content == report[1].content
+    assert report[0].content == earlier[0].content
+    assert len(ctx.evidence.saved) == 4
+    assert result.report.evidence_ids == ["ev-3", "ev-4"]
 
 
 def test_preliminary_facts_are_always_the_state_facts_not_llm_text():

@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
 from core.error.service_exception import ServiceException
@@ -62,6 +62,7 @@ EVENTS_MINUTES = 30
 PRELIMINARY_LOG_CALLS = 4
 _ERROR_GREP = "error|exception|fail|timeout|refused|429|502|503|504"
 _PRELIMINARY_LOG_ARGS = {"tail": 5, "since_seconds": 1800, "grep": _ERROR_GREP}
+_OLD_TOOL_EXCERPT_CHARS = 1600
 _FACT_LINE_MAX = 200  # Fact 문장에 넣는 로그 한 줄의 상한
 NEXT_ISSUE_MIN_SECONDS = 40  # 남은 시간이 이보다 적으면 다음 문제를 조사하지 않는다
 _NOT_INVESTIGATED = "(예산 부족으로 조사하지 못함)"
@@ -274,7 +275,7 @@ def build_graph(agent: "InvestigatorV1"):
             reply = (
                 agent.llm("investigate")
                 .bind_tools(list(lc_tools.values()))
-                .invoke(state["messages"])
+                .invoke(_investigation_history(state["messages"]))
             )
             ctx.usage.add(reply)
             s.detail = {"tool_calls": [c["name"] for c in reply.tool_calls]}
@@ -531,3 +532,43 @@ def _parse_result(content: str) -> tuple[str | None, bool]:
         return body.get("evidence_id"), bool(body.get("ok", True))
     except (json.JSONDecodeError, AttributeError):
         return None, False
+
+
+def _investigation_history(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """조사 호출에서 이전 도구 응답만 줄인다. 보고서에는 원본 대화를 쓴다."""
+    latest_call = next(
+        (
+            i
+            for i in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[i], AIMessage) and messages[i].tool_calls
+        ),
+        0,
+    )
+    return [
+        _shorten_tool_output(msg) if i < latest_call and isinstance(msg, ToolMessage) else msg
+        for i, msg in enumerate(messages)
+    ]
+
+
+def _shorten_tool_output(message: ToolMessage) -> ToolMessage:
+    content = message.content
+    if not isinstance(content, str) or len(content) <= 2 * _OLD_TOOL_EXCERPT_CHARS:
+        return message
+    try:
+        body = json.loads(content.removeprefix("<tool_output>").removesuffix("</tool_output>"))
+    except json.JSONDecodeError:
+        return message
+    if not isinstance(body, dict) or not body.get("evidence_id") or "data" not in body:
+        return message
+    data = json.dumps(body.pop("data"), ensure_ascii=False, separators=(",", ":"))
+    if len(data) <= _OLD_TOOL_EXCERPT_CHARS:
+        return message
+    half = _OLD_TOOL_EXCERPT_CHARS // 2
+    body["data_excerpt"] = {
+        "start": data[:half],
+        "end": data[-half:],
+        "omitted_chars": len(data) - 2 * half,
+    }
+    return message.model_copy(
+        update={"content": wrap_tool_output(json.dumps(body, ensure_ascii=False))}
+    )
