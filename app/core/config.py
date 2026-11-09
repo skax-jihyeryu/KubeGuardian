@@ -155,6 +155,21 @@ class SlackConfig(_Strict):
     reminders: dict[Literal["critical", "warning"], ReminderPolicy] = {}  # 심각도별 재알림
     # 알림 링크의 보고서 화면 주소 (UI 정의서 §1.2: <report_url>/checks/{run}, /issues/{id})
     report_url: str = DEFAULT_REPORT_URL
+    # 서비스 이름 → 담당자 Slack 사용자 ID. 이슈 1차 알림에서 @멘션한다 (#199)
+    owners: dict[str, list[str]] = {}
+    mention: list[Literal["critical", "warning"]] = ["critical"]  # 멘션할 1차 심각도
+
+    @field_validator("owners")
+    @classmethod
+    def _user_ids_only(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        for service, users in value.items():
+            for user in users:
+                if not re.fullmatch(r"[UW][A-Z0-9]{8,}", user):
+                    raise ValueError(
+                        f"slack.owners.{service}는 Slack 사용자 ID여야 한다 (U로 시작): {user!r}. "
+                        "이름·@핸들로는 멘션이 걸리지 않는다"
+                    )
+        return value
 
     @field_validator("alert_target")
     @classmethod

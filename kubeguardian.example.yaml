@@ -56,6 +56,12 @@ slack:
   alert_target: "C0123456789"  # 채널 ID (채널 정보 맨 아래). 이름은 메시지 수정이 실패한다
   report_url: http://localhost:8000/default   # 알림 링크의 보고서 화면 주소 (port-forward 기준)
   # 봇 토큰(chat:write)은 여기 적지 않는다. .env의 SLACK_BOT_TOKEN → make kg-up → kubeguardian-env
+  # 서비스 담당자(Slack 사용자 ID: 프로필 → 멤버 ID 복사, U로 시작). 이슈 1차 알림에서 @멘션한다.
+  # 없는 서비스는 멘션 없이 보낸다. 리마인더·복구에는 붙이지 않는다
+  # owners:
+  #   agent: [U0123456789]
+  #   db: [U0123456789, U9876543210]
+  # mention: [critical]   # 멘션할 1차 심각도 (기본 긴급만. 주의도 부르려면 [critical, warning])
   reminders:
     critical: {first_after: 30m, then_every: 30m, require_ack: true}
     warning: {first_after: 2h, max: 1}
