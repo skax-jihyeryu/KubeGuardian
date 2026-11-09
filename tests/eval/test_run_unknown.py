@@ -90,6 +90,60 @@ def test_user_symptom_in_expected_reaches_check_and_is_recorded(monkeypatch, tmp
     assert json.loads(path.read_text(encoding="utf-8"))["user_symptom"] == "채팅이 가끔 실패"
 
 
+def _rule_outcome():
+    from service.model import Signal
+
+    signal = Signal(
+        rule_id="S01", verdict="detected", subject="dev/Service/agent", severity="critical"
+    )
+    return SimpleNamespace(
+        run_id=1,
+        signals=[signal],
+        gate=SimpleNamespace(path="A", reason="적발: S01", signals=[signal], symptoms=[]),
+        snapshot=SimpleNamespace(failed=[]),
+        symptoms=[],
+    )
+
+
+def _rule_scenario(monkeypatch, tmp_path, calls):
+    _patch_environment(monkeypatch, tmp_path, _rule_outcome())
+    monkeypatch.setattr(eval_run, "run_investigation", lambda *a, **k: calls.append(k))
+    monkeypatch.setattr(eval_run, "score_layers", lambda *a, **k: None)
+    monkeypatch.setattr(eval_run, "build_chat_model", lambda *a, **k: None)
+    scenario = tmp_path / "scenarios" / "X2"
+    scenario.mkdir(parents=True)
+    (scenario / "expected.yaml").write_text(
+        "id: X2\ngate_path: A\nmust_signals: [S01]\nexpected_top1: 원인\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(eval_run, "SCENARIOS", tmp_path / "scenarios")
+
+
+def test_ai_condition_does_not_investigate_rule_detection(monkeypatch, tmp_path):
+    calls = []
+    _rule_scenario(monkeypatch, tmp_path, calls)
+
+    code = eval_run.run("X2", "unused.yaml", 1, 1, 1, "ai")
+
+    [path] = (tmp_path / "history").glob("*-X2/result.json")
+    result = json.loads(path.read_text(encoding="utf-8"))
+    assert code == eval_run.EXIT_PASS and calls == []
+    assert result["rule_diagnosis"]["label"] == "규칙 진단(AI 미호출)"
+    assert result["rule_diagnosis"]["rules"] == ["S01"]
+    assert "ai_runs" not in result
+
+
+def test_ai_on_rules_investigates_rule_detection_for_comparison(monkeypatch, tmp_path):
+    calls = []
+    _rule_scenario(monkeypatch, tmp_path, calls)
+
+    eval_run.run("X2", "unused.yaml", 1, 1, 1, "ai", ai_on_rules=True)
+
+    [path] = (tmp_path / "history").glob("*-X2/result.json")
+    result = json.loads(path.read_text(encoding="utf-8"))
+    assert [c["ai_on_rules"] for c in calls] == [True]
+    assert result["ai_on_rules"] is True and "rule_diagnosis" not in result
+
+
 def test_sh_survives_non_utf8_script_output(tmp_path, monkeypatch):
     scenario = tmp_path / "X1"
     scenario.mkdir()

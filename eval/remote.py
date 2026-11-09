@@ -43,6 +43,7 @@ class RemoteRunner:
         self.pod: str | None = None
         # exec이 시간 초과로 끊기면 Pod 안 점검이 DB를 쓰다 말았을 수 있다
         self.db_incomplete = False
+        self.ai_on_rules = False  # 평가 전용: 규칙 감지(경로 A)도 Pod 안에서 AI로 조사
 
     @property
     def db_path(self) -> str:
@@ -95,6 +96,7 @@ class RemoteRunner:
             "--run-id",
             run_id,
             *_symptom_args(symptom),
+            *(["--ai-on-rules"] if self.ai_on_rules else []),
         )
         if data.get("skipped"):
             return None, None

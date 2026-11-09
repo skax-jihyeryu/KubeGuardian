@@ -2,11 +2,13 @@
 
 기준 조건(규칙만)으로 시나리오 하나를 돈다. --condition ai면 점검 뒤 게이트가 열렸을 때
 조사 에이전트를 돌리고, 보고서 결론이 기대 1순위와 같은 원인인지 LLM으로 채점한다.
+규칙 감지(경로 A)는 서비스와 같이 AI를 부르지 않고 결과에 rule_diagnosis("규칙 진단(AI 미호출)")로
+기록하며 AI 조사 집계에서 뺀다 (#185). 과거 비교 조건이 필요하면 --ai-on-rules로 경로 A도 조사한다.
 점검은 같은 DB로 간격(기본 300초)마다 반복하고, 기대 신호를 모두 적발하거나
 상한(기본 2700초)에 닿으면 마지막 점검으로 채점한다. 기대 신호가 없는 시나리오는 한 번만 점검한다.
 실행: uv run python eval/run.py <시나리오 ID> [--config kubeguardian.yaml]
       [--check-interval 300] [--check-max 2700] [--condition rules|ai] [--in-cluster]
-      [--ai-repeats N] [--batch 이름]
+      [--ai-repeats N] [--batch 이름] [--ai-on-rules]
 --ai-repeats는 같은 점검 결과로 조사를 N회 돌린다 (회차별 report-<i>·steps-<i>.json).
 채점은 두 단계다: 조사 직후 원인·판정을 보고, 원복 뒤 DB를 가져와 핵심·주장별 근거를 본다.
 종료 코드: 0 통과, 1 실패, 2 무효(증상 없음·원복 실패·근거 DB 없음 등 실행 자체를 믿을 수 없음)
@@ -307,6 +309,17 @@ def decide_exit_runs(rules_passed: bool, runs: list[dict]) -> int:
     return EXIT_PASS if rules_passed and all(r["passed"] for r in runs) else EXIT_FAIL
 
 
+def rule_diagnosis_record(outcome: Any) -> dict:
+    """규칙 감지(경로 A)로 AI 없이 끝낸 점검의 기록. AI 조사 회차(ai_runs)와 따로 센다 (#185)."""
+    return {
+        "label": "규칙 진단(AI 미호출)",
+        "ai_called": False,
+        "gate_path": outcome.gate.path,
+        "rules": sorted({s.rule_id for s in outcome.gate.signals}),
+        "failed_features": sorted({x.scenario for x in outcome.gate.symptoms}),
+    }
+
+
 def read_target(scenario: str) -> str | None:
     """inject.sh가 남긴 주입 대상 이름 (B1). 없거나 비면 None. 원복 전에 읽는다."""
     path = SCENARIOS / scenario / ".state" / "target"
@@ -327,6 +340,7 @@ def run(
     in_cluster: bool = False,
     ai_repeats: int = 1,
     batch: str | None = None,
+    ai_on_rules: bool = False,
 ) -> int:
     expected = yaml.safe_load((SCENARIOS / scenario / "expected.yaml").read_text(encoding="utf-8"))
     config = load_kubeguardian_config(config_path)
@@ -341,6 +355,8 @@ def run(
     }
     if batch:
         result["batch"] = batch
+    if condition == "ai" and ai_on_rules:
+        result["ai_on_rules"] = True  # 경로 A도 AI가 조사한 실행 (서비스 기본 흐름이 아님)
     exit_code = EXIT_INVALID
 
     # --in-cluster: 점검·조사는 runner Pod에서 한다. 주입 전에 Pod부터 확인한다 (없으면 주입 안 함)
@@ -353,6 +369,7 @@ def run(
         except RemoteError as e:
             result["invalid"] = f"runner Pod 확인 실패: {e}"
             return finish(result, out_dir, exit_code)
+        remote.ai_on_rules = ai_on_rules
 
     # 주입 전에 정상 기준선을 확인한다. 이미 깨져 있으면 증상 확인이 다른 원인으로 통과할 수 있다
     ok, out = until_ok("H0", "verify_symptom.sh", 60)
@@ -448,7 +465,12 @@ def run(
             f" 관찰 중 {s['observing']} 확인하지 못함 {s['unknown']}",
         )
         rules_passed = s["passed"]
-        if condition == "ai":
+        if condition == "ai" and outcome.gate.path == "A" and not ai_on_rules:
+            # 규칙 감지는 AI를 부르지 않는다 (#185). 조사 회차 없이 규칙 채점으로만 통과를 정한다
+            result["rule_diagnosis"] = rule_diagnosis_record(outcome)
+            log("rule", "규칙 진단(AI 미호출): " + ", ".join(result["rule_diagnosis"]["rules"]))
+            exit_code = EXIT_PASS if rules_passed else EXIT_FAIL
+        elif condition == "ai":
             if needs_target(expected):
                 try:
                     resolved = resolve_expected(expected, read_target(scenario))
@@ -480,7 +502,7 @@ def run(
                         k8s=reader,
                         http=target_http(config),
                         symptom=user_symptom,
-                        ai_on_rules=True,  # 4단계(평가 분리)에서 옵션으로 바꾼다
+                        ai_on_rules=ai_on_rules,
                     ),
                     judge=lambda conclusion: judge_top1(
                         conclusion, resolved, build_chat_model(JUDGE_MODEL)
@@ -620,6 +642,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--ai-repeats", type=int, default=1, help="같은 점검 결과로 조사를 돌릴 횟수")
     p.add_argument("--batch", help="여러 실행을 묶어 보는 이름 (result.json의 batch)")
+    p.add_argument(
+        "--ai-on-rules",
+        action="store_true",
+        help="과거 비교용: 규칙 감지(경로 A)도 AI로 조사한다 (기본은 규칙 진단, AI 미호출)",
+    )
     args = p.parse_args(argv)
     if args.check_interval <= 0:
         p.error("--check-interval은 0보다 커야 한다")
@@ -627,6 +654,8 @@ def main(argv: list[str] | None = None) -> int:
         p.error("--ai-repeats는 1 이상이어야 한다")
     if args.ai_repeats > 1 and args.condition != "ai":
         p.error("--ai-repeats는 --condition ai와 함께 쓴다")
+    if args.ai_on_rules and args.condition != "ai":
+        p.error("--ai-on-rules는 --condition ai와 함께 쓴다")
     if not (SCENARIOS / args.scenario / "expected.yaml").is_file():
         print(f"시나리오 없음: scenarios/{args.scenario}/expected.yaml", file=sys.stderr)
         return EXIT_INVALID
@@ -641,6 +670,7 @@ def main(argv: list[str] | None = None) -> int:
             args.in_cluster,
             args.ai_repeats,
             args.batch,
+            args.ai_on_rules,
         )
     except Exception as e:  # 설정 파일 오류 등 주입 전에 난 오류
         print(f"무효: {type(e).__name__}: {e}", file=sys.stderr)

@@ -23,7 +23,11 @@ def _check_payload(run_id=1, detected=True, failed=None, symptoms=None):
     return {
         "run_id": run_id,
         "gate_path": "A" if detected else "C",
-        "gate": {"path": "A" if detected else "C", "reason": "적발: S01" if detected else ""},
+        "gate": {
+            "path": "A" if detected else "C",
+            "reason": "적발: S01" if detected else "",
+            "signals": signals,
+        },
         "signals": signals,
         "snapshot_failed": failed or {},
         "symptoms": symptoms or [],
@@ -168,6 +172,18 @@ def test_investigate_returns_agent_result_and_trace_id():
     assert exec_cmd[exec_cmd.index("--check-run-id") + 1] == "3"
 
 
+def test_investigate_sends_ai_on_rules_only_when_set():
+    fake = FakeKubectl(execs=[{"skipped": True}, {"skipped": True}])
+    runner = _runner(fake)
+
+    runner.investigate(1, "r")
+    runner.ai_on_rules = True
+    runner.investigate(1, "r")
+
+    first, second = [c for c in fake.calls if "exec" in c]
+    assert "--ai-on-rules" not in first and "--ai-on-rules" in second
+
+
 def test_investigate_skipped_returns_none():
     result, trace_id = _runner(FakeKubectl(execs=[{"skipped": True}])).investigate(1, "r")
 
@@ -236,6 +252,7 @@ def _run_in_cluster(
     symptom_ok=True,
     condition="rules",
     ai_repeats=1,
+    ai_on_rules=False,
 ):
     import run as run_mod
 
@@ -264,7 +281,15 @@ def _run_in_cluster(
     stub.events = events  # reset.sh와 fetch의 순서를 한 목록으로 본다
     monkeypatch.setattr(run_mod, "RemoteRunner", lambda name: stub)
     code = run_mod.run(
-        scenario, str(cfg), 1, 300, 2700, condition, in_cluster=True, ai_repeats=ai_repeats
+        scenario,
+        str(cfg),
+        1,
+        300,
+        2700,
+        condition,
+        in_cluster=True,
+        ai_repeats=ai_repeats,
+        ai_on_rules=ai_on_rules,
     )
     result = json.loads(next((tmp_path / "history").glob("*/result.json")).read_text())
     return code, result, stub
@@ -412,7 +437,9 @@ def test_user_symptom_reaches_the_pod_check_and_investigation(tmp_path, monkeypa
 
         stub.check, stub.investigate = spy_check, spy_investigate
 
-    _, result, _ = _run_in_cluster(tmp_path, monkeypatch, "B1", stub_hook=hook, condition="ai")
+    _, result, _ = _run_in_cluster(
+        tmp_path, monkeypatch, "B1", stub_hook=hook, condition="ai", ai_on_rules=True
+    )
 
     assert seen["check"] == seen["investigate"] == result["user_symptom"]
     assert seen["check"]
@@ -512,3 +539,52 @@ def test_end_describe_failure_preserves_result_and_invalidates(tmp_path, monkeyp
     assert "fetch unavailable" in result["db_fetch_failed"]
     assert "runner unavailable" in result["in_cluster_end_failed"]
     assert "in_cluster_end" not in result
+
+
+# ── 규칙 감지는 AI 조사 없이 규칙 진단으로 기록한다 (#185) ──
+
+
+def _no_investigation(stub):
+    def investigate(*a, **k):
+        raise AssertionError("규칙 감지는 AI 조사를 부르지 않는다")
+
+    stub.investigate = investigate
+
+
+def test_rule_detection_records_rule_diagnosis_without_ai(tmp_path, monkeypatch):
+    code, result, stub = _run_in_cluster(
+        tmp_path, monkeypatch, "A1", stub_hook=_no_investigation, condition="ai"
+    )
+
+    assert code == 0, result
+    assert result["rule_diagnosis"] == {
+        "label": "규칙 진단(AI 미호출)",
+        "ai_called": False,
+        "gate_path": "A",
+        "rules": ["S01"],
+        "failed_features": [],
+    }
+    assert "ai_runs" not in result and "ai_on_rules" not in result
+    assert stub.ai_on_rules is False
+
+
+def test_ai_on_rules_option_investigates_rule_detection_and_marks_result(tmp_path, monkeypatch):
+    import run as run_mod
+
+    calls = []
+
+    def hook(stub):
+        stub.investigate = lambda check_run_id, run_id, symptom: (
+            calls.append(run_id) or (None, None)
+        )
+
+    monkeypatch.setattr(run_mod, "build_chat_model", lambda *a, **k: None)
+    monkeypatch.setattr(run_mod, "score_layers", lambda *a, **k: None)
+    monkeypatch.setattr(run_mod, "read_target", lambda scenario: None)
+    _, result, stub = _run_in_cluster(
+        tmp_path, monkeypatch, "A1", stub_hook=hook, condition="ai", ai_on_rules=True
+    )
+
+    assert len(calls) == 1 and stub.ai_on_rules is True
+    assert result["ai_on_rules"] is True and len(result["ai_runs"]) == 1
+    assert "rule_diagnosis" not in result

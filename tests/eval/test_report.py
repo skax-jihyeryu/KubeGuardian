@@ -470,3 +470,47 @@ def test_batch_drift_compares_end_to_next_start_and_last_end(tmp_path):
         "config_resource_version: 1 → 2 (A1 종료~A3 시작 사이)",
         "config_resource_version: 2 → 3 (A3 시작~A3 종료 사이)",
     ]
+
+
+# ── 규칙 진단(AI 미호출)은 AI 조사 집계와 분리한다 (#185) ──
+
+
+def _write_rule_diagnosis(history, name, scenario, passed=True, **extra):
+    write_result(
+        history,
+        name,
+        scenario,
+        [],
+        ai_runs=None,
+        rule_diagnosis={"label": "규칙 진단(AI 미호출)", "ai_called": False, "rules": ["S01"]},
+        score={"passed": passed},
+        **extra,
+    )
+
+
+def test_rule_diagnosis_is_counted_apart_from_ai_runs(tmp_path):
+    history, scen = tmp_path / "history", tmp_path / "scenarios"
+    _write_rule_diagnosis(history, "r1", "A1")
+    _write_rule_diagnosis(history, "r2", "A1", passed=False)
+    write_result(history, "a", "B1", [make_run()])
+    write_scenario(scen, "A1")
+    write_scenario(scen, "B1", gate="B")
+
+    summary = summarize(load_batch(history, "b1"), {}, scen)
+
+    assert "A1" not in summary["scenarios"]  # AI 조사 집계에 들어가지 않는다
+    assert summary["kpi"]["accuracy"] == 1.0  # 분모는 AI 조사 회차뿐
+    assert summary["rule_diagnosis"] == {"A1": (1, 2, 0)}
+    text = render(summary, None)
+    assert "규칙 진단(AI 미호출)" in text and "AI 조사 집계에 넣지 않습니다" in text
+
+
+def test_ai_on_rules_batch_is_flagged(tmp_path):
+    history, scen = tmp_path / "history", tmp_path / "scenarios"
+    write_result(history, "a", "A1", [make_run()], ai_on_rules=True)
+    write_scenario(scen, "A1")
+
+    summary = summarize(load_batch(history, "b1"), {}, scen)
+
+    assert summary["ai_on_rules"] == ["A1"]
+    assert "--ai-on-rules" in render(summary, None)
