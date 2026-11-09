@@ -1,7 +1,8 @@
 """보고서 산문의 언어 검사: 한자(중국어)가 섞였는지 본다 (#230).
 
 LLM이 쓰는 문장 필드만 본다. 근거 인용·리소스 이름·로그 발췌(preliminary_facts 등)는 보지 않는다.
-한글(Hangul)은 해당하지 않고, CJK 통합 한자와 확장 A만 잡는다.
+한글(Hangul)은 해당하지 않고, CJK 통합 한자·확장 A·호환 한자만 잡는다.
+한계: 산문이 로그 원문을 인용해 중국어가 들어 있으면 재작성 후에도 경고만 남는다.
 """
 
 import re
@@ -11,13 +12,22 @@ from service.model import Report
 _HAN = re.compile(r"[㐀-䶿一-鿿]")
 
 KOREAN_ONLY_NOTE = (
-    "보고서 문장에 한자(중국어)가 섞였습니다. 모든 문장을 한국어로 다시 작성하세요. "
-    "한자와 중국어는 쓰지 않습니다."
+    "위 보고서 문장에 한자(중국어)가 섞였습니다. 모든 문장을 한국어로 다시 작성하세요. "
+    "구조·근거 ID·내용은 그대로 두고 한자 문장만 한국어로 바꿉니다. 같은 JSON 형식으로만 답합니다."
 )
 
 
 def has_han(text: str) -> bool:
     return _HAN.search(text) is not None
+
+
+def cited_ids(report: Report) -> set[str]:
+    """보고서가 인용한 근거 번호 전체."""
+    ids = set(report.evidence_ids)
+    for group in (report.issues, report.hypotheses, report.cause_chain):
+        for item in group:
+            ids.update(item.evidence_ids)
+    return ids
 
 
 def han_fields(report: Report) -> list[str]:

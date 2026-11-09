@@ -4,11 +4,13 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import BaseModel
 
+from core.error.service_exception import ErrorCode, ServiceException
 from core.guard.budget import Budget, BudgetTracker
 from service.agent.base import RunContext
 from service.agent.investigator.v1.agent import InvestigatorV1
@@ -1591,24 +1593,64 @@ def test_korean_report_is_not_rewritten():
     assert not any("한국어로 다시 작성" in str(c[-1].content) for c in llm.calls)
 
 
-def test_chinese_rewrite_skipped_when_time_is_over():
+def _zh_report(**extra) -> str:
+    return json.dumps({**json.loads(_report(["ev-1"])), "conclusion": ZH, **extra})
+
+
+def test_rewrite_skipped_when_remaining_time_is_short():
     clock = Clock()
-    bad = json.dumps({**json.loads(_report(["ev-1"])), "conclusion": ZH})
     script = [
         TRIAGE,
         PLAN,
         AIMessage(content="조사 완료"),
-        lambda: (setattr(clock, "t", 999), bad)[1],
+        lambda: (setattr(clock, "t", 140), _zh_report())[1],  # 남은 10초 < 25초
     ]
     result, llm, _ = _run(script, clock=clock)
 
+    assert result.status == "done"
     assert result.report.conclusion == ZH
     assert not any("한국어로 다시 작성" in str(c[-1].content) for c in llm.calls)
 
 
-def test_hangul_and_evidence_text_are_not_flagged():
+@pytest.mark.parametrize("second", [ServiceException(ErrorCode.LLM_CALL_FAILED), "not json"])
+def test_rewrite_failure_keeps_first_report(second):
+    script = [TRIAGE, PLAN, AIMessage(content="조사 완료"), _zh_report(), second]
+    if second == "not json":
+        script.append("still not json")  # invoke_structured의 형식 재시도
+    result, _, _ = _run(script)
+
+    assert result.status == "done"
+    assert result.report.conclusion == ZH
+
+
+def test_rewrite_message_carries_first_report_and_instruction():
+    script = [TRIAGE, PLAN, AIMessage(content="조사 완료"), _zh_report(), _report(["ev-1"])]
+    _, llm, _ = _run(script)
+
+    sent = llm.calls[-1]
+    assert ZH in str(sent[-2].content)
+    assert "근거 ID" in str(sent[-1].content)
+
+
+def test_rewrite_that_loses_evidence_ids_is_discarded():
+    first = _zh_report(evidence_ids=["ev-1", "ev-2"])
+    script = [TRIAGE, PLAN, AIMessage(content="조사 완료"), first, _report(["ev-1"])]
+    result, _, _ = _run(script)
+
+    assert result.status == "done"
+    assert result.report.conclusion == ZH
+
+
+def test_han_fields_checks_prose_only():
     from service.agent._common.language import han_fields
     from service.model import Report
 
-    r = Report.model_validate_json(_report(["ev-1"], verification="로그에서 확인"))
-    assert han_fields(r) == []
+    clean = json.loads(_report(["ev-1"]))
+    clean["preliminary_facts"] = [{"statement": ZH, "evidence_ids": ["ev-1"]}]
+    assert han_fields(Report.model_validate(clean)) == []
+
+    clean["issues"] = [
+        {"rank": 1, "title": "调用失败", "impact": "core_path_broken", "confidence": "high"}
+    ]
+    clean["coverage"]["logs"]["summary"] = "日志"
+    assert han_fields(Report.model_validate(clean)) == ["issues[0].title", "coverage.logs.summary"]
