@@ -53,6 +53,88 @@
   openEvidence();
 })();
 
+/* 기간 선택기. 채팅에서는 대상마다 확정한 값을 각 칩에 저장한다. */
+function syncPeriodButtons(picker) {
+  var mode = picker.querySelector('[data-period-mode]').value;
+  picker.querySelectorAll('[data-period-quick]').forEach(function (button) {
+    button.setAttribute('aria-pressed', String(button.dataset.periodQuick === mode));
+  });
+}
+
+function chatPeriodChip(picker) {
+  var target = picker.querySelector('[name="chat_period_target"]:checked')?.value;
+  return target && picker.closest('#chat-panel').querySelector('[data-chat-period-chip="' + target + '"]');
+}
+
+function loadChatPeriod(picker) {
+  var chip = chatPeriodChip(picker);
+  if (!chip) return;
+  for (var [field, control] of [['period', 'mode'], ['from', 'start'], ['to', 'end']]) {
+    picker.querySelector('[data-period-' + control + ']').value =
+      chip.querySelector('[data-saved-period="' + field + '"]').value;
+  }
+  picker.querySelector('[data-period-end]').setCustomValidity('');
+  syncPeriodButtons(picker);
+}
+
+document.addEventListener('change', function (e) {
+  var picker = e.target.closest('[data-period-picker]');
+  if (!picker) return;
+  if (e.target.name === 'chat_period_target') {
+    loadChatPeriod(picker);
+    return;
+  }
+  var mode = picker.querySelector('[data-period-mode]');
+  var start = picker.querySelector('[data-period-start]');
+  var end = picker.querySelector('[data-period-end]');
+  if (e.target === mode && mode.value !== 'custom') {
+    start.value = '';
+    end.value = '';
+  }
+  if (e.target === start || e.target === end) mode.value = 'custom';
+  end.setCustomValidity('');
+  syncPeriodButtons(picker);
+});
+
+document.addEventListener('click', function (e) {
+  var summary = e.target.closest('[data-period-picker] > summary');
+  if (summary && !summary.parentElement.open) loadChatPeriod(summary.parentElement);
+  var quick = e.target.closest('[data-period-quick]');
+  if (quick) {
+    var mode = quick.closest('[data-period-picker]').querySelector('[data-period-mode]');
+    mode.value = quick.dataset.periodQuick;
+    mode.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+  var done = e.target.closest('[data-period-done]');
+  if (done) {
+    var picker = done.closest('[data-period-picker]');
+    var chip = chatPeriodChip(picker);
+    var mode = picker.querySelector('[data-period-mode]').value;
+    var start = picker.querySelector('[data-period-start]').value;
+    var end = picker.querySelector('[data-period-end]');
+    if (mode === 'custom' && (!start || !end.value || start > end.value)) {
+      end.setCustomValidity('시작일과 종료일을 순서대로 선택해 주세요.');
+      end.reportValidity();
+      return;
+    }
+    if (chip && mode) {
+      chip.querySelector('[data-saved-period="period"]').value = mode;
+      chip.querySelector('[data-saved-period="from"]').value = start;
+      chip.querySelector('[data-saved-period="to"]').value = end.value;
+      var range = mode === 'custom' ? start + ' ~ ' + end.value :
+        picker.querySelector('[data-period-quick][aria-pressed="true"]').textContent;
+      chip.querySelector('[data-period-label]').textContent =
+        chip.dataset.periodTargetLabel + ' · ' + range;
+      chip.hidden = false;
+    }
+    picker.open = false;
+    picker.querySelector('summary').focus();
+  }
+  document.querySelectorAll('[data-period-picker][open]').forEach(function (picker) {
+    if (!picker.contains(e.target)) picker.open = false;
+  });
+});
+
 /* 질문 패널은 페이지 이동 뒤에도 열린 상태를 유지한다. */
 (function () {
   function openChat() {
@@ -63,6 +145,8 @@
     var params = new URLSearchParams();
     if (path) params.set(path[1] === 'issues' ? 'issue' : 'run', path[2]);
     if (location.search) params.set('filters', location.search.slice(1));
+    var view = location.pathname.split('/')[2];
+    if (view === 'checks' || view === 'issues') params.set('view', view);
     url += '?' + params.toString();
     htmx.ajax('GET', url, {target: '#chat-root', swap: 'innerHTML'});
     btn.setAttribute('aria-expanded', 'true');
@@ -84,7 +168,83 @@
     if (btn) btn.setAttribute('aria-expanded', 'false');
     sessionStorage.removeItem('kg-chat-open');
   }
+  function toggleMentions(open) {
+    var picker = document.getElementById('chat-mention-picker');
+    var button = document.querySelector('[data-chat-mention-toggle]');
+    picker.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+    var input = picker.querySelector('input');
+    input.setAttribute('aria-expanded', String(open));
+    if (open) {
+      input.focus();
+      htmx.trigger(input, 'chat-mention-open');
+    } else {
+      input.removeAttribute('aria-activedescendant');
+      button.focus();
+    }
+  }
+  function addRecord(option) {
+    var kind = option.dataset.chatPick;
+    var id = option.dataset.recordId;
+    var records = document.querySelector('[data-chat-records]');
+    var exists = Array.from(records.querySelectorAll('input')).some(
+      input => input.name === kind && input.value === id);
+    if (exists) return;
+    var chip = document.createElement('span');
+    chip.className = 'ctx';
+    chip.dataset.chatRecord = '';
+    var label = document.createElement('span');
+    label.textContent = (kind === 'issue' ? '이슈 #' : '점검 #') + id;
+    var remove = document.createElement('button');
+    remove.className = 'plain';
+    remove.type = 'button';
+    remove.dataset.chatRemove = '';
+    remove.setAttribute('aria-label', label.textContent + ' 제외');
+    remove.textContent = '×';
+    var input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = kind;
+    input.value = id;
+    input.setAttribute('form', 'chat-question');
+    chip.append(label, remove, input);
+    records.append(chip);
+  }
+  function closeHistory() {
+    document.getElementById('chat-history').replaceChildren();
+    document.querySelector('[data-chat-history-open]').focus();
+  }
   document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-chat-mention-toggle]')) {
+      toggleMentions(document.getElementById('chat-mention-picker').hidden);
+    }
+    var option = e.target.closest('[data-chat-pick]');
+    if (option) {
+      addRecord(option);
+      toggleMentions(false);
+    }
+    if (e.target.closest('[data-chat-history-close]')) closeHistory();
+    var remove = e.target.closest('[data-chat-remove]');
+    if (remove) {
+      remove.closest('[data-chat-record]').remove();
+      document.querySelector('[data-chat-mention-toggle]').focus();
+    }
+    var removeFilter = e.target.closest('[data-chat-remove-filter]');
+    if (removeFilter) {
+      var form = document.getElementById('chat-question');
+      form.elements.filters.value = '';
+      form.elements.view.value = '';
+      removeFilter.closest('[data-chat-page-filter]').remove();
+      document.querySelector('[data-chat-mention-toggle]').focus();
+    }
+    var removePeriod = e.target.closest('[data-chat-remove-period]');
+    if (removePeriod) {
+      var chip = removePeriod.closest('[data-chat-period-chip]');
+      chip.querySelectorAll('[data-saved-period]').forEach(input => { input.value = ''; });
+      chip.hidden = true;
+      var picker = document.querySelector('#chat-panel [data-period-picker]');
+      if (chatPeriodChip(picker) === chip) loadChatPeriod(picker);
+      picker.querySelector('summary').focus();
+    }
     if (e.target.closest('[data-chat-close]')) closeChat();
     if (e.target.closest('[data-chat-toggle]')) {
       if (document.getElementById('chat-panel')) closeChat(); else openChat();
@@ -98,10 +258,65 @@
       input.form.requestSubmit();
     }
   });
+  document.addEventListener('input', function (e) {
+    if (!e.target.matches('[data-chat-mention]')) return;
+    e.target.removeAttribute('aria-activedescendant');
+    document.getElementById('chat-mention-results').replaceChildren();
+  });
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && document.getElementById('chat-panel')) closeChat();
+    if (e.isComposing) return;
+    if (e.target.matches('[data-chat-mention]') &&
+        ['ArrowDown', 'ArrowUp', 'Enter'].includes(e.key)) {
+      e.preventDefault();
+      var options = Array.from(document.querySelectorAll('#chat-mention-results [data-chat-pick]'));
+      if (!options.length) return;
+      var activeId = e.target.getAttribute('aria-activedescendant');
+      var current = options.findIndex(option => option.id === activeId);
+      if (e.key === 'Enter') {
+        options[Math.max(current, 0)].click();
+        return;
+      }
+      var offset = e.key === 'ArrowDown' ? 1 : -1;
+      var index = current < 0 ? (offset > 0 ? 0 : options.length - 1) :
+        (current + offset + options.length) % options.length;
+      var next = options[index];
+      options.forEach(option => option.setAttribute('aria-selected', String(option === next)));
+      e.target.setAttribute('aria-activedescendant', next.id);
+      next.scrollIntoView({block: 'nearest'});
+      return;
+    }
+    if (e.key !== 'Escape') return;
+    var period = e.target.closest('[data-period-picker][open]');
+    if (period) {
+      period.open = false;
+      period.querySelector('summary').focus();
+      return;
+    }
+    if (!document.getElementById('chat-panel')) return;
+    if (document.querySelector('#chat-history .chat-history')) closeHistory();
+    else if (!document.getElementById('chat-mention-picker').hidden) toggleMentions(false);
+    else closeChat();
+  });
+  document.body.addEventListener('htmx:beforeSwap', function (e) {
+    if (e.detail.target.id !== 'chat-mention-results') return;
+    var input = document.querySelector('[data-chat-mention]');
+    if (input && (e.detail.requestConfig.parameters.q || '') !== input.value) {
+      e.detail.shouldSwap = false;
+    }
+  });
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    if (e.detail.target.id === 'chat-mention-results') {
+      document.querySelector('[data-chat-mention]')?.removeAttribute('aria-activedescendant');
+    }
+    if (e.detail.target.id === 'chat-history') {
+      e.detail.target.querySelector('[data-chat-history-close]')?.focus();
+    }
   });
   document.body.addEventListener('htmx:beforeRequest', function (e) {
+    if (e.target.matches('[data-chat-resume]')) {
+      var pending = document.getElementById('chat-question')?.chatPending;
+      if (pending) { e.preventDefault(); return; }
+    }
     if (e.target.matches('[data-chat-new]')) {
       var currentForm = document.querySelector('#chat-panel form');
       if (currentForm && currentForm.chatPending) { e.preventDefault(); return; }
@@ -114,6 +329,12 @@
     var form = e.target;
     if (!form.matches('#chat-panel form')) return;
     if (form.chatPending) { e.preventDefault(); return; }
+    document.querySelector('#chat-panel [data-period-picker]').open = false;
+    document.getElementById('chat-mention-picker').hidden = true;
+    document.querySelector('[data-chat-mention-toggle]').setAttribute('aria-expanded', 'false');
+    var mention = document.querySelector('[data-chat-mention]');
+    mention.setAttribute('aria-expanded', 'false');
+    mention.removeAttribute('aria-activedescendant');
     var input = form.querySelector('textarea');
     var messages = document.getElementById('chat-messages');
     var question = input.value.trim();

@@ -2,11 +2,13 @@
 
 import json
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import ClassVar
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import StructuredTool
+from pydantic import AwareDatetime, TypeAdapter, ValidationError
 
 from service.agent._common.prompts import load_prompt
 from service.agent._common.structured import invoke_structured
@@ -18,6 +20,7 @@ from service.agent.registry import register
 from service.model import ChatAnswer, ChatRequest, InvestigationRequest
 from service.notify.messages import DISPLAY_TZ
 
+DATETIME_ARG = TypeAdapter(AwareDatetime)
 MAX_ROUNDS = 10
 WEEKDAYS = "월화수목금토일"
 FINAL_ASK = "지금까지 확인한 것으로 ChatAnswer 형식의 JSON 하나로 답하세요. 스키마: " + json.dumps(
@@ -114,7 +117,17 @@ class HistoryQaV1(BaseAgent):
                 limited = False
                 break
             for call in reply.tool_calls:
-                result = self._call_tool(by_name.get(call["name"]), call["args"], call["name"])
+                name, args = call["name"], call["args"]
+                if window := request.history_windows.get(name):
+                    # 사용자가 정한 목록 범위는 모델이 생략하거나 넓힐 수 없다.
+                    since, until = window
+                    args = dict(args)
+                    for key, bound, clamp in (("since", since, max), ("until", until, min)):
+                        if args.get(key) is not None:
+                            with suppress(ValidationError):
+                                bound = clamp(bound, DATETIME_ARG.validate_python(args[key]))
+                        args[key] = bound.isoformat()
+                result = self._call_tool(by_name.get(name), args, name)
                 text = wrap_tool_output(json.dumps(result, ensure_ascii=False, default=str))
                 messages.append(ToolMessage(text, tool_call_id=call["id"]))
             if not self.ctx.budget.can_call_tool():

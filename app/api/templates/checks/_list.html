@@ -1,17 +1,22 @@
+{% from "_period_picker.html" import period_picker %}
 <section class="list{% if d is defined %} with-detail{% endif %}" aria-label="점검 목록">
   <div class="lhead"><h1>점검 이력</h1><p class="sub">점검 시점의 판정과 근거를 확인합니다</p></div>
   <form class="filters" method="get" action="/{{ p }}/checks">
     <div class="frow">
+    {% set current_period = 'custom' if page.filters.date_from or page.filters.date_to else page.filters.period %}
+    {% set current_period = '1d' if current_period == 'today' else current_period %}
+    {% set period_labels = {'1d': '최근 24시간', '7d': '최근 7일', '30d': '최근 30일'} %}
+    {% set period_label = page.filters.date_from ~ ' ~ ' ~ page.filters.date_to if current_period == 'custom' else period_labels.get(current_period, '전체 기간') %}
+    {{ period_picker(period_label, period_labels, current_period if current_period in period_labels or current_period == 'custom' else '', page.filters.date_from, page.filters.date_to) }}
     {% for name, label, choices in [
-      ('period','기간',[('all','전체 기간'),('1d','최근 24시간'),('7d','최근 7일'),('30d','최근 30일')]),
       ('severity','심각도',[('','모든 심각도'),('critical','긴급'),('warning','주의'),('info','잠재 위험'),('tip','개선 권고'),('calm','정상')]),
       ('relation','이슈 관계',[('','모든 관계'),('opened','열림'),('continued','이어짐'),('resolved','해결'),('none','관계없음')]),
       ('trigger','실행 방식',[('','모든 실행'),('schedule','주기 점검'),('ui','직접 점검'),('check','CLI 점검'),('investigate','CLI 조사')]),
       ('status','점검 상태',[('','모든 상태'),('running','진행 중'),('done','완료'),('unknown','일부 확인하지 못함'),('halted','중단')])
     ] %}<select class="pill" name="{{ name }}" aria-label="{{ label }}">{% for value, text in choices %}<option value="{{ value }}"{% if page.filters|attr(name) == value %} selected{% endif %}>{{ text }}</option>{% endfor %}</select>{% endfor %}
-    </div><div class="frow"><input class="pill" type="date" name="from" value="{{ page.filters.date_from }}" aria-label="시작 날짜"><span aria-hidden="true">~</span><input class="pill" type="date" name="to" value="{{ page.filters.date_to }}" aria-label="끝 날짜"></div><div class="frow"><input class="search" type="search" name="q" value="{{ page.filters.q }}" placeholder="점검 내용 검색" aria-label="검색어"><button class="btn" type="submit">검색</button><a href="/{{ p }}/checks">초기화</a></div>
+    </div><div class="frow"><input class="search" type="search" name="q" value="{{ page.filters.q }}" placeholder="점검 내용 검색" aria-label="검색어"><button class="btn" type="submit">검색</button><a href="/{{ p }}/checks">초기화</a></div>
   </form>
-  <div{% if page.live %} hx-get="{{ request.url }}" hx-trigger="every 3s" hx-select=".list" hx-target="closest .list" hx-swap="outerHTML"{% endif %}>
+  <div id="check-results"{% if page.live %} hx-get="{{ request.url }}" hx-trigger="every 3s" hx-select="#check-results" hx-target="this" hx-swap="outerHTML"{% endif %}>
   {% for row in page.rows %}{% include "checks/_row.html" %}
   {% else %}<div class="sec muted">{% if page.filters.q or page.filters.status or page.filters.severity or page.filters.date_from or page.filters.date_to %}조건에 맞는 점검이 없습니다.{% else %}아직 점검 기록이 없습니다.{% endif %}</div>{% endfor %}
   {% if page.next_url %}<a class="crow" href="{{ page.next_url }}">이전 점검 더 보기 →</a>{% endif %}

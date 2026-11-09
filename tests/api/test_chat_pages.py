@@ -342,3 +342,230 @@ def test_date_range_shows_in_chip_and_question_context(client):
 
 def test_panel_has_date_range_example_question(client):
     assert "지난주 긴급 이슈 리포트 정리해줘" in client.get("/dev/chat").text
+
+
+def test_chat_adds_history_range_without_replacing_current_issue(client, engine):
+    from tests.api.seed import make_run, open_incident
+
+    issue = open_incident(engine, make_run(engine))
+    panel = client.get(f"/dev/chat?issue={issue}").text
+    assert f"이슈 #{issue}" in panel and 'name="chat_period"' in panel
+    assert "기간 추가" in panel
+    assert 'name="chat_period_target" value="checks"' in panel
+    assert 'name="chat_period_target" value="issues" checked' in panel
+
+    reply = ChatReply(conversation_id="x", text="답변", answer=ChatAnswer(sentences=[]))
+    data = {"question": "이 이슈와 다른 기록을 비교해줘", "issue": str(issue)}
+    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+        client.post(
+            "/dev/chat/messages",
+            data={
+                **data,
+                "chat_period": "custom",
+                "chat_period_target": "checks",
+                "chat_from": "2026-11-01",
+                "chat_to": "2026-11-06",
+            },
+        )
+        kwargs = answer.call_args.kwargs
+        assert kwargs["screen"]["화면"] == f"이슈 #{issue}"
+        assert kwargs["screen"]["추가 이력 기간"] == {
+            "from": "2026-11-01",
+            "to": "2026-11-06",
+            "대상": "점검 이력",
+        }
+        assert f"이슈 #{issue} · 점검 이력 기간" in kwargs["context"]
+
+        client.post(
+            "/dev/chat/messages", data={**data, "chat_period": "7d", "chat_period_target": "issues"}
+        )
+        assert answer.call_args.kwargs["screen"]["추가 이력 기간"] == {
+            "period": "7d",
+            "대상": "이슈",
+        }
+
+        client.post("/dev/chat/messages", data={**data, "chat_period": ""})
+        assert answer.call_args.kwargs["screen"] == {"화면": f"이슈 #{issue}", "필터": {}}
+
+
+def test_chat_invalid_custom_period_does_not_search_all_history(client):
+    with patch("api.routes.chat_pages.answer_question") as answer:
+        response = client.post(
+            "/dev/chat/messages",
+            data={
+                "question": "정리해줘",
+                "chat_period": "custom",
+                "chat_from": "2026-11-07",
+                "chat_to": "2026-11-06",
+            },
+        )
+    assert "조회 기간을 확인하세요" in response.text
+    answer.assert_not_called()
+
+
+def test_chat_uses_only_the_selected_issue_chips(client, engine):
+    from tests.api.seed import make_run, open_incident
+
+    first = open_incident(engine, make_run(engine))
+    second = open_incident(engine, make_run(engine))
+    panel = client.get(f"/dev/chat?issue={first}").text
+    assert f'aria-label="이슈 #{first} 제외"' in panel
+    assert "data-chat-mention-toggle" in panel
+
+    reply = ChatReply(conversation_id="x", text="답변", answer=ChatAnswer(sentences=[]))
+    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+        response = client.post(
+            "/dev/chat/messages",
+            data={"question": "두 이슈 비교", "issue": [str(first), str(second), str(first)]},
+        )
+        assert response.status_code == 200
+        assert answer.call_args.kwargs["screen"]["화면"] == f"이슈 #{first}, 이슈 #{second}"
+
+        client.post("/dev/chat/messages", data={"question": "이 이슈만", "issue": str(second)})
+        assert answer.call_args.kwargs["screen"]["화면"] == f"이슈 #{second}"
+
+        client.post("/dev/chat/messages", data={"question": "전체 검색", "chat_period": "7d"})
+        assert answer.call_args.kwargs["screen"]["화면"] == "전체 이력"
+        assert answer.call_args.kwargs["screen"]["추가 이력 기간"] == {"period": "7d"}
+
+        client.post("/dev/chat/messages", data={"question": "범위 초기화"})
+        assert answer.call_args.kwargs["screen"] == {"화면": "전체 이력", "필터": {}}
+
+
+def test_mention_finds_both_record_types_and_question_accepts_multiple_runs(client, engine):
+    from tests.api.seed import make_run, open_incident
+
+    run = make_run(engine)
+    other = make_run(engine)
+    issue = open_incident(engine, run)
+    html = client.get("/dev/chat/mentions", params={"q": f"@{run}"}).text
+    assert f'data-chat-pick="issue" data-record-id="{issue}"' in html
+    assert f'data-chat-pick="run" data-record-id="{run}"' in html
+    assert f'id="chat-option-run-{run}" role="option" aria-selected="false"' in html
+    assert 'aria-controls="chat-mention-results"' in client.get("/dev/chat").text
+    html = client.get("/dev/chat/mentions", params={"q": f"@점검 {run}"}).text
+    assert 'data-chat-pick="issue"' not in html
+    reply = ChatReply(conversation_id="x", text="답변", answer=ChatAnswer(sentences=[]))
+    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+        client.post(
+            "/dev/chat/messages",
+            data={"question": "비교해줘", "issue": str(issue), "run": [str(run), str(other)]},
+        )
+    assert answer.call_args.kwargs["screen"]["화면"] == f"이슈 #{issue}, 점검 #{run}, 점검 #{other}"
+
+
+def test_chat_history_lists_and_reopens_only_known_conversations(client, engine):
+    first, second, unknown = ("a" * 32, "b" * 32, "c" * 32)
+    for cid, title in [
+        (first, "첫 질문"),
+        (second, "두 번째 질문"),
+        (unknown, "다른 브라우저 질문"),
+    ]:
+        ChatStore(engine).add(cid, "user", title, at(0))
+    for cid in (first, second):
+        client.cookies.delete("kg_chat")
+        client.cookies.set("kg_chat", cid, domain="testserver.local", path="/")
+        assert client.get("/dev/chat").status_code == 200
+
+    history = client.get("/dev/chat/history").text
+    assert "첫 질문" in history and "두 번째 질문" in history
+    assert "다른 브라우저 질문" not in history
+    assert client.post("/dev/chat/resume", data={"cid": unknown}).status_code == 404
+    response = client.post("/dev/chat/resume", data={"cid": first})
+    assert response.status_code == 200
+    assert "첫 질문" in response.text and "두 번째 질문" not in response.text
+    assert f"kg_chat={first}" in response.headers["set-cookie"]
+
+
+def test_two_chat_periods_filter_real_tools_and_render_their_answer(client, engine, clock):
+    import json
+    from datetime import timedelta
+
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    from api.deps import get_llm_factory
+    from core.db import CheckRunStore, IncidentStore
+    from tests.service.agent.history_qa.fakes import ScriptedLLM
+
+    runs, issues = CheckRunStore(engine), IncidentStore(engine)
+    current = clock.now
+    fresh_run = runs.create("schedule", current - timedelta(hours=6))
+    stale_run = runs.create("schedule", current - timedelta(days=2))
+    fresh_issue = issues.open("recent", {}, "critical", stale_run, current - timedelta(days=3))
+    stale_issue = issues.open("old", {}, "critical", stale_run, current - timedelta(days=10))
+    issues.resolve(
+        stale_issue,
+        runs.create("schedule", current - timedelta(days=8)),
+        current - timedelta(days=8),
+    )
+    call = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "list_runs", "args": {"since": "2000-01-01T00:00:00Z"}, "id": "runs"},
+            {"name": "list_issues", "args": {"since": "2000-01-01T00:00:00Z"}, "id": "issues"},
+        ],
+    )
+    result = json.dumps(
+        {
+            "sentences": [
+                {"text": "최근 24시간 점검 1건", "kind": "fact", "run_ids": [fresh_run]},
+                {"text": "최근 7일 이슈 1건", "kind": "fact", "issue_ids": [fresh_issue]},
+            ]
+        }
+    )
+    llm = ScriptedLLM(script=[call, "확인", result])
+    client.app.dependency_overrides[get_llm_factory] = lambda: lambda _: llm
+    response = client.post(
+        "/dev/chat/messages",
+        data={
+            "question": "선택한 기간별로 점검과 이슈를 정리해줘",
+            "checks_period": "1d",
+            "issues_period": "7d",
+        },
+    )
+    assert "최근 24시간 점검 1건" in response.text
+    assert "최근 7일 이슈 1건" in response.text
+    outputs = {
+        msg.tool_call_id: json.loads(
+            msg.content.removeprefix("<tool_output>").removesuffix("</tool_output>")
+        )
+        for msg in llm.calls[1]
+        if isinstance(msg, ToolMessage)
+    }
+    assert [row["id"] for row in outputs["runs"]["runs"]] == [fresh_run]
+    assert [row["id"] for row in outputs["issues"]["issues"]] == [fresh_issue]
+
+
+def test_issue_period_keeps_the_checks_page_filter(client):
+    reply = ChatReply(conversation_id="x", text="답변", answer=ChatAnswer(sentences=[]))
+    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+        client.post(
+            "/dev/chat/messages",
+            data={
+                "question": "점검과 이슈를 조회해줘",
+                "view": "checks",
+                "filters": "from=2026-11-01&to=2026-11-06",
+                "issues_period": "7d",
+            },
+        )
+    screen = answer.call_args.kwargs["screen"]
+    assert screen["목록 대상"] == "점검 이력"
+    assert screen["필터"] == {"from": "2026-11-01", "to": "2026-11-06"}
+
+
+def test_message_follows_displayed_conversation_after_switch_in_another_tab(client, engine):
+    first = "d" * 32
+    ChatStore(engine).add(first, "user", "첫 질문", at(0))
+    client.cookies.set("kg_chat", first, domain="testserver.local", path="/")
+    assert f'name="cid" value="{first}"' in client.get("/dev/chat").text
+    client.post("/dev/chat/new")
+    reply = ChatReply(conversation_id=first, text="답변", answer=ChatAnswer(sentences=[]))
+    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+        client.post("/dev/chat/messages", data={"question": "후속 질문", "cid": first})
+        assert answer.call_args.kwargs["conversation_id"] == first
+        assert (
+            client.post(
+                "/dev/chat/messages", data={"question": "질문", "cid": "f" * 32}
+            ).status_code
+            == 404
+        )

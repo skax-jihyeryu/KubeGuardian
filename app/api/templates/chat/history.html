@@ -1,0 +1,8 @@
+<section class="chat-history" aria-label="채팅 이력">
+  <div class="chat-history-header"><strong>채팅 이력</strong><button class="plain" type="button" data-chat-history-close aria-label="채팅 이력 닫기">×</button></div>
+  <div class="chat-history-list">
+  {% for cid, title in history %}
+    <button class="chat-record-option" type="button" data-chat-resume hx-post="/{{ p }}/chat/resume?{{ params|urlencode }}" hx-vals='{{ {"cid": cid}|tojson }}' hx-target="#chat-root" hx-disabled-elt="#chat-history button"{% if cid == current %} aria-current="true"{% endif %}>{{ title }}</button>
+  {% else %}<p class="s13 muted">이 브라우저에서 나눈 대화가 여기에 표시됩니다.</p>{% endfor %}
+  </div>
+</section>

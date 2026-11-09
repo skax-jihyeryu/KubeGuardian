@@ -1,0 +1,27 @@
+{% macro period_picker(label, periods, selected='', start='', end='', targets=none, target='checks') %}
+{% set chat = targets is not none %}
+<details class="period-picker" data-period-picker>
+  <summary class="pill"><span>{{ label }}</span><svg class="period-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+  <div class="period-panel">
+    <input type="hidden" {% if chat %}name="chat_period"{% else %}name="period"{% endif %} value="{{ selected }}" data-period-mode>
+    {% if chat %}
+    <fieldset class="period-targets">
+      <legend class="period-caption">대상 선택</legend>
+      {% for value, text in targets.items() %}<label class="btn"><input type="radio" name="chat_period_target" value="{{ value }}"{% if target == value %} checked{% endif %}> {{ text }}</label>{% endfor %}
+    </fieldset>
+    {% endif %}
+    <div class="period-caption">빠른 기간</div>
+    <div class="period-presets" role="group" aria-label="빠른 기간">
+      {% for value, text in periods.items() %}<button class="btn" type="button" data-period-quick="{{ value }}" aria-pressed="{{ 'true' if selected == value else 'false' }}">{{ text }}</button>{% endfor %}
+    </div>
+    <div class="period-caption period-custom">직접 날짜 지정 <span>KST</span></div>
+    <div class="period-dates">
+      <label>시작일<input type="date" name="{{ 'chat_from' if chat else 'from' }}" value="{{ start }}" data-period-start></label>
+      <label>종료일<input type="date" name="{{ 'chat_to' if chat else 'to' }}" value="{{ end }}" data-period-end></label>
+    </div>
+    <div class="period-footer">
+      {% if chat %}<button class="btn btn-primary" type="button" data-period-done>기간 추가</button>{% else %}<button class="btn btn-primary" type="submit">기간 적용</button>{% endif %}
+    </div>
+  </div>
+</details>
+{% endmacro %}
