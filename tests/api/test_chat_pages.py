@@ -207,6 +207,25 @@ def test_restored_answers_keep_citation_links(client, engine):
     assert "/dev/chat/evidence/ev-0001" in response.text
 
 
+def test_chat_displays_answer_timestamps_to_the_minute(client, engine):
+    client.get("/dev/chat")
+    cid = client.cookies.get("kg_chat")
+    question = "2026-11-09 00:20:28.626419의 기록은?"
+    text = "조회 기간 2026-11-09 00:20:28.626419 ~ 2026-11-10T00:20:28+09:00"
+    answer = ChatAnswer(sentences=[AnswerSentence(text=text, kind="fact", run_ids=[97])])
+    ChatStore(engine).add(cid, "assistant", text, at(1), answer.model_dump())
+    reply = ChatReply(conversation_id=cid, text=text, answer=answer)
+
+    with patch("api.routes.chat_pages.answer_question", return_value=reply):
+        sent = client.post("/dev/chat/messages", data={"question": question})
+    restored = client.get("/dev/chat")
+
+    assert question in sent.text
+    for response in (sent, restored):
+        assert "조회 기간 2026-11-09 00:20 ~ 2026-11-10 00:20+09:00" in response.text
+        assert "/dev/checks/97" in response.text
+
+
 def test_context_dividers_restore_switch_and_clear(client, engine):
     from tests.api.seed import make_run, open_incident
 

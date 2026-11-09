@@ -21,7 +21,13 @@ STATIC_DIR = API_DIR / "static"
 
 # autoescape를 켠다. 로그·LLM 문자열을 |safe로 내보내지 않는다 (Review Focus 1)
 _env = Environment(loader=FileSystemLoader(API_DIR / "templates"), autoescape=True)
-_env.filters.update(hm=timefmt.hm, hms=timefmt.hms, md_hm=timefmt.md_hm, redact=redact_text)
+_env.filters.update(
+    hm=timefmt.hm,
+    hms=timefmt.hms,
+    md_hm=timefmt.md_hm,
+    answer_minutes=timefmt.answer_minutes,
+    redact=redact_text,
+)
 templates = Jinja2Templates(env=_env)
 
 _ID = re.compile(r"[1-9]\d{0,9}")  # SQLite 정수 범위를 넘는 값은 조회하기 전에 없는 것으로 본다
