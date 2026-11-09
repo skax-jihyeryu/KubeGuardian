@@ -1,4 +1,4 @@
-"""Local-test-only C6: change one non-secret LLM deployment name and restore it."""
+"""Local-test-only C8: change one non-secret LLM deployment name and restore it."""
 
 import json
 import os
@@ -67,7 +67,7 @@ def replace(saved, old, new):
 def verify():
     current = row()
     if current["deployment_name"] != BAD_NAME or not STATE.exists():
-        raise RuntimeError("C6 fault is not injected")
+        raise RuntimeError("C8 fault is not injected")
     for app in ("llm-gateway", "agent", "gateway", "front-chat"):
         pods = json.loads(kubectl("get", "pods", "-l", f"app={app}", "-o", "json"))["items"]
         if not pods or any(
@@ -123,10 +123,10 @@ def main(action):
         with STATE.open("x") as f:
             json.dump(saved, f)
         replace(saved, saved["deployment_name"], BAD_NAME)
-        print("C6 injected: test deployment_name changed; original saved; credentials unchanged")
+        print("C8 injected: test deployment_name changed; original saved; credentials unchanged")
     elif action == "reset":
         if not STATE.exists():
-            print("No C6 saved state; nothing changed")
+            print("No C8 saved state; nothing changed")
             return
         saved = json.loads(STATE.read_text())
         current = row()
@@ -137,7 +137,7 @@ def main(action):
         if row()["deployment_name"] != saved["deployment_name"]:
             raise RuntimeError("Restore verification failed")
         STATE.unlink()
-        print("C6 restored: original deployment_name verified")
+        print("C8 restored: original deployment_name verified")
     elif action == "verify":
         verify()
     else:

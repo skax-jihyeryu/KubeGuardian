@@ -1,6 +1,6 @@
-# C7 — 서비스 주소 호스트 끝의 점(.)·대시(-) 오타
+# A7 — 서비스 주소 호스트 끝의 점(.)·대시(-) 오타
 
-발표 피드백(11/06) "점, 대시 추가로 인한 운영장애"를 설정값의 한 글자 오타로 해석한 시나리오다. 기존 18회 평가와 분리한 사전 시험이며 `EVAL_SCENARIOS`에는 넣지 않는다 (C6과 같다).
+발표 피드백(11/06) "점, 대시 추가로 인한 운영장애"를 설정값의 한 글자 오타로 해석한 시나리오다. 기존 18회 평가와 분리한 사전 시험이며 `EVAL_SCENARIOS`에는 넣지 않는다 (C8과 같다).
 
 | 파일 | 역할 |
 |---|---|
@@ -22,7 +22,7 @@ gateway Deployment의 `AGENT_SERVICE_URL` 호스트에만 한 글자를 더한�
 | `dot` | `http://agent.:8006` |
 | `dash` | `http://agent-:8006` |
 
-원래 값은 `scenarios/C7/.state/dev-gateway.env`(커밋하지 않음)에 저장하고 `reset.sh`가 되돌린다.
+원래 값은 `scenarios/A7/.state/dev-gateway.env`(커밋하지 않음)에 저장하고 `reset.sh`가 되돌린다.
 
 ## 안전
 
@@ -37,11 +37,11 @@ gateway Deployment의 `AGENT_SERVICE_URL` 호스트에만 한 글자를 더한�
 
 ```bash
 bash scenarios/H0/verify_symptom.sh          # 정상이어야 한다 (OK)
-KG_TYPO=dot bash scenarios/C7/inject.sh      # 또는 dash
-KG_TYPO=dot bash scenarios/C7/verify_symptom.sh
+KG_TYPO=dot bash scenarios/A7/inject.sh      # 또는 dash
+KG_TYPO=dot bash scenarios/A7/verify_symptom.sh
 # 규칙 점검만 (Slack으로 보내지 않고 별도 DB 사용)
-SLACK_BOT_TOKEN= SLACK_APP_TOKEN= make check-run ARGS="--config kubeguardian.yaml --db /tmp/c7.db"
-bash scenarios/C7/reset.sh
+SLACK_BOT_TOKEN= SLACK_APP_TOKEN= make check-run ARGS="--config kubeguardian.yaml --db /tmp/a7.db"
+bash scenarios/A7/reset.sh
 bash scenarios/H0/verify_symptom.sh
 ```
 
@@ -61,9 +61,9 @@ bash scenarios/H0/verify_symptom.sh
 | dash (`agent-`) | 통과 (채팅 500) | S04 적발(critical), `target=agent-` `unresolved` | A | 예상대로 |
 
 - 점검은 로컬 `kubeguardian.yaml`로 별도 DB에 실행했고 Slack은 dry-run이다. 로컬에는 테스트 계정 Secret이 없어 `증상 감지(chat)`는 확인하지 못함이었다. 채팅 실패는 verify_symptom(스모크)과 gateway 로그로 확인했다.
-- AI 조건(dot 1회): `make eval S=C7 ARGS="--condition ai --in-cluster"` 통과. 게이트 경로 A·S04 적발 18초, 조사 결론이 gateway의 `agent.:8006` 호출 이름 해석 실패를 지목해 원인 일치·판정 일치, 근거 지지율 1.00. (로컬 실행은 테스트 계정 Secret이 없어 증상 감지가 확인하지 못함이 되어 무효였다. runner Pod에서 돌린다.)
+- AI 조건(dot 1회): `make eval S=A7 ARGS="--condition ai --in-cluster"` 통과. 게이트 경로 A·S04 적발 18초, 조사 결론이 gateway의 `agent.:8006` 호출 이름 해석 실패를 지목해 원인 일치·판정 일치, 근거 지지율 1.00. (로컬 실행은 테스트 계정 Secret이 없어 증상 감지가 확인하지 못함이 되어 무효였다. runner Pod에서 돌린다.)
 - 두 변형 모두 reset 뒤 H0 스모크 OK, `AGENT_SERVICE_URL=http://agent:8006` 복원.
 
 ## eval 등록
 
-층별 채점 대상(`EVAL_SCENARIOS`)에는 넣지 않는다. 기존 18회 성적과 분리하는 C6과 같은 원칙이고, 규칙(S04)이 바로 적발해 AI 가치를 가르는 시나리오가 아니다. 러너(`make eval S=C7`)로는 그대로 돌릴 수 있다 (기본은 dot).
+층별 채점 대상(`EVAL_SCENARIOS`)에는 넣지 않는다. 기존 18회 성적과 분리하는 C8과 같은 원칙이고, 규칙(S04)이 바로 적발해 AI 가치를 가르는 시나리오가 아니다. 러너(`make eval S=A7`)로는 그대로 돌릴 수 있다 (기본은 dot).

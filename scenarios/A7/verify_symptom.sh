@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# verify_symptom.sh: C7 — 증상 발생 확인. 실패하면 그 실행은 무효
+# verify_symptom.sh: A7 — 증상 발생 확인. 실패하면 그 실행은 무효
 #
 # 1. 주입 기록이 있고 gateway의 AGENT_SERVICE_URL이 주입값(dot 또는 dash)이다
 # 2. gateway Pod는 Ready다 (원인이 Pod가 아니라 설정임을 보장)
@@ -7,7 +7,7 @@
 source "$(dirname "$0")/lib.sh"
 cd "$(dirname "$0")/../.."
 
-[[ -f "$STATE" ]] || { echo "무효: C7이 주입되지 않았다 (주입 기록 없음)" >&2; exit 1; }
+[[ -f "$STATE" ]] || { echo "무효: A7이 주입되지 않았다 (주입 기록 없음)" >&2; exit 1; }
 original="$(sed -n "s/^${ENV_NAME}=//p" "$STATE")"
 current="$(current_value)"
 variant=""

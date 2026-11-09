@@ -1,4 +1,4 @@
-# C6 — 잘못된 LLM 호출 배포명
+# C8 — 잘못된 LLM 호출 배포명
 
 발표용 추가 장애 시나리오 7번. 기존 11/3 장애 6종·18회 평가와 분리한 사전 시연 시험이다.
 
@@ -16,8 +16,8 @@ Pod·Service는 정상인 채 채팅만 실패한다. agent는 사용자 응답�
 
 ```bash
 bash scenarios/H0/verify_symptom.sh
-bash scenarios/C6/inject.sh
-bash scenarios/C6/verify_symptom.sh
+bash scenarios/C8/inject.sh
+bash scenarios/C8/verify_symptom.sh
 ```
 
 이후 서비스의 **직접 점검**을 누른다. 기능 실패 → 새 이슈/최초 알림 → AI 조사 단계/원인 보고서 → Phoenix trace를 확인한다. 실제 테스트 Slack 채널에 알림이 전송될 수 있다. 정기 점검과 겹치지 않도록 매시 정각을 피해 짧게 진행한다.
@@ -25,7 +25,7 @@ bash scenarios/C6/verify_symptom.sh
 성공 여부와 관계없이 반드시 원복하고 직접 점검을 다시 실행한다.
 
 ```bash
-bash scenarios/C6/reset.sh
+bash scenarios/C8/reset.sh
 bash scenarios/H0/verify_symptom.sh
 ```
 
