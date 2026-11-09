@@ -204,3 +204,119 @@ def test_timeline_ai_skip_wording_only_for_non_rule_checks(client, engine):
     text = client.get(f"/dev/issues/{incident}").text
 
     assert "같은 문제라 AI 조사 생략" in text
+
+
+def _s04_report(engine, values, *, severity="critical"):
+    from api.viewmodels.rule_report import build_rule_report
+    from core.db.check_results import CheckResultStore
+
+    run = make_run(engine)
+    finish_check(
+        engine,
+        run,
+        path="A",
+        severity=severity,
+        signals=[
+            Signal(
+                rule_id="S04",
+                verdict="detected",
+                subject="dev/Service/gateway",
+                service="gateway",
+                severity=severity,
+                message="주소 오류",
+                values=values,
+            )
+        ],
+        reason="적발: S04",
+        rules=("S04",),
+    )
+    return build_rule_report(CheckResultStore(engine).get(run))
+
+
+def test_s04_fact_cell_shows_only_problem_addresses(engine):
+    report = _s04_report(
+        engine,
+        {
+            "service": "gateway",
+            "addresses": [
+                {
+                    "env": "CHAT_URL",
+                    "value": "http://chat:8000",
+                    "target": "chat",
+                    "port": 8000,
+                    "status": "declared",
+                },
+                {
+                    "env": "AGENT_SERVICE_URL",
+                    "value": "http://agent.:8006",
+                    "target": "agent.",
+                    "port": 8006,
+                    "status": "unresolved",
+                },
+            ],
+        },
+    )
+
+    facts = [v for _, v in report.findings[0].values]
+
+    assert facts == ["AGENT_SERVICE_URL=http://agent.:8006 → Service 'agent.' 없음"]
+
+
+def test_s04_address_without_value_and_unchecked(engine):
+    report = _s04_report(
+        engine,
+        {
+            "service": "gateway",
+            "addresses": [{"env": "X_URL", "target": "x", "port": 80, "status": "unresolved"}],
+            "unchecked": ["Secret"],
+        },
+    )
+
+    facts = [v for _, v in report.findings[0].values]
+
+    assert "X_URL → Service 'x' 없음" in facts
+    assert "Secret" in " ".join(facts)
+
+
+def test_generic_values_have_no_python_repr(engine):
+    report = _s04_report(engine, {"selector": {"app": "agnet"}, "pods": ["a", "b"], "n": 2})
+    # S04 아닌 규칙처럼 취급되지 않으므로 S01로 확인
+    from api.viewmodels.rule_report import _format_values
+
+    got = dict(
+        _format_values(
+            "S01",
+            {
+                "selector": {"app": "agnet"},
+                "pods": ["a", "b"],
+                "ports": [{"port": 80, "matched": False}],
+                "n": None,
+            },
+        )
+    )
+
+    assert got["selector"] == "app=agnet"
+    assert got["pods"] == "a, b"
+    assert got["ports"] == "port=80, matched=False"
+    assert report is not None
+    for text in got.values():
+        assert "{" not in text and "[" not in text and "'" not in text
+
+
+def test_s04_fact_cell_keeps_masking(engine):
+    report = _s04_report(
+        engine,
+        {
+            "addresses": [
+                {
+                    "env": "DB_URL",
+                    "value": "http://u:hunter2secret@db.:5432",
+                    "target": "db.",
+                    "port": 5432,
+                    "status": "unresolved",
+                }
+            ]
+        },
+    )
+
+    assert "hunter2secret" not in " ".join(v for _, v in report.findings[0].values)

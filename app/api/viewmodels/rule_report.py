@@ -6,6 +6,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from api.viewmodels.checks import Sev, _ev_numbers
 from api.viewmodels.shell import SEVERITY
@@ -41,6 +42,33 @@ class RuleReport:
     failed_features: list[FailedFeature]
 
 
+def _text(value: Any) -> str:
+    """값을 사람이 읽는 한 줄로 (목록은 쉼표, 사전은 `키=값`). 파이썬 repr을 쓰지 않는다."""
+    if isinstance(value, dict):
+        return ", ".join(f"{k}={_text(v)}" for k, v in value.items())
+    if isinstance(value, list | tuple):
+        return ", ".join(_text(v) for v in value)
+    return str(value)
+
+
+def _s04_problems(values: dict[str, Any]) -> list[tuple[str, str]]:
+    """S04: 비정상 status의 주소만 `ENV=값 → Service '대상' 없음`으로 보인다."""
+    out = []
+    for a in values.get("addresses") or []:
+        if a.get("status") == "declared":
+            continue
+        env = f"{a.get('env')}={a['value']}" if a.get("value") else str(a.get("env"))
+        out.append(("주소", f"{env} → Service '{a.get('target')}' 없음"))
+    rest = {k: v for k, v in values.items() if k not in ("service", "addresses")}
+    return out + [(k, _text(v)) for k, v in rest.items()]
+
+
+def _format_values(rule_id: str, values: dict[str, Any]) -> list[tuple[str, str]]:
+    if rule_id == "S04":
+        return _s04_problems(values)
+    return [(str(k), _text(v)) for k, v in values.items()]
+
+
 def build_rule_report(
     result: CheckResult | None, targets: set[tuple[str, str]] | None = None
 ) -> RuleReport | None:
@@ -68,10 +96,7 @@ def build_rule_report(
                     location=redact_text(str(item.get("subject", ""))),
                     severity=Sev(*sev) if sev else None,
                     message=redact_text(str(item.get("message", ""))),
-                    values=[
-                        (str(k), str(v))
-                        for k, v in redact_mapping(item.get("values") or {}).items()
-                    ],
+                    values=_format_values(spec.id, redact_mapping(item.get("values") or {})),
                     evidence=_ev_numbers([item.get("evidence_id")]),
                     guidance=spec.guidance,
                 )
