@@ -36,7 +36,7 @@ class CheckFilters:
             if k not in ("date_from", "date_to")
         }
         start, end = date_range(query.get("from"), query.get("to"))
-        if start or end:  # 날짜가 빠른 선택보다 우선하므로 선택은 '전체 기간'으로 보인다
+        if start or end or fields["period"] == "custom":
             fields["period"] = "all"
         return cls(**fields, date_from=start, date_to=end)
 

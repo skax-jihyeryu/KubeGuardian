@@ -399,9 +399,14 @@ def test_dates_reset_quick_period_filter():
     assert CheckFilters.from_query({"period": "7d"}).period == "7d"
 
 
-def test_checks_page_selects_all_period_when_dates_set(client):
+def test_checks_page_selects_custom_period_when_dates_set(client):
     html = client.get("/dev/checks?period=7d&from=2026-11-03").text
-    assert '<option value="all" selected>' in html and '<option value="7d" selected>' not in html
+    assert '<option value="custom" selected>' in html and '<option value="7d" selected>' not in html
+    assert 'aria-label="직접 지정 기간"' in html and "hidden disabled" not in html
+
+    html = client.get("/dev/checks?period=7d").text
+    assert '<option value="7d" selected>' in html
+    assert "hidden disabled>" in html
 
 
 def test_checks_page_ignores_extreme_dates(client):

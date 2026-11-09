@@ -267,16 +267,19 @@ window.addEventListener('pageshow', function (event) {
   });
 });
 
-/* 빠른 기간 선택과 시작~끝 날짜는 둘 중 하나만 쓴다: 한쪽을 바꾸면 다른 쪽을 비운다. */
+/* 점검 이력은 기간 메뉴에서 날짜 입력을 열고, 이슈 이력은 두 필터를 따로 둔다. */
 document.addEventListener('change', function (event) {
   var field = event.target;
   if (!field.form) return;
-  if (field.matches('select[name="period"], select[name="days"]')) {
+  if (field.matches('[data-check-period]')) {
+    var range = field.form.querySelector('[data-check-date-range]');
+    range.hidden = range.disabled = field.value !== 'custom';
+  } else if (field.matches('select[name="days"]')) {
     field.form.querySelectorAll('input[name="from"], input[name="to"]').forEach(function (input) {
       input.value = '';
     });
   } else if (field.matches('input[name="from"], input[name="to"]')) {
-    var quick = field.form.querySelector('select[name="period"], select[name="days"]');
+    var quick = field.form.querySelector('select[name="days"]');
     if (quick) quick.selectedIndex = 0;
   }
 });
