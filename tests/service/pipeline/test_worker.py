@@ -197,3 +197,50 @@ def test_sweep_covers_manual_cli_row_and_resolved_incident(engine):
     _worker(engine, lambda m: None, at=NOW + timedelta(minutes=11)).run_once()
 
     assert store.get(manual).status == "failed" and store.get(linked).status == "failed"
+
+
+def test_worker_logs_the_investigation_flow(engine, caplog):
+    import logging
+
+    caplog.set_level(logging.INFO, logger="kubeguardian")
+    iid = _opened(engine)
+    caplog.clear()
+    llm = _scripted()
+    _worker(engine, lambda model: llm).run_once()
+
+    lines = [r.getMessage() for r in caplog.records if r.name == "kubeguardian"]
+    joined = "\n".join(lines)
+    assert f"[작업] 조사 대기 집음: 이슈 #{iid}" in lines[0]
+    assert any(ln.startswith("[조사 #1] 시작: 이슈 #") for ln in lines)
+    assert "[조사 #1] 계획: 가설" in joined
+    assert "[조사 #1] 결론:" in joined
+    assert "[알림] M1u 발송" in joined and "(dry-run)" in joined
+    assert "[알림] M9 발송" in joined
+    assert lines[-1].startswith(f"[작업] 이슈 #{iid} 조사 마침: done")
+    assert lines.index(next(x for x in lines if "[조사 #1] 결론" in x)) < lines.index(
+        next(x for x in lines if "[알림] M1u" in x)
+    )
+
+
+def test_worker_logs_failed_investigation(engine, caplog):
+    import logging
+
+    caplog.set_level(logging.INFO, logger="kubeguardian")
+    iid = _opened(engine)
+
+    def broken(model):
+        raise RuntimeError("LLM down")
+
+    _worker(engine, broken).run_once()
+    assert any(
+        r.getMessage().startswith(f"[작업] 이슈 #{iid} 조사 마침: 실패") for r in caplog.records
+    )
+
+
+def test_failed_result_without_error_does_not_break_worker_log(engine, monkeypatch):
+    from service.agent.base import AgentResult
+
+    iid = _opened(engine)
+    w = _worker(engine, lambda model: _scripted())
+    monkeypatch.setattr(w, "_investigate", lambda job: AgentResult(status="failed", error=None))
+    assert w.run_once() == iid

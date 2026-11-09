@@ -12,4 +12,6 @@ def get_logging() -> logging.Logger:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+    for noisy in ("httpx", "httpcore"):  # 요청마다 INFO 한 줄이라 흐름 로그를 묻는다
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     return logging.getLogger(get_setting().APP_NAME)
