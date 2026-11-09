@@ -164,6 +164,9 @@ ol.act li::before{content:counter(a) ".";font:500 14px/24px var(--mono);color:va
 ul.facts{display:flex;flex-direction:column;gap:6px;padding-left:4px}
 ul.facts li{display:flex;gap:10px;font-size:15px;line-height:var(--lh-body);white-space:pre-line}
 ul.facts li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--ink);margin-top:11px;flex:none}
+.termwrap{min-width:0;flex:1;margin-top:6px}
+.termcap{font:400 12px/18px var(--mono);color:var(--muted);margin-bottom:4px;overflow-wrap:anywhere}
+.term{margin:0;background:#161b22;color:#d6dde6;border:1px solid #2b3340;border-radius:6px;padding:10px 14px;font:400 12.5px/20px var(--mono);white-space:pre;overflow:auto;max-height:420px;max-width:100%;tab-size:4}
 .tbl{width:100%;border-collapse:collapse;font-size:14px;line-height:var(--lh-table)}
 .tbl th{font-weight:600;color:var(--muted);text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap;font-size:13px}
 .tbl td{padding:12px;border-bottom:1px solid var(--line);vertical-align:top}
