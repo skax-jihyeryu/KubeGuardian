@@ -197,6 +197,17 @@ def run_request(
         return result
 
 
+def _login_step_services(config) -> dict[str, dict[int, list[str]]]:
+    """로그인 단계가 실패하면 시나리오 기능(chat 등)이 아니라 login 기능의 경로를 본다."""
+    login = config.core_paths.get("login")
+    if not login:
+        return {}
+    return {
+        s.name: {i: login for i, step in enumerate(s.steps, 1) if step.login is not None}
+        for s in config.api_scenarios
+    }
+
+
 def _label(investigation_id: int | None) -> str:
     return "-" if investigation_id is None else f"#{investigation_id}"
 
@@ -225,6 +236,7 @@ def _run_agent(
         scenario_services={
             s.name: config.core_paths.get(s.feature, []) for s in config.api_scenarios
         },
+        scenario_step_services=_login_step_services(config),
         steps=FlowLogSteps(
             _label(investigation_id),
             None if investigation_id is None else store.steps_sink(investigation_id),

@@ -100,6 +100,8 @@ class RunContext:
     http: Any = None  # 네임스페이스에 묶인 HTTP 클라이언트 (core.http)
     # API 시나리오 이름 → 그 시나리오가 지키는 기능의 서비스 목록 (core_paths). 사전 확인이 쓴다
     scenario_services: dict[str, list[str]] = field(default_factory=dict)
+    # 시나리오 이름 → {단계(1부터): 그 단계가 실패했을 때 쓸 서비스 목록} (로그인 단계 = login 경로)
+    scenario_step_services: dict[str, dict[int, list[str]]] = field(default_factory=dict)
 
     def tool_context(self) -> ToolContext:
         return ToolContext(

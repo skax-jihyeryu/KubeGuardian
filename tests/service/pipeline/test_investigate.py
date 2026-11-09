@@ -656,3 +656,26 @@ def test_rule_incident_recovery_and_continuation_flow_is_unchanged(engine):
     assert IncidentStore(engine).get(incident_id).status == "resolved"
     assert [a.kind for a in AlertStore(engine).for_incident(incident_id)] == ["M1", "M3"]
     assert InvestigationQueue(engine).claim(NOW, timedelta(hours=1)) is None
+
+
+def test_login_step_failure_maps_to_the_login_path_only_when_core_paths_has_one():
+    from core.config import KubeGuardianConfig
+    from service.pipeline.investigate import _login_step_services
+
+    scenario = {
+        "name": "chat",
+        "feature": "chat",
+        "steps": [
+            {"login": {"via": "gateway", "path": "/l", "account_secret": "s", "token": "t"}},
+            {"call": {"via": "gateway", "path": "/c", "expect": 200}},
+        ],
+    }
+    base = {"target": {"namespace": "dev"}, "api_scenarios": [scenario]}
+
+    with_login = KubeGuardianConfig.model_validate(
+        {**base, "core_paths": {"login": ["gateway", "admin"], "chat": ["gateway", "agent"]}}
+    )
+    without_login = KubeGuardianConfig.model_validate({**base, "core_paths": {"chat": ["gateway"]}})
+
+    assert _login_step_services(with_login) == {"chat": {1: ["gateway", "admin"]}}
+    assert _login_step_services(without_login) == {}
