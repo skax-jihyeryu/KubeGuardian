@@ -606,3 +606,91 @@ def test_no_owners_configured_matches_legacy_text(env):
     _, sender, check = env
     check([_sig()], NOW)
     assert "담당" not in sender.posts[0]["text"]
+
+
+SECRETS = ("hunter2xyz", "abcdefgh12345678", "topsecretvalue", "sk3cretpass", "r3dactme99")
+
+
+def _secret_report():
+    return _report(
+        conclusion="DB 접속 실패: password=hunter2xyz 로 로그인",
+        impact_scope="요청 헤더 Authorization: Bearer abcdefgh12345678 사용",
+        judgement_basis="로그 token=topsecretvalue 인용",
+        actions=["kubectl set env deploy/agent DB_PASSWORD=sk3cretpass"],
+        issues=[
+            {
+                "rank": 1,
+                "title": "연결 실패 password=hunter2xyz",
+                "impact": "core_path_broken",
+                "confidence": "high",
+            },
+            {
+                "rank": 2,
+                "title": "보조 api_key=r3dactme99",
+                "impact": "partial_users",
+                "confidence": "medium",
+            },
+        ],
+    )
+
+
+def _assert_no_secrets(sender, engine, incident_id):
+    shown = [p["text"] for p in sender.posts] + [u["text"] for u in sender.updates]
+    for call in sender.posts + sender.updates:
+        for block in call["blocks"] or []:
+            shown.append(str(block))
+    shown += [a.text for a in AlertStore(engine).for_incident(incident_id)]
+    assert shown
+    for text in shown:
+        for secret in SECRETS:
+            assert secret not in text, (secret, text)
+
+
+@pytest.mark.parametrize("critical", [True, False])
+def test_secrets_in_report_do_not_reach_slack_blocks_or_alert_history(tmp_path, critical):
+    engine = create_db_engine(tmp_path / "kg.db")
+    sender = FakeSender()
+    sev = "critical" if critical else "warning"
+    gate_signals = [_sig(severity=sev)]
+    gate = decide_gate(gate_signals)
+    [c] = track(
+        engine,
+        CONFIG,
+        run_id=1,
+        trigger="schedule",
+        now=NOW,
+        gate=gate,
+        signals=gate_signals,
+        symptoms=[],
+    )
+    notifier = Notifier(engine, CONFIG, sender, ack_enabled=True)
+    notifier.after_check(1, gate, [c], NOW)
+    result = AgentResult(status="done", report=_secret_report())
+
+    notifier.after_investigation(c.incident_id, 1, result, NOW)  # M1u + M9
+    failed = AgentResult(status="failed", error="연결 오류 password=hunter2xyz")
+    notifier.after_investigation(c.incident_id, 2, failed, NOW)
+
+    assert sender.updates and sender.posts[-1]["thread"] == "ts-1"
+    if critical:
+        assert any(u["blocks"] for u in sender.updates)
+    _assert_no_secrets(sender, engine, c.incident_id)
+
+
+def test_secrets_in_report_do_not_reach_first_post_when_no_thread(tmp_path):
+    engine = create_db_engine(tmp_path / "kg.db")
+    sender = FakeSender()
+    incident = IncidentStore(engine)
+    sigs = [_sig()]
+    gate = decide_gate(sigs)
+    [c] = track(
+        engine, CONFIG, run_id=1, trigger="schedule", now=NOW, gate=gate, signals=sigs, symptoms=[]
+    )  # after_check를 부르지 않아 1차 알림이 없다 → 결과를 담아 새로 보낸다
+    assert incident.get(c.incident_id).slack_ts is None
+
+    Notifier(engine, CONFIG, sender, ack_enabled=True).after_investigation(
+        c.incident_id, 1, AgentResult(status="done", report=_secret_report()), NOW
+    )
+
+    assert sender.posts[0]["blocks"]
+    _assert_no_secrets(sender, engine, c.incident_id)

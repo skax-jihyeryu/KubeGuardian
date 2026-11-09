@@ -32,6 +32,7 @@ from core.config import KubeGuardianConfig, get_setting, load_kubeguardian_confi
 from core.db import InvestigationQueue, create_db_engine
 from core.db.investigation_queue import Job
 from core.error.service_exception import ErrorCode, ServiceException
+from core.guard.redact import redact_text
 from core.http import NamespacedHttp
 from core.llm import build_chat_model
 from service.agent.base import AgentResult
@@ -359,16 +360,18 @@ def print_investigation(result: AgentResult | None) -> None:
         return
     print(f"\n조사 상태: {result.status}")
     if result.error:
-        print(f"오류: {result.error}")
+        print(f"오류: {redact_text(result.error)}")
     report = result.report
     if report is None:
         return
     judgement = JUDGEMENT_LABEL.get(report.judgement or "", "-")
-    print(f"결론: {report.conclusion} (판단 {judgement}, LLM 확신도 {report.confidence})")
+    print(
+        f"결론: {redact_text(report.conclusion)} (판단 {judgement}, LLM 확신도 {report.confidence})"
+    )
     if report.judgement_basis:
-        print(f"판단 근거: {report.judgement_basis}")
+        print(f"판단 근거: {redact_text(report.judgement_basis)}")
     if top := report.top_issue:
-        print(f"1순위: {top.title} ({top.severity})")
+        print(f"1순위: {redact_text(top.title)} ({top.severity})")
     print(f"근거 {len(report.evidence_ids)}건")
 
 
