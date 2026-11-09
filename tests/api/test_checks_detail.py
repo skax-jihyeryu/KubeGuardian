@@ -101,6 +101,30 @@ def test_steps_fragment_lists_tool_calls_with_evidence_links(client, investigati
     assert POLL in res.text
 
 
+def test_completed_investigation_expands_only_steps_with_details(client, engine):
+    run, ev = _chat_failed(engine)
+    inc = open_incident(engine, run)
+    iid = start_investigation(
+        engine,
+        run,
+        inc,
+        [
+            step("preliminary", 10, evidence_ids=[ev]),
+            step("plan", 12, detail={"hypotheses": ["배포 이름을 잘못 설정했다"]}),
+            step("validate", 14, detail={"conclusion_supported": True, "demoted": []}),
+        ],
+    )
+    finish_investigation(engine, iid, report(evidence_ids=(ev,)))
+
+    html = client.get(f"/dev/checks/{run}/steps").text
+    preliminary = html.split('data-k="사전 확인"', 1)[1].split("</details>", 1)[0]
+    plan = html.split('data-k="계획"', 1)[1].split("</details>", 1)[0]
+    assert f"?ev={int(ev[3:])}" in preliminary.split('class="sbody"', 1)[1]
+    assert "배포 이름을 잘못 설정했다" in plan.split('class="sbody"', 1)[1]
+    assert "근거 검증 통과" in html
+    assert 'data-k="보고서·검증"' not in html
+
+
 def test_polling_stops_when_investigation_finishes(client, engine, investigating):
     run, _, iid, ev, _ = investigating
     finish_investigation(engine, iid, report(evidence_ids=(ev,)))

@@ -32,6 +32,8 @@
 </div>
 {%- elif s.state == "todo" -%}
 <div class="stp todo"><span class="pt"></span><div class="hd"><b>{{ s.title }}</b><span class="sum">{{ s.summary }}</span></div></div>
+{%- elif not (s.lines or s.collect or s.rules or s.table or s.calls) -%}
+<div class="stp"><span class="pt"></span><div class="hd"><b>{{ s.title }}</b><span class="sum">{{ s.summary }} {{ evlinks(p, run, s.evidence) }}</span><span class="tm">{{ s.time }}</span></div></div>
 {%- else -%}
 <details class="stp" data-k="{{ s.title }}"{% if open %} open{% endif %}>
   <summary class="hd"><span class="pt"></span>{{ ic("chevron-right", "ic14 chev") }}<b>{{ s.title }}</b><span class="sum">{{ s.summary }} {{ evlinks(p, run, s.evidence) }}</span><span class="tm">{{ s.time }}</span></summary>

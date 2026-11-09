@@ -1018,7 +1018,12 @@ def _inv_steps(d: _Loaded) -> list[StepView]:
     if pre is not None:
         ev = _ev_numbers(pre.evidence_ids)
         out.append(
-            StepView("사전 확인", f"{len(ev)}건 확인" if ev else "", _step_time(pre), evidence=ev)
+            StepView(
+                "사전 확인",
+                f"{len(ev)}건 확인" if ev else "확인한 근거 없음",
+                _step_time(pre),
+                table=[("확인한 근거", "", ev)] if ev else [],
+            )
         )
     elif running:
         out.append(StepView("사전 확인", "아직 하지 않음", state="todo"))
@@ -1028,7 +1033,14 @@ def _inv_steps(d: _Loaded) -> list[StepView]:
     if triage is not None or plans:
         titles = (triage.detail.get("issues") if triage else None) or []
         summary = " ".join(f"{_CIRCLED[i]} {redact_text(str(t))}" for i, t in enumerate(titles[:9]))
-        out.append(StepView("계획", summary, _step_time((plans or [triage])[0])))
+        lines = [
+            redact_text(hypothesis)
+            for plan in plans
+            if isinstance(hypotheses := plan.detail.get("hypotheses"), list)
+            for hypothesis in hypotheses
+            if isinstance(hypothesis, str) and hypothesis.strip()
+        ]
+        out.append(StepView("계획", summary, _step_time((plans or [triage])[0]), lines=lines))
     elif running:
         out.append(StepView("계획", "아직 하지 않음", state="todo"))
 
@@ -1055,7 +1067,13 @@ def _inv_steps(d: _Loaded) -> list[StepView]:
 
     check = next((s for s in reversed(steps) if s.node == "validate"), None)
     if check is not None:
-        out.append(StepView("보고서·검증", _validate_text(check), _step_time(check)))
+        demoted = check.detail.get("demoted")
+        lines = [
+            redact_text(item)
+            for item in (demoted if isinstance(demoted, list) else [])
+            if isinstance(item, str) and item.strip()
+        ]
+        out.append(StepView("보고서·검증", _validate_text(check), _step_time(check), lines=lines))
     elif running:
         out.append(StepView("보고서·검증", "아직 하지 않음", state="todo"))
     return out
