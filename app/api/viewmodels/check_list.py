@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from sqlalchemy import Engine, Integer, String, case, cast, exists, func, or_, select, true
 from sqlalchemy.orm import Session, aliased
 
-from api.timefmt import md_hm
+from api.timefmt import date_range, date_window, md_hm
 from api.viewmodels.checks import ACTION_LABEL, TRIGGER_LABEL, Sev
 from api.viewmodels.shell import unknown_count
 from core.db import CheckResultStore
@@ -25,15 +25,29 @@ class CheckFilters:
     trigger: str = ""
     status: str = ""
     q: str = ""
+    date_from: str = ""  # 주소의 from. KST 날짜 YYYY-MM-DD
+    date_to: str = ""  # 주소의 to
 
     @classmethod
     def from_query(cls, query):
-        return cls(
-            **{
-                k: str(query.get(k, "all" if k == "period" else ""))[:200]
-                for k in cls.__dataclass_fields__
-            }
-        )
+        fields = {
+            k: str(query.get(k, "all" if k == "period" else ""))[:200]
+            for k in cls.__dataclass_fields__
+            if k not in ("date_from", "date_to")
+        }
+        start, end = date_range(query.get("from"), query.get("to"))
+        if start or end:  # 날짜가 빠른 선택보다 우선하므로 선택은 '전체 기간'으로 보인다
+            fields["period"] = "all"
+        return cls(**fields, date_from=start, date_to=end)
+
+    def query(self) -> dict[str, str]:
+        """값이 있는 필터만 주소 파라미터 이름으로."""
+        dated = bool(self.date_from or self.date_to)
+        return {
+            {"date_from": "from", "date_to": "to"}.get(k, k): v
+            for k, v in vars(self).items()
+            if v and not (dated and k == "period")
+        }
 
 
 @dataclass
@@ -145,7 +159,13 @@ def list_checks(
     if cursor:
         stmt = stmt.where(CheckRunRow.id < cursor)
     days = {"today": 1, "1d": 1, "7d": 7, "30d": 30}.get(filters.period)
-    if days:
+    since, until = date_window(filters.date_from, filters.date_to)
+    if since or until:  # 날짜를 고르면 빠른 선택보다 우선한다
+        if since:
+            stmt = stmt.where(CheckRunRow.started_at >= since)
+        if until:
+            stmt = stmt.where(CheckRunRow.started_at <= until)
+    elif days:
         stmt = stmt.where(CheckRunRow.started_at >= now - timedelta(days=days))
     if filters.severity:
         ranks = {
@@ -264,7 +284,7 @@ def list_checks(
         )
     results = CheckResultStore(engine).for_runs(ids)
     rows = []
-    query = {k: v for k, v in vars(filters).items() if v}
+    query = filters.query()
     if cursor:
         query["cursor"] = cursor
     row_query = "?" + urlencode(query) if query else ""
@@ -319,7 +339,7 @@ def list_checks(
                 ),
             )
         )
-    query = {k: v for k, v in vars(filters).items() if v}
+    query = filters.query()
     query["cursor"] = rows[-1].id if rows else 0
     next_url = f"/{project}/checks?{urlencode(query)}" if len(runs) > 50 else None
     return CheckPage(rows, filters, next_url, any(r.status == "진행 중" for r in rows))

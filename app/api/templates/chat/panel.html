@@ -8,7 +8,7 @@
   <div class="cb" id="chat-messages" aria-live="polite">
     {% for turn in turns %}{% if turn.context_changed %}<div class="divider" role="separator">맥락: {{ turn.context }}</div>{% endif %}{% if turn.answer %}{% set answer = turn.answer %}{% include "chat/_answer.html" %}{% else %}<div class="{{ 'q' if turn.role == 'user' else 'a' }}">{{ turn.text }}</div>{% endif %}{% else %}
     <div id="chat-empty"><p class="muted">어떤 이력이 궁금하신가요?</p>
-    {% for question in ['이번 주 긴급 이슈 몇 건?', '최근 이슈의 원인과 조치를 알려줘', '반복된 문제가 있었어?'] %}<button class="exq" type="button" data-question="{{ question }}">{{ question }}</button>{% endfor %}</div>
+    {% for question in ['이번 주 긴급 이슈 몇 건?', '지난주 긴급 이슈 리포트 정리해줘', '최근 이슈의 원인과 조치를 알려줘', '반복된 문제가 있었어?'] %}<button class="exq" type="button" data-question="{{ question }}">{{ question }}</button>{% endfor %}</div>
     {% endfor %}
     {% if pending_context %}<div class="divider" id="chat-pending-context" role="separator">맥락: {{ context }}</div>{% endif %}
   </div>

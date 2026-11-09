@@ -55,6 +55,26 @@ def test_list_incidents_filters_and_actions(engine):
     assert store.actions_for_runs([]) == {}
 
 
+def test_list_incidents_until_means_open_during_range(engine):
+    runs = CheckRunStore(engine)
+    store = IncidentStore(engine)
+    run, run2 = runs.create("schedule", NOW), runs.create("schedule", NOW)
+    h = timedelta(hours=1)
+    resolved_in = store.open("in", {}, "high", run, NOW)  # 범위 전에 열려 범위 중 해결
+    store.resolve(resolved_in, run2, NOW + 5 * h)
+    still_open = store.open("open", {}, "high", run, NOW)  # 범위 전에 열려 계속 열림
+    resolved_before = store.open("before", {}, "high", run, NOW)
+    store.resolve(resolved_before, run2, NOW + h)
+    opened_after = store.open("after", {}, "high", run, NOW + 20 * h)
+    opened_inside = store.open("inside", {}, "high", run, NOW + 6 * h)
+    since, until = NOW + 4 * h, NOW + 10 * h
+    ids = {i.id for i in store.list_incidents(since=since, until=until)}
+    assert ids == {resolved_in, still_open, opened_inside}
+    assert opened_after not in ids and resolved_before not in ids
+    # until이 없으면 기존처럼 열린 시각이 since 이후인 이슈만
+    assert {i.id for i in store.list_incidents(since=since)} == {opened_after, opened_inside}
+
+
 def test_list_alerts_filters(engine):
     run_id = CheckRunStore(engine).create("schedule", NOW)
     inc = IncidentStore(engine)

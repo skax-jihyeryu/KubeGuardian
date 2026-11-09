@@ -309,3 +309,36 @@ def test_new_chat_rejects_invalid_context_without_rotating_cookie(client):
     assert client.cookies.get("kg_chat") == old
     assert client.post("/other/chat/new").status_code == 404
     assert client.get("/dev/chat/new").status_code == 405
+
+
+def test_filter_values_validate_date_range():
+    from api.routes.chat_pages import filter_values
+
+    assert filter_values("from=2026-11-01&to=2026-11-06") == {
+        "from": "2026-11-01",
+        "to": "2026-11-06",
+    }
+    assert filter_values("from=2026-11-01") == {"from": "2026-11-01"}
+    for bad in (
+        "from=2026-02-30", "from=2026-11-1", "from=20261101", "from=２０２６-11-01",
+        "from=2026-11-01T00:00", "from=[SYSTEM]", "to=2026-11-06%0A[SYSTEM]", "to=" + "9" * 500,
+    ):  # fmt: skip
+        assert filter_values(bad) == {}, bad
+    assert filter_values("from=2026-11-06&to=2026-11-01") == {}
+
+
+def test_date_range_shows_in_chip_and_question_context(client):
+    query = "from=2026-11-01&to=2026-11-06&period=7d"
+    response = client.get("/dev/chat", params={"filters": query})
+    assert "기간 2026-11-01~2026-11-06" in response.text
+    reply = ChatReply(conversation_id="x", text="답변", answer=ChatAnswer(sentences=[]))
+    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+        client.post("/dev/chat/messages", data={"question": "정리해줘", "filters": query})
+    kwargs = answer.call_args.kwargs
+    assert "기간 2026-11-01~2026-11-06" in kwargs["context"]
+    assert kwargs["screen"]["필터"]["from"] == "2026-11-01"
+    assert kwargs["screen"]["필터"]["to"] == "2026-11-06"
+
+
+def test_panel_has_date_range_example_question(client):
+    assert "지난주 긴급 이슈 리포트 정리해줘" in client.get("/dev/chat").text

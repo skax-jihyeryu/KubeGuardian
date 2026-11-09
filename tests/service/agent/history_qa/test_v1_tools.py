@@ -249,3 +249,38 @@ def test_since_requires_timezone(tools):
     )
     since = (NOW - timedelta(days=1)).isoformat()
     assert tools["list_runs"].run({"since": since}, _budget())["ok"]
+
+
+def test_list_issues_until_bounds_opened_at(tools, engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    store = IncidentStore(engine)
+    old = store.open("old", {"services": ["a"]}, "high", run_id, NOW - timedelta(days=5))
+    new = store.open("new", {"services": ["b"]}, "high", run_id, NOW)
+    window = {
+        "since": (NOW - timedelta(days=6)).isoformat(),
+        "until": (NOW - timedelta(days=4)).isoformat(),
+    }
+    assert [i["id"] for i in tools["list_issues"].run(window, _budget())["issues"]] == [old]
+    out = tools["list_issues"].run({"until": NOW.isoformat()}, _budget())
+    assert {i["id"] for i in out["issues"]} == {old, new}
+    assert (
+        tools["list_issues"].run({"until": "2026-10-20T00:00:00"}, _budget())["error"]
+        == "VALIDATION_ERROR"
+    )
+
+
+def test_list_alerts_until_bounds_sent_at(tools, engine):
+    run_id = CheckRunStore(engine).create("schedule", NOW)
+    inc = IncidentStore(engine).open("a", {}, None, run_id, NOW)
+    alerts = AlertStore(engine)
+    for kind, when in (("old", NOW - timedelta(days=5)), ("new", NOW)):
+        alerts.add(kind=kind, channel="C", text=kind, sent_at=when, incident_id=inc)
+    out = tools["list_alerts"].run({"until": (NOW - timedelta(days=4)).isoformat()}, _budget())
+    assert [a["kind"] for a in out["alerts"]] == ["old"]
+    both = {"since": (NOW - timedelta(days=1)).isoformat(), "until": NOW.isoformat()}
+    assert [a["kind"] for a in tools["list_alerts"].run(both, _budget())["alerts"]] == ["new"]
+
+
+def test_until_is_documented_in_tool_schema(tools):
+    for name in ("list_issues", "list_alerts"):
+        assert "until" in tools[name].Input.model_fields

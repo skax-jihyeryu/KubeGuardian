@@ -9,11 +9,11 @@
       ('trigger','실행 방식',[('','모든 실행'),('schedule','주기 점검'),('ui','직접 점검'),('check','CLI 점검'),('investigate','CLI 조사')]),
       ('status','점검 상태',[('','모든 상태'),('running','진행 중'),('done','완료'),('unknown','일부 확인하지 못함'),('halted','중단')])
     ] %}<select class="pill" name="{{ name }}" aria-label="{{ label }}">{% for value, text in choices %}<option value="{{ value }}"{% if page.filters|attr(name) == value %} selected{% endif %}>{{ text }}</option>{% endfor %}</select>{% endfor %}
-    </div><div class="frow"><input class="search" type="search" name="q" value="{{ page.filters.q }}" placeholder="점검 내용 검색" aria-label="검색어"><button class="btn" type="submit">검색</button><a href="/{{ p }}/checks">초기화</a></div>
+    </div><div class="frow"><input class="pill" type="date" name="from" value="{{ page.filters.date_from }}" aria-label="시작 날짜"><span aria-hidden="true">~</span><input class="pill" type="date" name="to" value="{{ page.filters.date_to }}" aria-label="끝 날짜"></div><div class="frow"><input class="search" type="search" name="q" value="{{ page.filters.q }}" placeholder="점검 내용 검색" aria-label="검색어"><button class="btn" type="submit">검색</button><a href="/{{ p }}/checks">초기화</a></div>
   </form>
   <div{% if page.live %} hx-get="{{ request.url }}" hx-trigger="every 3s" hx-select=".list" hx-target="closest .list" hx-swap="outerHTML"{% endif %}>
   {% for row in page.rows %}{% include "checks/_row.html" %}
-  {% else %}<div class="sec muted">{% if page.filters.q or page.filters.status or page.filters.severity %}조건에 맞는 점검이 없습니다.{% else %}아직 점검 기록이 없습니다.{% endif %}</div>{% endfor %}
+  {% else %}<div class="sec muted">{% if page.filters.q or page.filters.status or page.filters.severity or page.filters.date_from or page.filters.date_to %}조건에 맞는 점검이 없습니다.{% else %}아직 점검 기록이 없습니다.{% endif %}</div>{% endfor %}
   {% if page.next_url %}<a class="crow" href="{{ page.next_url }}">이전 점검 더 보기 →</a>{% endif %}
   </div>
 </section>

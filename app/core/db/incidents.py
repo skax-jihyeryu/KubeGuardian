@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Engine, delete, select
+from sqlalchemy import Engine, delete, or_, select
 from sqlalchemy.orm import Session
 
 from core.db.tables import IncidentCheckRow, IncidentRow, InvestigationQueueRow, require_aware
@@ -117,12 +117,27 @@ class IncidentStore:
         return self._list(select(IncidentRow).where(IncidentRow.status == "open"))
 
     def list_incidents(
-        self, since: datetime | None = None, status: str | None = None, limit: int = 20
+        self,
+        since: datetime | None = None,
+        status: str | None = None,
+        limit: int = 20,
+        until: datetime | None = None,
     ) -> list[Incident]:
-        """최신순 이슈 목록. since는 opened_at 기준. 이력 질의용."""
+        """최신순 이슈 목록. until이 없으면 since 이후에 열린 이슈, 있으면 [since, until] 기간 중
+        열려 있던 이슈(겹침 기준). 이력 질의용."""
         stmt = select(IncidentRow)
-        if since is not None:
-            stmt = stmt.where(IncidentRow.opened_at >= require_aware(since))
+        if until is None:
+            if since is not None:
+                stmt = stmt.where(IncidentRow.opened_at >= require_aware(since))
+        else:
+            stmt = stmt.where(IncidentRow.opened_at <= require_aware(until))
+            if since is not None:
+                stmt = stmt.where(
+                    or_(
+                        IncidentRow.resolved_at.is_(None),
+                        IncidentRow.resolved_at >= require_aware(since),
+                    )
+                )
         if status is not None:
             stmt = stmt.where(IncidentRow.status == status)
         with Session(self._engine) as s:

@@ -32,6 +32,7 @@ class _Input(BaseModel):
 
 class _Window(_Input):
     since: AwareDatetime | None = None
+    until: AwareDatetime | None = None
     limit: int = Field(default=20, ge=1, le=50)
 
 
@@ -115,8 +116,7 @@ class ListRuns(HistoryTool):
         "점검 목록(최신순). 시작 시각·트리거·스냅샷 유무·그 점검에서 열리거나 해결된 이슈."
     )
 
-    class Input(_Window):
-        until: AwareDatetime | None = None
+    Input = _Window
 
     def _query(self, inp: Any) -> dict:
         runs = CheckRunStore(self._engine).list_runs(inp.since, inp.until, inp.limit)
@@ -220,7 +220,11 @@ class GetEvidence(HistoryTool):
 
 class ListIssues(HistoryTool):
     name = "list_issues"
-    description = "이슈 목록(최신순). status·keyword(서비스·기능·규칙·대상 부분 일치)로 거른다."
+    description = (
+        "이슈 목록(최신순). status·keyword(서비스·기능·규칙·대상 부분 일치)로 거르고, "
+        "until을 주면 since~until 기간 중 열려 있던 이슈(기간 전에 열려 계속 열렸거나 "
+        "기간 중 해결된 이슈 포함), until 없이 since만 주면 그 이후에 열린 이슈만."
+    )
 
     class Input(_Window):
         status: Literal["open", "resolved"] | None = None
@@ -229,13 +233,13 @@ class ListIssues(HistoryTool):
     def _query(self, inp: Any) -> dict:
         store = IncidentStore(self._engine)
         if inp.keyword is None:
-            found = store.list_incidents(inp.since, inp.status, inp.limit)
+            found = store.list_incidents(inp.since, inp.status, inp.limit, inp.until)
         else:
             needle = inp.keyword.lower()
             # 저장소는 keyword를 모르므로 넉넉히 읽어 거른 뒤 자른다
             found = [
                 i
-                for i in store.list_incidents(inp.since, inp.status, 500)
+                for i in store.list_incidents(inp.since, inp.status, 500, inp.until)
                 if needle in _haystack(i).lower()
             ][: inp.limit]
         return {
@@ -275,13 +279,16 @@ def _haystack(i: Any) -> str:
 
 class ListAlerts(HistoryTool):
     name = "list_alerts"
-    description = "보낸(또는 dry-run으로 기록한) 알림 목록(최신순). 본문은 500자까지."
+    description = (
+        "보낸(또는 dry-run으로 기록한) 알림 목록(최신순). 본문은 500자까지. "
+        "since·until로 보낸 시각 기간을 좁힌다."
+    )
 
     class Input(_Window):
         issue_id: int | None = None
 
     def _query(self, inp: Any) -> dict:
-        alerts = AlertStore(self._engine).list_alerts(inp.since, inp.issue_id, inp.limit)
+        alerts = AlertStore(self._engine).list_alerts(inp.since, inp.issue_id, inp.limit, inp.until)
         return {
             "ok": True,
             "as_of_run": _latest_run_id(self._engine),
@@ -358,7 +365,6 @@ class SearchReports(HistoryTool):
     )
 
     class Input(_Window):
-        until: AwareDatetime | None = None
         issue_id: ReportId | None = None
         run_id: ReportId | None = None
         keyword: str | None = Field(default=None, max_length=200)

@@ -10,6 +10,7 @@
     </select><select class="pill" name="severity" aria-label="심각도">
       {% for value, label in [("", "모든 심각도"), ("crit", "긴급"), ("warn", "주의"), ("risk", "잠재 위험"), ("tip", "개선 권고")] %}<option value="{{ value }}"{% if severity == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
     </select><select class="pill" name="days" aria-label="기간">{% for value, label in [(0,"전체 기간"),(1,"최근 하루"),(7,"최근 7일"),(30,"최근 30일")] %}<option value="{{ value }}"{% if days|default(0) == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="frow"><input class="pill" type="date" name="from" value="{{ date_from }}" aria-label="시작 날짜"><span aria-hidden="true">~</span><input class="pill" type="date" name="to" value="{{ date_to }}" aria-label="끝 날짜"></div>
     <div class="frow"><input class="search" type="search" name="q" value="{{ q }}" placeholder="서비스·점검 규칙 ID·이슈 제목" aria-label="이슈 검색"><button class="btn" type="submit">검색</button><a href="/{{ p }}/issues">초기화</a></div>
   </form>
   {% for row in rows %}{% set inc = row.incident %}
