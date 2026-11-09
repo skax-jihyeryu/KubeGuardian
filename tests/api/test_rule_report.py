@@ -206,7 +206,7 @@ def test_timeline_ai_skip_wording_only_for_non_rule_checks(client, engine):
     assert "같은 문제라 AI 조사 생략" in text
 
 
-def _s04_report(engine, values, *, severity="critical"):
+def _s04_report(engine, values, *, severity="critical", check_detail=False):
     from api.viewmodels.rule_report import build_rule_report
     from core.db.check_results import CheckResultStore
 
@@ -230,7 +230,12 @@ def _s04_report(engine, values, *, severity="critical"):
         reason="적발: S04",
         rules=("S04",),
     )
-    return build_rule_report(CheckResultStore(engine).get(run))
+    result = CheckResultStore(engine).get(run)
+    if check_detail:
+        from api.viewmodels.checks import _judge
+
+        return _judge(result)[0][0].values
+    return build_rule_report(result)
 
 
 def test_s04_fact_cell_shows_only_problem_addresses(engine):
@@ -259,7 +264,26 @@ def test_s04_fact_cell_shows_only_problem_addresses(engine):
 
     facts = [v for _, v in report.findings[0].values]
 
-    assert facts == ["AGENT_SERVICE_URL=http://agent.:8006 → Service 'agent.' 없음"]
+    assert facts == ["AGENT_SERVICE_URL=http://agent.:8006 → 'agent.:8006' 연결 대상 없음"]
+
+
+def test_s04_check_detail_keeps_problem_after_normal_addresses(engine):
+    facts = _s04_report(
+        engine,
+        {
+            "addresses": [
+                *[
+                    {"env": f"OK_{i}", "target": "agent", "port": 8006, "status": "declared"}
+                    for i in range(5)
+                ],
+                {"env": "BAD_URL", "target": "::1", "port": 8000, "status": "unresolved"},
+            ]
+        },
+        check_detail=True,
+    )
+
+    assert ("주소", "BAD_URL → '[::1]:8000' 연결 대상 없음") in facts
+    assert all("OK_" not in fact for _, fact in facts)
 
 
 def test_s04_address_without_value_and_unchecked(engine):
@@ -274,33 +298,91 @@ def test_s04_address_without_value_and_unchecked(engine):
 
     facts = [v for _, v in report.findings[0].values]
 
-    assert "X_URL → Service 'x' 없음" in facts
+    assert "X_URL → 'x:80' 연결 대상 없음" in facts
     assert "Secret" in " ".join(facts)
 
 
-def test_generic_values_have_no_python_repr(engine):
-    report = _s04_report(engine, {"selector": {"app": "agnet"}, "pods": ["a", "b"], "n": 2})
-    # S04 아닌 규칙처럼 취급되지 않으므로 S01로 확인
-    from api.viewmodels.rule_report import _format_values
-
-    got = dict(
-        _format_values(
-            "S01",
-            {
-                "selector": {"app": "agnet"},
-                "pods": ["a", "b"],
-                "ports": [{"port": 80, "matched": False}],
-                "n": None,
-            },
-        )
+def test_s04_port_mismatch_and_localhost_do_not_claim_missing_service(engine):
+    report = _s04_report(
+        engine,
+        {
+            "addresses": [
+                {
+                    "env": "A_URL",
+                    "value": "http://agent:9999",
+                    "target": "agent",
+                    "port": 9999,
+                    "status": "unresolved",
+                },
+                {
+                    "env": "B_URL",
+                    "value": "http://localhost:8000",
+                    "target": "localhost",
+                    "port": 8000,
+                    "status": "unresolved",
+                },
+            ]
+        },
     )
 
-    assert got["selector"] == "app=agnet"
-    assert got["pods"] == "a, b"
-    assert got["ports"] == "port=80, matched=False"
-    assert report is not None
-    for text in got.values():
-        assert "{" not in text and "[" not in text and "'" not in text
+    facts = [v for _, v in report.findings[0].values]
+
+    assert facts == [
+        "A_URL=http://agent:9999 → 'agent:9999' 연결 대상 없음",
+        "B_URL=http://localhost:8000 → 'localhost:8000' 연결 대상 없음",
+    ]
+    assert not any("Service" in f for f in facts)
+
+
+def _fmt(rule, values):
+    from api.viewmodels.rule_report import format_values
+
+    return dict(format_values(rule, values))
+
+
+def test_generic_s03_ports_keep_item_boundaries():
+    got = _fmt(
+        "S03",
+        {
+            "ports": [
+                {"port": 80, "targetPort": 8080, "matched": False},
+                {"port": 81, "targetPort": "http", "matched": True},
+            ],
+            "container_ports": [8080],
+        },
+    )
+
+    assert (
+        got["ports"]
+        == "(port=80, targetPort=8080, matched=아니오); (port=81, targetPort=http, matched=예)"
+    )
+    assert got["container_ports"] == "8080"
+
+
+def test_generic_s02_not_ready_and_c01_references():
+    got = _fmt(
+        "S02",
+        {
+            "ready": 0,
+            "total": 1,
+            "not_ready": [{"pod": "a", "reason": None, "node": {"name": "n1", "zone": "z"}}],
+            "rollout_excluded": [],
+        },
+    )
+    assert got["not_ready"] == "(pod=a, node(name=n1, zone=z))"
+    assert "rollout_excluded" not in got
+    refs = [{"kind": "Secret", "name": f"s{i}", "exists": i % 2 == 0} for i in range(7)]
+    text = _fmt("C01", {"references": refs})["references"]
+    assert text.count("(kind=") == 7 and "name=s6" in text
+
+
+def test_generic_drops_empty_and_truncates_long_text():
+    got = _fmt("S01", {"a": None, "b": [], "c": "", "d": "x" * 200, "e": {"k": None}})
+
+    assert list(got) == ["d"]
+    assert got["d"] == "x" * 120 + "…"
+    for text in _fmt("S01", {"selector": {"app": "agnet"}, "pods": ["a", "b"]}).values():
+        assert not any(ch in text for ch in "{}[]'")
 
 
 def test_s04_fact_cell_keeps_masking(engine):
