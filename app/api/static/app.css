@@ -153,3 +153,55 @@ button:disabled{cursor:default}
 .chat .chat-new:disabled{color:var(--muted);cursor:wait}
 /* 근거 전체 표: 요약 줄만 보이게 접는다 */
 details.evfold>summary{cursor:pointer;color:var(--muted);margin-bottom:8px}
+
+.period-picker { position: relative; }
+.period-picker > summary { justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; }
+.period-picker > summary::-webkit-details-marker { display: none; }
+.period-chevron { flex: none; color: var(--muted); }
+.period-picker[open] .period-chevron { transform: rotate(180deg); }
+.period-panel {
+  position: absolute; inset-block-start: calc(100% + 6px); inset-inline-start: 0; z-index: 3;
+  width: min(312px, calc(100vw - 86px)); padding: 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+.chat-context-actions { position: relative; }
+.chat-context-actions .period-picker { position: static; }
+.chat-context-actions .period-panel { width: min(330px, 100%); }
+.period-caption { color: var(--muted); font-size: 12px; font-weight: 600; }
+.period-targets { display: flex; gap: 6px; min-width: 0; border: 0; padding: 0; margin: 0 0 10px; }
+.period-targets .btn { margin-top: 6px; font-size: 13px; border-color: var(--line); }
+.period-targets .btn:has(input:checked) { border-color: var(--accent); background: var(--surface-2); }
+.period-targets input { accent-color: var(--accent); margin: 0; }
+.period-caption span { font-weight: 400; margin-inline-start: 4px; }
+.period-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.period-presets .btn { font-size: 13px; }
+.period-presets [aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--surface-2); }
+.period-custom { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.period-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+.period-dates label { min-width: 0; font-size: 12px; }
+.period-dates input {
+  display: block; width: 100%; min-width: 0; margin-top: 4px; padding: 5px 6px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink);
+  font: inherit;
+}
+.period-footer { display: flex; justify-content: flex-end; margin-top: 10px; }
+.period-panel .period-footer .btn-primary { background: var(--accent); border-color: var(--accent); }
+
+.chat-contexts { margin-bottom: 6px; }
+.chat-contexts [data-chat-records]:not(:has([data-chat-record])), .chat-contexts .ctx[hidden] { display: none; }
+.chat-contexts:has(.ctx:not([hidden])) .chat-all-history { display: none; }
+.chat-contexts .ctx button { cursor: pointer; padding-inline: 3px; }
+
+
+.chat-context-actions .pill { cursor: pointer; }
+.chat-mention-picker { margin-top: 8px; }
+.chat-mention-picker input { width: 100%; }
+#chat-mention-results { max-height: 184px; overflow-y: auto; margin-top: 4px; }
+.chat-record-option { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.chat-record-option:hover, .chat-record-option[aria-selected="true"], .chat-record-option[aria-current="true"] { background: var(--surface-2); }
+.chat-record-option[aria-selected="true"] { outline: 1px solid var(--accent); outline-offset: -1px; }
+.chat-history-toggle { display: inline-flex; align-items: center; margin-right: 8px; }
+.chat-history { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: var(--surface); }
+.chat-history-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.chat-history-list { padding: 8px 16px; overflow-y: auto; overflow-wrap: anywhere; }

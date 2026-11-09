@@ -19,7 +19,7 @@ from service.agent.history_qa.v1 import ReadOnlyEvidence
 from service.agent.history_qa.v1.agent import HistoryQaV1
 from service.agent.history_qa.v1.config import SPEC
 from service.agent.history_qa.v1.tools import KNOWLEDGE_DIR, build_history_tools
-from service.model.chat import AnswerSentence, ChatAnswer, ChatRequest
+from service.model.chat import AnswerSentence, ChatAnswer, ChatRequest, HistoryWindows
 from service.notify.messages import DISPLAY_TZ
 
 MAX_QUESTION = 500
@@ -61,6 +61,7 @@ def answer_question(
     project: str | None = None,
     context: str = "전체 이력",
     screen: dict | None = None,
+    history_windows: HistoryWindows | None = None,
     knowledge_dir: Path = KNOWLEDGE_DIR,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> ChatReply:
@@ -87,6 +88,7 @@ def answer_question(
             question=masked,
             history=history,
             screen=screen or ({"화면": context} if context != "전체 이력" else None),
+            history_windows=history_windows or {},
         )
     )
     if result.status == "failed":

@@ -3,32 +3,50 @@
 import json
 import re
 import unicodedata
+from datetime import timedelta
 from typing import Annotated
 from urllib.parse import parse_qs
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from api.deps import get_llm_factory
-from api.timefmt import date_range
-from api.web import ConfigDep, EngineDep, ProjectDep, templates
+from api.timefmt import date_range, date_window, md_hm
+from api.web import ConfigDep, EngineDep, NowDep, ProjectDep, templates
 from core.db import ChatStore, CheckRunStore, EvidenceStore, IncidentStore
 from core.db.tables import ChatMessageRow
 from core.error.service_exception import ServiceException
 from core.guard.redact import redact_mapping, redact_text
 from service.agent.base import LlmFactory
 from service.chat import answer_question, chat_context
-from service.model.chat import ChatAnswer
+from service.model.chat import ChatAnswer, HistoryWindows
 
 router = APIRouter(include_in_schema=False)
 
 
 def conversation(request: Request) -> str:
     value = request.cookies.get("kg_chat", "")
-    return value if re.fullmatch(r"[a-f0-9]{32}", value) else uuid4().hex
+    return value if CHAT_ID.fullmatch(value) else uuid4().hex
+
+
+CHAT_ID = re.compile(r"[a-f0-9]{32}")
+HISTORY_LIMIT = 20
+HISTORY_COOKIE = "kg_chat_history"
+
+
+def history_ids(request: Request) -> list[str]:
+    raw = request.cookies.get(HISTORY_COOKIE, "")[: HISTORY_LIMIT * 33]
+    return list(dict.fromkeys(cid for cid in raw.split(".") if CHAT_ID.fullmatch(cid)))
+
+
+def remember_chat(request: Request, response, cid: str) -> None:
+    ids = list(dict.fromkeys([cid, *history_ids(request)]))[:HISTORY_LIMIT]
+    response.set_cookie(
+        HISTORY_COOKIE, ".".join(ids), max_age=30 * 86400, httponly=True, samesite="strict"
+    )
 
 
 def context_label(engine, issue: str = "", run: str = "") -> str:
@@ -51,6 +69,8 @@ FILTER_CHOICES = {
     "trigger": {"schedule", "ui", "check", "investigate"},
     "status": {"open", "resolved", "running", "done", "unknown", "halted", "failed"},
 }
+CHAT_PERIODS = {"1d": "최근 24시간", "7d": "최근 7일", "30d": "최근 30일"}
+CHAT_PERIOD_TARGETS = {"checks": "점검 이력", "issues": "이슈"}
 MAX_FILTER_Q = 100
 
 
@@ -84,10 +104,9 @@ def filter_values(value: str) -> dict[str, str]:
     return result
 
 
-def filter_context(value: str) -> str:
-    values = filter_values(value)
-    start, end = values.pop("from", ""), values.pop("to", "")
-    parts = [f"{k}={v}" for k, v in values.items()]
+def filter_context(values: dict[str, str]) -> str:
+    start, end = values.get("from", ""), values.get("to", "")
+    parts = [f"{k}={v}" for k, v in values.items() if k not in ("from", "to")]
     if start or end:
         parts.append(f"기간 {start}~{end}")
     return ", ".join(parts)
@@ -101,8 +120,9 @@ def chat_panel(
     issue: str = "",
     run: str = "",
     filters: str = "",
+    view: str = "",
 ):
-    return render_panel(request, project, engine, conversation(request), issue, run, filters)
+    return render_panel(request, project, engine, conversation(request), issue, run, filters, view)
 
 
 @router.post("/{p}/chat/new")
@@ -113,11 +133,108 @@ def new_chat(
     issue: str = "",
     run: str = "",
     filters: str = "",
+    view: str = "",
 ):
-    return render_panel(request, project, engine, uuid4().hex, issue, run, filters)
+    return render_panel(request, project, engine, uuid4().hex, issue, run, filters, view)
 
 
-def render_panel(request, project, engine, cid, issue, run, filters):
+@router.get("/{p}/chat/mentions")
+def chat_mentions(request: Request, project: ProjectDep, engine: EngineDep, q: str = ""):
+    term = q[:100].strip().removeprefix("@").strip().casefold()
+    kind = ""
+    for prefix, record_type in (("이슈", "issue"), ("점검", "run")):
+        if term.startswith(prefix):
+            kind, term = record_type, term.removeprefix(prefix).strip()
+            break
+    term = term.removeprefix("#").strip()
+    record_id = int(term) if term.isascii() and term.isdecimal() and len(term) <= 10 else None
+    records = []
+    if kind != "run":
+        store = IncidentStore(engine)
+        issues = (
+            [store.get(record_id)]
+            if record_id is not None
+            else store.list_incidents(limit=1000 if term else 6)
+        )
+        for issue in issues:
+            if issue is None:
+                continue
+            detail = redact_text(", ".join(issue.features or issue.services))
+            if term and record_id is None and term not in detail.casefold():
+                continue
+            records.append(("issue", issue.id, "이슈", detail or md_hm(issue.opened_at)))
+            if len(records) == 6:
+                break
+    if kind != "issue":
+        store = CheckRunStore(engine)
+        if record_id is not None:
+            run = store.get_run(record_id)
+            runs = [(record_id, run[0])] if run else []
+        else:
+            runs = (
+                [(run_id, at) for run_id, at, _, _ in store.list_runs(limit=6)] if not term else []
+            )
+        records.extend(("run", run_id, "점검", md_hm(at)) for run_id, at in runs)
+    return templates.TemplateResponse(request, "chat/mentions.html", {"records": records})
+
+
+@router.get("/{p}/chat/history")
+def chat_history(
+    request: Request,
+    project: ProjectDep,
+    engine: EngineDep,
+    issue: str = "",
+    run: str = "",
+    filters: str = "",
+    view: str = "",
+):
+    ids = history_ids(request)
+    first_turn_ids = (
+        select(func.min(ChatMessageRow.id))
+        .where(ChatMessageRow.conversation_id.in_(ids), ChatMessageRow.role == "user")
+        .group_by(ChatMessageRow.conversation_id)
+    )
+    with Session(engine) as session:
+        titles = {
+            row.conversation_id: redact_text(row.text)[:80]
+            for row in session.scalars(
+                select(ChatMessageRow).where(ChatMessageRow.id.in_(first_turn_ids))
+            )
+        }
+    return templates.TemplateResponse(
+        request,
+        "chat/history.html",
+        {
+            "p": project,
+            "history": [(cid, titles[cid]) for cid in ids if cid in titles],
+            "current": conversation(request),
+            "params": {"issue": issue, "run": run, "filters": filters[:2000], "view": view},
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/{p}/chat/resume")
+async def resume_chat(
+    request: Request,
+    project: ProjectDep,
+    engine: EngineDep,
+    issue: str = "",
+    run: str = "",
+    filters: str = "",
+    view: str = "",
+):
+    body = await request.body()
+    if len(body) > 128:
+        raise HTTPException(400)
+    cid = parse_qs(body.decode("utf-8", errors="replace")).get("cid", [""])[0]
+    if cid not in history_ids(request):
+        raise HTTPException(404)
+    return render_panel(request, project, engine, cid, issue, run, filters, view)
+
+
+def render_panel(request, project, engine, cid, issue, run, filters, view):
+    view = view if view in CHAT_PERIOD_TARGETS else ""
     with Session(engine) as session:
         stored = list(
             session.scalars(
@@ -127,10 +244,9 @@ def render_panel(request, project, engine, cid, issue, run, filters):
                 .limit(20)
             )
         )
-    filter_text = filter_context(filters)
-    label = chat_context(
-        context_label(engine, issue, run) + (" · 필터: " + filter_text if filter_text else "")
-    )
+    filter_text = filter_context(filter_values(filters))
+    scope = context_label(engine, issue, run)
+    label = chat_context(scope + (" · 필터: " + filter_text if filter_text else ""))
     turns = []
     previous_context = "전체 이력"
     for turn in reversed(stored):
@@ -154,6 +270,12 @@ def render_panel(request, project, engine, cid, issue, run, filters):
         {
             "p": project,
             "context": label,
+            "filter_text": filter_text,
+            "filter_view": view,
+            "cid": cid,
+            "scope": scope,
+            "periods": CHAT_PERIODS,
+            "period_targets": CHAT_PERIOD_TARGETS,
             "pending_context": bool(turns and previous_context != label),
             "filters": filters[:2000],
             "issue": issue,
@@ -162,7 +284,24 @@ def render_panel(request, project, engine, cid, issue, run, filters):
         },
     )
     response.set_cookie("kg_chat", cid, httponly=True, samesite="strict")
+    if stored:
+        remember_chat(request, response, cid)
     return response
+
+
+def chat_period(form: dict[str, list[str]], prefix: str) -> tuple[dict[str, str], str]:
+    mode = form.get(f"{prefix}_period", [""])[0]
+    if not mode:
+        return {}, ""
+    if mode in CHAT_PERIODS:
+        return {"period": mode}, CHAT_PERIODS[mode]
+    if mode == "custom":
+        start, end = date_range(
+            form.get(f"{prefix}_from", [""])[0], form.get(f"{prefix}_to", [""])[0]
+        )
+        if start and end:
+            return {"from": start, "to": end}, f"{start}~{end}"
+    raise ValueError("invalid period")
 
 
 @router.post("/{p}/chat/messages")
@@ -171,6 +310,7 @@ async def chat_message(
     project: ProjectDep,
     engine: EngineDep,
     config: ConfigDep,
+    now: NowDep,
     llm_factory: Annotated[LlmFactory, Depends(get_llm_factory)],
 ):
     body = await request.body()
@@ -178,13 +318,67 @@ async def chat_message(
         raise HTTPException(400)
     form = parse_qs(body.decode("utf-8", errors="replace"))
     question = form.get("question", [""])[0].strip()
-    issue, run = form.get("issue", [""])[0], form.get("run", [""])[0]
-    scope = context_label(engine, issue, run)
+    issues = dict.fromkeys(form.get("issue", []))
+    runs = dict.fromkeys(form.get("run", []))
+    selected = [context_label(engine, issue=issue) for issue in issues]
+    selected.extend(context_label(engine, run=run) for run in runs)
+    scope = ", ".join(selected) or "전체 이력"
     filter_dict = filter_values(form.get("filters", [""])[0])
-    filters = filter_context(form.get("filters", [""])[0])
-    label = chat_context(scope + (" · 필터: " + filters if filters else ""))
-    screen = {"화면": scope, "필터": filter_dict} if scope != "전체 이력" or filter_dict else None
-    cid = conversation(request)
+    windows: HistoryWindows = {}
+    periods = []
+    period_labels = []
+    range_error = False
+    try:
+        for prefix, tool in (("checks", "list_runs"), ("issues", "list_issues")):
+            period, description = chat_period(form, prefix)
+            if not period:
+                continue
+            target = CHAT_PERIOD_TARGETS[prefix]
+            if relative := period.get("period"):
+                since, until = now - timedelta(days=int(relative[:-1])), now
+            else:
+                since, until = date_window(period["from"], period["to"])
+                assert since is not None and until is not None
+            windows[tool] = (since, until)
+            periods.append({"대상": target, "since": since.isoformat(), "until": until.isoformat()})
+            period_labels.append(f"{target} 기간 {description}")
+        # 열린 구버전 패널에서 전송한 단일 기간 폼과 호환한다.
+        legacy, description = chat_period(form, "chat") if not periods else ({}, "")
+        if legacy:
+            target = form.get("chat_period_target", [""])[0]
+            if target:
+                if target not in CHAT_PERIOD_TARGETS:
+                    raise ValueError("invalid period target")
+                legacy["대상"] = CHAT_PERIOD_TARGETS[target]
+            period_labels.append(f"{legacy.get('대상', '')} 기간 {description}".strip())
+    except ValueError:
+        range_error = True
+        legacy = {}
+
+    view = form.get("view", [""])[0]
+    if view not in CHAT_PERIOD_TARGETS:
+        view = ""
+    if period_labels and (
+        not view
+        or (view == "checks" and "list_runs" in windows)
+        or (view == "issues" and "list_issues" in windows)
+    ):
+        for key in ("from", "to", "period", "days"):
+            filter_dict.pop(key, None)
+    filters = filter_context(filter_dict)
+    label = " · ".join([scope, *period_labels])
+    if filters:
+        label += " · 필터: " + filters
+    label = chat_context(label)
+    screen = {"화면": scope, "필터": filter_dict}
+    if view and filter_dict:
+        screen["목록 대상"] = CHAT_PERIOD_TARGETS[view]
+    if periods or legacy:
+        screen["추가 이력 기간"] = periods or legacy
+    active = conversation(request)
+    cid = form.get("cid", [active])[0]
+    if cid != active and cid not in history_ids(request):
+        raise HTTPException(404)
     with Session(engine) as session:
         previous = session.scalar(
             select(ChatMessageRow.answer)
@@ -196,6 +390,8 @@ async def chat_message(
     error, reply = None, None
     if not question or len(question) > 500:
         error = "질문은 1~500자로 입력하세요."
+    elif range_error:
+        error = "조회 기간을 확인하세요. 시작일과 종료일을 순서대로 선택해 주세요."
     else:
         try:
             reply = await run_in_threadpool(
@@ -208,6 +404,8 @@ async def chat_message(
                 project=project,
                 context=label,
                 screen=screen,
+                history_windows=windows,
+                now=lambda: now,
             )
         except ServiceException:
             error = "답변을 만들지 못했습니다. 잠시 후 다시 질문해 주세요."
@@ -224,6 +422,8 @@ async def chat_message(
         },
     )
     response.set_cookie("kg_chat", cid, httponly=True, samesite="strict")
+    if reply is not None:
+        remember_chat(request, response, cid)
     return response
 
 
