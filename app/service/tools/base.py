@@ -101,23 +101,28 @@ class Tool(ABC):
                 ErrorCode.VALIDATION_ERROR, detail=f"{self.name}: {fields}"
             ) from e
 
-        if ctx.budget is not None:
-            if (
-                not ctx.budget.can_call_tool()
-            ):  # 상한은 구현이 아니라 여기서 강제한다 (v1·v1_loop 같은 기준)
-                return ToolResult(
-                    ok=False,
-                    evidence_id=None,
-                    summary="도구 호출 상한 도달. 더 호출하지 말고 지금까지의 근거로 판단하세요",
-                    data={},
-                )
-            ctx.budget.count_tool_call()
+        if ctx.budget is not None and not ctx.budget.reserve_tool_calls(1):
+            return ToolResult(
+                ok=False,
+                evidence_id=None,
+                summary="도구 호출 상한 도달. 더 호출하지 말고 지금까지의 근거로 판단하세요",
+                data={},
+            )
 
+        return self.save_outcome(self.collect_outcome(args, ctx), ctx)
+
+    def collect_outcome(self, args: BaseModel, ctx: ToolContext) -> ToolObservation | Exception:
+        """읽기 작업만 수행한다. 예산 집계와 근거 저장은 호출 스레드에서 한다."""
         try:
-            obs = self.collect(args, ctx)
-        except Exception as e:  # 호출 실패도 근거로 남기고 조사는 계속한다 (상세설계 §3.1)
+            return self.collect(args, ctx)
+        except Exception as e:
+            return e
+
+    def save_outcome(self, outcome: ToolObservation | Exception, ctx: ToolContext) -> ToolResult:
+        if isinstance(outcome, Exception):
+            e = outcome  # 호출 실패도 근거로 남기고 조사는 계속한다 (상세설계 §3.1)
             if isinstance(e, ServiceException) and e.error_code is ErrorCode.TOOL_SCOPE_VIOLATION:
-                raise
+                raise e
             detail = e.detail if isinstance(e, ServiceException) else str(e)
             message = redact_text(f"{type(e).__name__}: {detail}")
             subject = f"{ctx.namespace}/Tool/{self.name}"
@@ -129,6 +134,7 @@ class Tool(ABC):
                 data={"error": message},
             )
 
+        obs = outcome
         subject = obs.subject
         in_scope = subject.startswith(f"{ctx.namespace}/") or subject.startswith("cluster/Node/")
         if not ctx.namespace or not in_scope or not _SUBJECT.fullmatch(subject):

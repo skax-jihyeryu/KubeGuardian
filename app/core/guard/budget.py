@@ -45,6 +45,19 @@ class BudgetTracker:
             and not self.time_over()
         )
 
+    def reserve_tool_calls(self, count: int) -> bool:
+        """동시에 시작할 호출의 예산을 실행 전에 한꺼번에 집계한다."""
+        b = self.budget
+        if (
+            self._issue_calls + count > b.per_issue_tool_calls
+            or self.tool_calls + count > b.total_tool_calls
+            or self.time_over()
+        ):
+            return False
+        self.tool_calls += count
+        self._issue_calls += count
+        return True
+
     def elapsed(self) -> float:
         return self._clock() - self._started
 

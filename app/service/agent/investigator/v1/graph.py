@@ -14,11 +14,16 @@ load_context → preliminary → triage → plan → act ⇄ tools → write_rep
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
+from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
+from opentelemetry import trace
+from pydantic import ValidationError
 
 from core.error.service_exception import ServiceException
 from core.guard.validate import validate_report
@@ -48,6 +53,7 @@ from service.model import Report
 from service.model.report import Fact
 from service.sensors.topology import service_hierarchy
 from service.tools._common import read
+from service.tools.probe import Probe
 
 if TYPE_CHECKING:
     from service.agent.investigator.v1.agent import InvestigatorV1
@@ -62,6 +68,7 @@ EVENTS_MINUTES = 30
 PRELIMINARY_LOG_CALLS = 4
 _ERROR_GREP = "error|exception|fail|timeout|refused|429|502|503|504"
 _PRELIMINARY_LOG_ARGS = {"tail": 5, "since_seconds": 1800, "grep": _ERROR_GREP}
+_OLD_TOOL_EXCERPT_CHARS = 1600
 _FACT_LINE_MAX = 200  # Fact 문장에 넣는 로그 한 줄의 상한
 NEXT_ISSUE_MIN_SECONDS = 40  # 남은 시간이 이보다 적으면 다음 문제를 조사하지 않는다
 _NOT_INVESTIGATED = "(예산 부족으로 조사하지 못함)"
@@ -274,7 +281,7 @@ def build_graph(agent: "InvestigatorV1"):
             reply = (
                 agent.llm("investigate")
                 .bind_tools(list(lc_tools.values()))
-                .invoke(state["messages"])
+                .invoke(_investigation_history(state["messages"]))
             )
             ctx.usage.add(reply)
             s.detail = {"tool_calls": [c["name"] for c in reply.tool_calls]}
@@ -339,28 +346,79 @@ def build_graph(agent: "InvestigatorV1"):
     def after_skip_calls(state: InvestigationState) -> str:
         return "next_issue" if has_next_issue(state) else "write_report"
 
+    def schedule_probe_pair(calls: list, pool: ThreadPoolExecutor):
+        probe = tools.get("probe")
+        if (
+            not isinstance(probe, Probe)
+            or len(calls) != 2
+            or any(call["name"] != "probe" for call in calls)
+        ):
+            return ()
+        try:
+            first, second = (probe.Input.model_validate(call["args"]) for call in calls)
+        except ValidationError:
+            return ()  # 일반 어댑터가 입력 오류를 응답한다
+        if first.path != second.path or first.via == second.via:
+            return ()
+        if not ctx.budget.reserve_tool_calls(2):
+            return ()
+
+        def collect(args: Probe.Input):
+            started = ctx.now()
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span(
+                probe.name,
+                attributes={
+                    SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.TOOL.value,
+                    SpanAttributes.TOOL_NAME: probe.name,
+                },
+            ):
+                outcome = probe.collect_outcome(args, tool_ctx)
+            return probe, outcome, started, ctx.now()
+
+        return tuple(pool.submit(copy_context().run, collect, args) for args in (first, second))
+
     def run_tools(state: InvestigationState) -> InvestigationState:
         messages = list(state["messages"])
         seen = list(state["seen"])
         obs = list(state["observations"])
         limited = state["limited"]
-        for call in messages[-1].tool_calls:
-            if not ctx.budget.total_left() and not state["rechecked"]:
-                limited = True  # 한 응답의 병렬 호출 중 상한에 걸린 것은 Tool.run이 거절한다
-            with agent.step("tools") as s:
-                s.tool, s.args = call["name"], dict(call["args"])
-                lc = lc_tools.get(call["name"])
-                if lc is None:
-                    body = {"ok": False, "error": f"없는 도구: {call['name']}"}
-                    content = wrap_tool_output(json.dumps(body, ensure_ascii=False))
-                else:
-                    content = lc.invoke(call["args"])
+        calls = messages[-1].tool_calls
+        # 수집만 겹치고, 각 결과가 준비되면 요청 순서대로 근거와 단계를 저장한다.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            pending = {}
+            for i, call in enumerate(calls):
+                if i not in pending:
+                    pair = schedule_probe_pair(calls[i : i + 2], pool)
+                    pending.update(enumerate(pair, i))
+                future = pending.pop(i, None)
+                probe_result = future.result() if future else None
+                if probe_result is None and not ctx.budget.total_left() and not state["rechecked"]:
+                    limited = True  # 한 응답의 병렬 호출 중 상한에 걸린 것은 Tool.run이 거절한다
+                started = probe_result[2] if probe_result else None
+                with agent.step("tools", started_at=started) as s:
+                    s.tool, s.args = call["name"], dict(call["args"])
+                    lc = lc_tools.get(call["name"])
+                    if probe_result:
+                        probe, outcome, _, s.ended_at = probe_result
+                        try:
+                            result = probe.save_outcome(outcome, tool_ctx)
+                            content = wrap_tool_output(result.model_dump_json())
+                        except ServiceException as e:
+                            content = wrap_tool_output(
+                                json.dumps({"ok": False, "error": e.error_code.name})
+                            )
+                    elif lc is None:
+                        body = {"ok": False, "error": f"없는 도구: {call['name']}"}
+                        content = wrap_tool_output(json.dumps(body, ensure_ascii=False))
+                    else:
+                        content = lc.invoke(call["args"])
                     ev, ok = _parse_result(content)
                     if ev:
                         s.evidence_ids = [ev]
                         seen.append(ev)
                         obs.append(observation(ev, call["name"], dict(call["args"]), ok))
-                messages.append(ToolMessage(content, tool_call_id=call["id"]))
+                    messages.append(ToolMessage(content, tool_call_id=call["id"]))
         return {"messages": messages, "seen": seen, "observations": obs, "limited": limited}
 
     def rewrite_if_han(llm, report: Report, history: list) -> Report:
@@ -531,3 +589,43 @@ def _parse_result(content: str) -> tuple[str | None, bool]:
         return body.get("evidence_id"), bool(body.get("ok", True))
     except (json.JSONDecodeError, AttributeError):
         return None, False
+
+
+def _investigation_history(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """조사 호출에서 이전 도구 응답만 줄인다. 보고서에는 원본 대화를 쓴다."""
+    latest_call = next(
+        (
+            i
+            for i in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[i], AIMessage) and messages[i].tool_calls
+        ),
+        0,
+    )
+    return [
+        _shorten_tool_output(msg) if i < latest_call and isinstance(msg, ToolMessage) else msg
+        for i, msg in enumerate(messages)
+    ]
+
+
+def _shorten_tool_output(message: ToolMessage) -> ToolMessage:
+    content = message.content
+    if not isinstance(content, str) or len(content) <= 2 * _OLD_TOOL_EXCERPT_CHARS:
+        return message
+    try:
+        body = json.loads(content.removeprefix("<tool_output>").removesuffix("</tool_output>"))
+    except json.JSONDecodeError:
+        return message
+    if not isinstance(body, dict) or not body.get("evidence_id") or "data" not in body:
+        return message
+    data = json.dumps(body.pop("data"), ensure_ascii=False, separators=(",", ":"))
+    if len(data) <= _OLD_TOOL_EXCERPT_CHARS:
+        return message
+    half = _OLD_TOOL_EXCERPT_CHARS // 2
+    body["data_excerpt"] = {
+        "start": data[:half],
+        "end": data[-half:],
+        "omitted_chars": len(data) - 2 * half,
+    }
+    return message.model_copy(
+        update={"content": wrap_tool_output(json.dumps(body, ensure_ascii=False))}
+    )

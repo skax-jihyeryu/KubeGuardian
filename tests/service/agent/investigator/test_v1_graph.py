@@ -2,22 +2,24 @@
 
 import json
 from datetime import UTC, datetime
+from threading import Barrier, Event
 from typing import Any
 
 import pytest
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import BaseModel
 
 from core.error.service_exception import ErrorCode, ServiceException
 from core.guard.budget import Budget, BudgetTracker
-from service.agent.base import RunContext
+from service.agent.base import MemorySteps, RunContext
 from service.agent.investigator.v1.agent import InvestigatorV1
 from service.agent.investigator.v1.graph import build_graph
 from service.model import Evidence, InvestigationRequest, Signal, SignalBoard, Symptom
 from service.model.report import Fact
 from service.tools.base import Tool, ToolContext, ToolObservation
+from service.tools.probe import Probe
 
 NOW = datetime(2026, 10, 20, 1, 0, tzinfo=UTC)
 
@@ -76,7 +78,9 @@ def _fake_tool(tool_name: str):
                 subject=f"dev/Service/{args.name or 'all'}",
                 source=f"GET {tool_name}",
                 summary=f"{tool_name} 결과",
-                data={"ok": True},
+                data={"ok": True, "detail": "x" * 6000}
+                if args.name and args.name.startswith("verbose-")
+                else {"ok": True},
             )
 
     return Fake()
@@ -193,6 +197,31 @@ def test_graph_runs_end_to_end_and_report_cites_saved_evidence():
     assert result.report.evidence_ids == ["ev-3"]  # 없는 번호는 검증기가 지운다
     assert len(ctx.evidence.saved) == 3
     assert [f.evidence_ids for f in result.report.preliminary_facts] == [["ev-1"], ["ev-2"]]
+
+
+def test_later_tool_calls_receive_shortened_old_results_but_report_keeps_full_evidence():
+    result, llm, ctx = _run(
+        [
+            TRIAGE,
+            PLAN,
+            _tool_call(1, args={"kind": "Service", "name": "verbose-first"}),
+            _tool_call(2, args={"kind": "Service", "name": "verbose-latest"}),
+            AIMessage(content="조사 완료"),
+            _report(["ev-3", "ev-4"]),
+        ]
+    )
+
+    assert result.status == "done", result.error
+    earlier = [m for m in llm.calls[3] if isinstance(m, ToolMessage)]
+    investigation = [m for m in llm.calls[4] if isinstance(m, ToolMessage)]
+    report = [m for m in llm.calls[5] if isinstance(m, ToolMessage)]
+    assert [m.tool_call_id for m in investigation] == ["c1", "c2"]
+    assert "ev-3" in investigation[0].content
+    assert len(investigation[0].content) < len(earlier[0].content) // 2
+    assert investigation[1].content == report[1].content
+    assert report[0].content == earlier[0].content
+    assert len(ctx.evidence.saved) == 4
+    assert result.report.evidence_ids == ["ev-3", "ev-4"]
 
 
 def test_preliminary_facts_are_always_the_state_facts_not_llm_text():
@@ -1433,6 +1462,78 @@ def _run_partial_failure(script: list):
     )
     agent = InvestigatorV1(llm_factory=lambda model: llm, tools=[*TOOLS, _fake_probe()], ctx=ctx)
     return build_graph(agent).invoke({"request": REQ}, {"recursion_limit": 100}), llm
+
+
+@pytest.mark.parametrize("per_issue, expected", [(8, ["service", "pod"]), (1, ["service"])])
+@pytest.mark.parametrize("scope_violation", [False, True])
+def test_paired_probes_overlap_and_respect_budget(per_issue, expected, scope_violation):
+    barrier = Barrier(2)
+    first_recorded = Event()
+
+    class ProbeSteps(MemorySteps):
+        def record(self, step):
+            super().record(step)
+            if step.tool == "probe" and step.args.get("via", "service") == "service":
+                first_recorded.set()
+
+    class PairedProbe(Probe):
+        def collect(self, args, ctx):
+            if per_issue == 8:
+                barrier.wait(timeout=2)
+                if args.via == "pod":
+                    assert first_recorded.wait(timeout=2)
+            if scope_violation and args.via == "service":
+                raise ServiceException(ErrorCode.TOOL_SCOPE_VIOLATION, detail="blocked")
+            return ToolObservation(
+                kind="probe_result",
+                subject=f"dev/Service/{args.target}",
+                source=args.via,
+                summary="probe 결과",
+                data={"via": args.via},
+            )
+
+    calls = [
+        _tool_call(1, "probe", {"target": "gateway", "path": "/health"}).tool_calls[0],
+        _tool_call(
+            2, "probe", {"target": "gateway-pod", "path": "/health", "via": "pod"}
+        ).tool_calls[0],
+    ]
+    llm = ScriptedLLM(
+        script=[
+            TRIAGE,
+            PLAN,
+            AIMessage(content="", tool_calls=calls),
+            AIMessage(content="완료"),
+            _report(["ev-1"]),
+            _report(["ev-1"]),
+        ],
+    )
+    ctx = RunContext(
+        "r1",
+        "dev",
+        MemoryEvidence(),
+        BudgetTracker(Budget(per_issue_tool_calls=per_issue)),
+        steps=ProbeSteps(),
+    )
+    agent = InvestigatorV1(llm_factory=lambda model: llm, tools=[*TOOLS, PairedProbe()], ctx=ctx)
+    state = build_graph(agent).invoke({"request": REQ}, {"recursion_limit": 100})
+
+    probes = [ev for ev in ctx.evidence.saved if ev.kind == "probe_result"]
+    observed = expected[1:] if scope_violation else expected
+    assert [ev.source for ev in probes] == observed
+    assert ctx.budget.issue_tool_calls == len(expected)
+    assert [o.via for o in state["observations"] if o.tool == "probe"] == observed
+    messages = [m for m in state["messages"] if isinstance(m, ToolMessage)]
+    assert [m.tool_call_id for m in messages] == [call["id"] for call in calls]
+    if scope_violation:
+        assert "TOOL_SCOPE_VIOLATION" in messages[0].content
+        assert "blocked" not in messages[0].content
+    steps = [step for step in ctx.steps.steps if step.tool == "probe"]
+    assert [step.args for step in steps] == [call["args"] for call in calls]
+    if per_issue == 8:
+        assert max(step.started_at for step in steps) < min(step.ended_at for step in steps)
+    else:
+        assert not steps[1].evidence_ids
 
 
 def test_observations_record_probe_via():
