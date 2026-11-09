@@ -125,13 +125,15 @@ class BaseAgent(ABC):
         return self._llm_factory(self.spec.models[role])
 
     @contextmanager
-    def step(self, node: str, **detail: Any) -> Iterator[AgentStep]:
+    def step(
+        self, node: str, *, started_at: datetime | None = None, **detail: Any
+    ) -> Iterator[AgentStep]:
         """단계 하나를 기록한다. with 블록 안에서 tool·args·evidence_ids를 채울 수 있다."""
-        s = AgentStep(node=node, started_at=self.ctx.now(), detail=detail)
+        s = AgentStep(node=node, started_at=started_at or self.ctx.now(), detail=detail)
         try:
             yield s
         finally:
-            s.ended_at = self.ctx.now()
+            s.ended_at = s.ended_at or self.ctx.now()
             s.args, s.detail = redact_mapping(s.args), redact_mapping(s.detail)
             self.ctx.steps.record(s)
 

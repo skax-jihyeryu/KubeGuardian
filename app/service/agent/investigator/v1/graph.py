@@ -14,11 +14,16 @@ load_context → preliminary → triage → plan → act ⇄ tools → write_rep
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
+from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
+from opentelemetry import trace
+from pydantic import ValidationError
 
 from core.error.service_exception import ServiceException
 from core.guard.validate import validate_report
@@ -48,6 +53,7 @@ from service.model import Report
 from service.model.report import Fact
 from service.sensors.topology import service_hierarchy
 from service.tools._common import read
+from service.tools.probe import Probe
 
 if TYPE_CHECKING:
     from service.agent.investigator.v1.agent import InvestigatorV1
@@ -340,28 +346,79 @@ def build_graph(agent: "InvestigatorV1"):
     def after_skip_calls(state: InvestigationState) -> str:
         return "next_issue" if has_next_issue(state) else "write_report"
 
+    def schedule_probe_pair(calls: list, pool: ThreadPoolExecutor):
+        probe = tools.get("probe")
+        if (
+            not isinstance(probe, Probe)
+            or len(calls) != 2
+            or any(call["name"] != "probe" for call in calls)
+        ):
+            return ()
+        try:
+            first, second = (probe.Input.model_validate(call["args"]) for call in calls)
+        except ValidationError:
+            return ()  # 일반 어댑터가 입력 오류를 응답한다
+        if first.path != second.path or first.via == second.via:
+            return ()
+        if not ctx.budget.reserve_tool_calls(2):
+            return ()
+
+        def collect(args: Probe.Input):
+            started = ctx.now()
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span(
+                probe.name,
+                attributes={
+                    SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.TOOL.value,
+                    SpanAttributes.TOOL_NAME: probe.name,
+                },
+            ):
+                outcome = probe.collect_outcome(args, tool_ctx)
+            return probe, outcome, started, ctx.now()
+
+        return tuple(pool.submit(copy_context().run, collect, args) for args in (first, second))
+
     def run_tools(state: InvestigationState) -> InvestigationState:
         messages = list(state["messages"])
         seen = list(state["seen"])
         obs = list(state["observations"])
         limited = state["limited"]
-        for call in messages[-1].tool_calls:
-            if not ctx.budget.total_left() and not state["rechecked"]:
-                limited = True  # 한 응답의 병렬 호출 중 상한에 걸린 것은 Tool.run이 거절한다
-            with agent.step("tools") as s:
-                s.tool, s.args = call["name"], dict(call["args"])
-                lc = lc_tools.get(call["name"])
-                if lc is None:
-                    body = {"ok": False, "error": f"없는 도구: {call['name']}"}
-                    content = wrap_tool_output(json.dumps(body, ensure_ascii=False))
-                else:
-                    content = lc.invoke(call["args"])
+        calls = messages[-1].tool_calls
+        # 수집만 겹치고, 각 결과가 준비되면 요청 순서대로 근거와 단계를 저장한다.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            pending = {}
+            for i, call in enumerate(calls):
+                if i not in pending:
+                    pair = schedule_probe_pair(calls[i : i + 2], pool)
+                    pending.update(enumerate(pair, i))
+                future = pending.pop(i, None)
+                probe_result = future.result() if future else None
+                if probe_result is None and not ctx.budget.total_left() and not state["rechecked"]:
+                    limited = True  # 한 응답의 병렬 호출 중 상한에 걸린 것은 Tool.run이 거절한다
+                started = probe_result[2] if probe_result else None
+                with agent.step("tools", started_at=started) as s:
+                    s.tool, s.args = call["name"], dict(call["args"])
+                    lc = lc_tools.get(call["name"])
+                    if probe_result:
+                        probe, outcome, _, s.ended_at = probe_result
+                        try:
+                            result = probe.save_outcome(outcome, tool_ctx)
+                            content = wrap_tool_output(result.model_dump_json())
+                        except ServiceException as e:
+                            content = wrap_tool_output(
+                                json.dumps({"ok": False, "error": e.error_code.name})
+                            )
+                    elif lc is None:
+                        body = {"ok": False, "error": f"없는 도구: {call['name']}"}
+                        content = wrap_tool_output(json.dumps(body, ensure_ascii=False))
+                    else:
+                        content = lc.invoke(call["args"])
                     ev, ok = _parse_result(content)
                     if ev:
                         s.evidence_ids = [ev]
                         seen.append(ev)
                         obs.append(observation(ev, call["name"], dict(call["args"]), ok))
-                messages.append(ToolMessage(content, tool_call_id=call["id"]))
+                    messages.append(ToolMessage(content, tool_call_id=call["id"]))
         return {"messages": messages, "seen": seen, "observations": obs, "limited": limited}
 
     def rewrite_if_han(llm, report: Report, history: list) -> Report:
