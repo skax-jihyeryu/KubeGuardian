@@ -179,8 +179,8 @@ def run_request(
             _finish(store, investigation_id, failed)
             log_end(label, failed)
             raise
-        log_end(label, result)
         _finish(store, investigation_id, result)  # 판단 수준까지 붙은 보고서를 남긴다
+        log_end(label, result)
         return result
 
 

@@ -235,3 +235,12 @@ def test_worker_logs_failed_investigation(engine, caplog):
     assert any(
         r.getMessage().startswith(f"[작업] 이슈 #{iid} 조사 마침: 실패") for r in caplog.records
     )
+
+
+def test_failed_result_without_error_does_not_break_worker_log(engine, monkeypatch):
+    from service.agent.base import AgentResult
+
+    iid = _opened(engine)
+    w = _worker(engine, lambda model: _scripted())
+    monkeypatch.setattr(w, "_investigate", lambda job: AgentResult(status="failed", error=None))
+    assert w.run_once() == iid

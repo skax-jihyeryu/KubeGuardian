@@ -117,3 +117,22 @@ def test_end_lines_with_verdicts_and_summary(caplog):
 def test_end_line_for_failure(caplog):
     log_end("#3", AgentResult(status="failed", error="TimeoutError", usage=Usage(seconds=3)))
     assert _lines(caplog) == ["[조사 #3] 실패: TimeoutError (3s)"]
+
+
+def test_log_functions_never_raise(monkeypatch):
+    from service.pipeline import flow_log
+
+    class Boom:
+        def info(self, *a, **k):
+            raise RuntimeError("logger down")
+
+        def debug(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(flow_log, "logger", Boom())
+
+    class Req:
+        gate_path = "A"
+
+    log_start("#1", Req(), incident_id=1, reason="x")
+    log_end("#1", AgentResult(status="failed", error="e"))

@@ -102,7 +102,9 @@ class Worker:
         kept = complete_job(self._engine, self._notifier, job, result, self._clock())
         ok = result is not None and result.status != "failed"
         outcome = (
-            result.status if ok else f"실패 {_one_line(result.error if result else '')}".strip()
+            result.status
+            if ok
+            else f"실패 {_one_line((result.error if result else None) or '')}".strip()
         ) + ("" if kept else ", 새 요청에 밀림")
         logger.info(f"[작업] 이슈 #{job.incident_id} 조사 마침: {outcome}")
         return job.incident_id

@@ -5,6 +5,7 @@
 - 로그는 부가 작업이다. 실패해도 조사·기록은 이어진다.
 """
 
+from functools import wraps
 from typing import Any
 
 from core.guard.redact import redact_text
@@ -75,12 +76,27 @@ class FlowLogSteps(MemorySteps):
             logger.debug(f"조사 단계 로그 실패: {type(e).__name__}")
 
 
+def _never_raises(fn):
+    """로그는 부가 작업이다. 실패해도 조사·기록을 막지 않는다."""
+
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            fn(*args, **kwargs)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"조사 흐름 로그 실패: {type(e).__name__}")
+
+    return wrapper
+
+
+@_never_raises
 def log_start(label: str, request: Any, *, incident_id: int | None, reason: str | None) -> None:
     where = f"이슈 #{incident_id} " if incident_id is not None else ""
     why = f" — {_clip(reason, 80)}" if reason else ""
     logger.info(f"[조사 {label}] 시작: {where}경로 {request.gate_path}{why}")
 
 
+@_never_raises
 def log_end(label: str, result: AgentResult) -> None:
     seconds = f"{int(result.usage.seconds)}s"
     report = result.report
