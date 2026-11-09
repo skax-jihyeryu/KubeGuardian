@@ -54,7 +54,7 @@ def test_normal_runs_remain_individual_latest_first_with_gap(client, engine):
     for path in ("/dev/checks", f"/dev/checks/{run}"):
         text = client.get(path).text
         section = re.search(r'<section class="list.*?</section>', text, re.S).group()
-        assert "<details" not in section
+        assert "<details" not in section.split("</form>", 1)[1]
         ids = re.findall(r'href="/dev/checks/(\d+)\?period=all"', section)
         assert ids == ["3", "2", "1"]
 
@@ -399,9 +399,15 @@ def test_dates_reset_quick_period_filter():
     assert CheckFilters.from_query({"period": "7d"}).period == "7d"
 
 
-def test_checks_page_selects_all_period_when_dates_set(client):
+def test_checks_page_groups_quick_and_custom_periods(client):
     html = client.get("/dev/checks?period=7d&from=2026-11-03").text
-    assert '<option value="all" selected>' in html and '<option value="7d" selected>' not in html
+    picker = html.split("data-period-picker", 1)[1].split("</details>", 1)[0]
+    assert 'name="period" value="custom"' in picker
+    assert 'data-period-quick="7d"' in picker
+    assert 'data-period-quick="all"' not in html
+    assert 'class="period-chevron"' in picker
+    assert html.count('name="period"') == 1
+    assert 'name="from" value="2026-11-03"' in picker
 
 
 def test_checks_page_ignores_extreme_dates(client):

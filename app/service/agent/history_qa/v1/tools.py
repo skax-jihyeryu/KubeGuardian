@@ -232,7 +232,9 @@ class ListIssues(HistoryTool):
 
     def _query(self, inp: Any) -> dict:
         store = IncidentStore(self._engine)
-        if inp.keyword is None:
+        if inp.since is not None and inp.until is not None and inp.since > inp.until:
+            found = []
+        elif inp.keyword is None:
             found = store.list_incidents(inp.since, inp.status, inp.limit, inp.until)
         else:
             needle = inp.keyword.lower()

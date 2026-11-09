@@ -1,8 +1,11 @@
 """이력 질의 채팅 모델. ChatAnswer는 LLM 출력 스키마이자 최종 답이다."""
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
+
+HistoryWindows = dict[Literal["list_runs", "list_issues"], tuple[datetime, datetime]]
 
 SentenceKind = Literal["fact", "guide", "interpretation"]  # 사실 / 안내 / 해석
 
@@ -31,3 +34,4 @@ class ChatRequest(BaseModel):
     question: str
     history: list[ChatTurn] = []
     screen: dict | None = None  # 사용자가 보던 화면 정보. 지시가 아닌 데이터로만 LLM에 전달한다
+    history_windows: HistoryWindows = {}  # UI에서 고른 목록 조회 범위

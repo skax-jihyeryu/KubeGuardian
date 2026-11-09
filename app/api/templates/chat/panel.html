@@ -1,9 +1,31 @@
 {% from "_icons.html" import ic %}
+{% from "_period_picker.html" import period_picker %}
 <aside class="chat" id="chat-panel" aria-label="이력 질의 채팅">
-  <div class="ch"><div class="t1">이력에 질문<button class="btn chat-new" type="button" data-chat-new hx-post="/{{ p }}/chat/new?{{ {'issue': issue, 'run': run, 'filters': filters}|urlencode }}" hx-target="#chat-root" hx-swap="innerHTML" hx-disabled-elt="#chat-panel button, #chat-panel textarea">새 채팅</button><button class="plain" type="button" data-chat-close aria-label="질문 닫기">{{ ic("x") }}</button></div>
+  <div class="ch"><div class="t1">이력에 질문<button class="btn chat-new" type="button" data-chat-new hx-post="/{{ p }}/chat/new?{{ {'issue': issue, 'run': run, 'filters': filters, 'view': filter_view}|urlencode }}" hx-target="#chat-root" hx-swap="innerHTML" hx-disabled-elt="#chat-panel button, #chat-panel textarea">새 채팅</button><button class="plain chat-history-toggle" type="button" data-chat-history-open hx-get="/{{ p }}/chat/history?{{ {'issue': issue, 'run': run, 'filters': filters, 'view': filter_view}|urlencode }}" hx-target="#chat-history" aria-label="채팅 이력 열기" title="채팅 이력"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 12a9 9 0 1 1 2.6 6.4M3 5v7h7m2-5v5l3 2"/></svg></button><button class="plain" type="button" data-chat-close aria-label="질문 닫기">{{ ic("x") }}</button></div>
     <p class="s13 muted">저장된 점검·이슈·보고서만 읽습니다.</p>
-    <span class="ctx" title="{{ context }}"><span class="ctx-t">{{ context }}</span>{% if issue or run or filters %}<button class="plain" hx-get="/{{ p }}/chat" hx-target="#chat-root" aria-label="전체 이력으로">×</button>{% endif %}</span>
+    <div class="frow chat-contexts" title="{{ filter_text }}">
+      <div class="frow" data-chat-records>
+        {% if issue or run %}<span class="ctx" data-chat-record><span>{{ scope }}</span><button class="plain" type="button" data-chat-remove aria-label="{{ scope }} 제외">×</button><input type="hidden" name="{{ 'issue' if issue else 'run' }}" value="{{ issue or run }}" form="chat-question"></span>{% endif %}
+      </div>
+      {% for value, text in period_targets.items() %}
+      <span class="ctx" data-chat-period-chip="{{ value }}" data-period-target-label="{{ text }}" hidden>
+        <span data-period-label></span><button class="plain" type="button" data-chat-remove-period aria-label="{{ text }} 기간 제외">×</button>
+        {% for field in ('period', 'from', 'to') %}<input type="hidden" name="{{ value }}_{{ field }}" value="" data-saved-period="{{ field }}" form="chat-question">{% endfor %}
+      </span>
+      {% endfor %}
+      {% if filter_text %}<span class="ctx" data-chat-page-filter title="{{ filter_text }}"><span class="ctx-t">화면 필터 · {{ filter_text }}</span><button class="plain" type="button" data-chat-remove-filter aria-label="화면 필터 제외">×</button></span>{% endif %}
+      <span class="s13 muted chat-all-history">전체 이력</span>
+    </div>
+    <div class="frow chat-context-actions">
+      <button class="pill" type="button" data-chat-mention-toggle aria-controls="chat-mention-picker" aria-expanded="false">@ 기록 추가</button>
+      {{ period_picker("기간 추가", periods, targets=period_targets, target="issues" if issue else "checks") }}
+    </div>
+    <div class="chat-mention-picker" id="chat-mention-picker" hidden>
+      <input class="pill" type="search" name="q" data-chat-mention placeholder="@이슈 15 또는 @점검 90" aria-label="이슈와 점검 검색" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="chat-mention-results" autocomplete="off" hx-get="/{{ p }}/chat/mentions" hx-trigger="chat-mention-open, input changed delay:150ms" hx-target="#chat-mention-results" hx-sync="this:replace">
+      <div id="chat-mention-results" role="listbox" aria-label="검색 결과"></div>
+    </div>
   </div>
+  <div id="chat-history"></div>
   <p class="s13 tipblock" data-chat-new-error role="alert" hidden></p>
   <div class="cb" id="chat-messages" aria-live="polite">
     {% for turn in turns %}{% if turn.context_changed %}<div class="divider" role="separator">맥락: {{ turn.context }}</div>{% endif %}{% if turn.answer %}{% set answer = turn.answer %}{% include "chat/_answer.html" %}{% else %}<div class="{{ 'q' if turn.role == 'user' else 'a' }}">{{ turn.text }}</div>{% endif %}{% else %}
@@ -16,8 +38,10 @@
     {% endfor %}
     {% if pending_context %}<div class="divider" id="chat-pending-context" role="separator">맥락: {{ context }}</div>{% endif %}
   </div>
-  <form class="cf" hx-post="/{{ p }}/chat/messages" hx-target="#chat-messages" hx-swap="beforeend" hx-disabled-elt="find button, #chat-panel [data-chat-new]">
-    <input type="hidden" name="filters" value="{{ filters }}"><input type="hidden" name="issue" value="{{ issue }}"><input type="hidden" name="run" value="{{ run }}">
+  <form class="cf" id="chat-question" hx-post="/{{ p }}/chat/messages" hx-target="#chat-messages" hx-swap="beforeend" hx-disabled-elt="find button, #chat-panel [data-chat-new]">
+    <input type="hidden" name="filters" value="{{ filters }}">
+    <input type="hidden" name="view" value="{{ filter_view }}">
+    <input type="hidden" name="cid" value="{{ cid }}">
     <label class="input"><textarea name="question" required maxlength="500" rows="2" aria-label="질문" placeholder="이력에 질문하세요 (500자 이내)"></textarea><button class="btn btn-primary chat-send" type="submit">보내기</button></label>
     <div class="s13 muted">현재 상태 확인은 ‘지금 점검’을 사용하세요.</div>
   </form>
