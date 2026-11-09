@@ -1,0 +1,27 @@
+# C7 정답 파일: gateway의 AGENT_SERVICE_URL 호스트 끝에 점(.) 또는 대시(-) 한 글자 (KG_TYPO=dot|dash)
+id: C7
+level: L1                 # 신호 하나로 원인 확정
+k8s_visible: true         # gateway env 값은 토폴로지의 unresolved 엣지(target agent. / agent-)로 드러난다
+gate_path: A
+must_signals: [S04]       # 2026-11-09 dot·dash 모두 S04 적발·경로 A 확인
+allowed_signals: []
+forbidden_signals: []
+must_check:
+  config: "gateway의 AGENT_SERVICE_URL 호스트가 agent 뒤에 점 또는 대시가 붙은 없는 Service 이름"
+expected_cause:
+  - {kind: Deployment, name: gateway}
+key_evidence:
+  - id: gateway-agent-address-typo
+    desc: "gateway의 agent 호출 주소 호스트에 점(.) 또는 대시(-)가 더해져 있다"
+    # 값은 get_topology의 unresolved edge(target agent. 또는 agent-)나 gateway 로그의 업스트림 실패 주소로 확인한다
+    obtainable: true
+    any_of:
+      - {kind: resource, subject: "*/Topology/*", contains: ['"agent."', unresolved]}
+      - {kind: resource, subject: "*/Topology/*", contains: ['"agent-"', unresolved]}
+      - {kind: log_excerpt, subject: "*/Pod/gateway-*", contains: "Name or service not known"}
+not_a_cause:
+  - text: "agent는 정상이다 (gateway가 잘못된 주소로 호출할 뿐)"
+    resource: {kind: Deployment, name: agent}
+root_cause: "gateway의 AGENT_SERVICE_URL 호스트 끝에 점(.) 또는 대시(-)가 붙어 agent Service를 찾지 못하고(DNS 해석 실패) 채팅 요청이 500으로 실패한다"
+affected_services: [gateway, front-chat]
+expected_top1: "gateway의 AGENT_SERVICE_URL 호스트 오타(끝 점 또는 대시)로 agent 호출이 실패해 채팅이 500"
