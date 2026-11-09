@@ -8,6 +8,8 @@
 | 게이트 A·B, 기능이 겹치는 열린 이슈 없음 | opened (조사 대기) |
 | 겹치는 열린 이슈, 같은 지문 | continued (조사·알림 생략, 리마인더만은 #27) |
 | 겹치는 열린 이슈, 다른 지문 | changed (같은 이슈에서 재조사) |
+| 같은 지문, 심각도만 상승 | changed (M1 갱신·새 담당자 답글, 같은 이슈에서 재조사) |
+| 같은 지문, 심각도 하락 | continued (알린 심각도 유지, 다시 알리지 않음) |
 | 열린 이슈가 이번 점검에서 사라짐 | resolved (그 이슈의 규칙·증상을 모두 확인한 점검일 때만) |
 
 주기 점검(schedule)과 직접 점검(check·ui)은 같은 열기·잇기·변경 규칙을 쓴다.
@@ -29,6 +31,8 @@ from service.model import GateResult, Signal, Symptom, Trigger
 
 if TYPE_CHECKING:
     from service.agent.base import AgentResult
+
+_SEVERITY_RANK = {"info": 0, "warning": 1, "critical": 2}
 
 Action = Literal["opened", "continued", "changed", "seen", "resolved"]
 
@@ -123,11 +127,17 @@ def _follow(
     if matched is None:
         incident_id = store.open(fp.key, detail, gate.severity, run_id, now)
         return IncidentChange(incident_id, "opened", gate.severity)
-    if matched.fingerprint == fp.key:
+    if matched.fingerprint == fp.key and not _escalated(matched.first_severity, gate.severity):
         store.touch(matched.id, run_id, now, "continued")
         return IncidentChange(matched.id, "continued", matched.first_severity)
     store.change(matched.id, fp.key, detail, gate.severity, run_id, now)
     return IncidentChange(matched.id, "changed", gate.severity)
+
+
+def _escalated(before: str | None, after: str | None) -> bool:
+    """1차 심각도가 올라갔는가. 지문에는 심각도가 들지 않아 같은 지문에서도 올라갈 수 있다.
+    내려가는 경우는 올리지 않는다 (이미 알린 심각도를 유지하고 다시 알리지 않음)."""
+    return _SEVERITY_RANK.get(after or "", -1) > _SEVERITY_RANK.get(before or "", -1)
 
 
 def _gone(

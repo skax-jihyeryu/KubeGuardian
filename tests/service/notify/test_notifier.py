@@ -572,9 +572,29 @@ def test_changed_alert_update_keeps_mention(tmp_path):
 def test_escalation_to_critical_calls_owner_in_thread_reply(tmp_path):
     _, sender, check, _ = _owner_env(tmp_path, mention=["critical"])
     check([_sig(severity="warning")], NOW)
-    check([_sig(), _sig(rule="S02")], NOW + timedelta(minutes=5))  # 지문이 바뀌어야 갱신된다
+    check([_sig(), _sig(rule="S02")], NOW + timedelta(minutes=5))  # 지문이 바뀐 경우
     [reply] = [p for p in sender.posts if p["thread"]]
     assert "<@U0123456789>" in reply["text"]
+
+
+def test_escalation_with_same_fingerprint_updates_m1_and_calls_owner_once(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path, mention=["critical"])
+    check([_sig(severity="warning")], NOW)
+    assert "<@U0123456789>" not in sender.posts[0]["text"]
+    check([_sig(severity="critical")], NOW + timedelta(minutes=5))  # 지문 그대로, 심각도만 상승
+    assert sender.updates and "<@U0123456789>" in sender.updates[-1]["text"]
+    [reply] = [p for p in sender.posts if p["thread"]]
+    assert "<@U0123456789>" in reply["text"]
+    check([_sig(severity="critical")], NOW + timedelta(minutes=10))  # 이어짐: 다시 부르지 않는다
+    assert len([p for p in sender.posts if p["thread"]]) == 1
+
+
+def test_severity_decrease_with_same_fingerprint_sends_nothing(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path, mention=["critical"])
+    check([_sig(severity="critical")], NOW)
+    posts, updates = len(sender.posts), len(sender.updates)
+    check([_sig(severity="warning")], NOW + timedelta(minutes=5))
+    assert (len(sender.posts), len(sender.updates)) == (posts, updates)
 
 
 def test_joined_service_calls_only_new_owner(tmp_path):
