@@ -128,7 +128,9 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 
 ## 4. 규칙 상세
 
-각 규칙은 같은 항목으로 적는다: 판정 조건, 지속 시간, 제외 조건, 1차 심각도, 근거로 남길 값, 출처.
+각 규칙은 같은 항목으로 적는다: 판정 조건, 지속 시간, 제외 조건, 1차 심각도, 근거로 남길 값, 확인할 사항, 출처.
+
+"확인할 사항"은 규칙 기반 진단 결과 화면에 규칙별로 그대로 보이는 정적 안내다 (AI 조사 없이 규칙이 장애를 적발했을 때, #185). 규칙이 본 것을 확인하게만 하고 원인을 단정하지 않는다. 코드는 `catalog.py`의 `guidance`다.
 
 ### N01 — 노드 NotReady
 
@@ -139,6 +141,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 제외 | `spec.unschedulable = true`인 노드 (운영자가 일부러 cordon한 노드) |
 | 1차 심각도 | 🔴 긴급 (단일 노드 환경이라 전체 서비스 영향) |
 | 근거로 남길 값 | 노드 이름, Ready 상태·reason·message, 마지막 전이 시각 |
+| 확인할 사항 | 노드의 Ready 조건 사유·메시지와 마지막 전이 시각을 확인하세요. |
 | 출처 | mixin `KubeNodeNotReady`: Ready가 true가 아니고 unschedulable이 아님, `for: 15m`. [Runbook](https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubenodenotready/) |
 
 ### P03 — 이미지 받기 실패
@@ -150,6 +153,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 제외 | — |
 | 1차 심각도 | 같은 Deployment에 Ready Pod가 남아 있으면(이전 버전이 서비스 중) 🟠 주의, 없으면 §3 기준 |
 | 근거로 남길 값 | Pod, 컨테이너, 이미지 이름, 대기 사유·메시지, 소유 ReplicaSet, 같은 Deployment의 Ready Pod 수 |
+| 확인할 사항 | Pod 이벤트의 이미지 받기 오류 메시지와 이미지 이름·태그를 확인하세요. |
 | 출처 | mixin `KubeContainerWaiting`: CrashLoopBackOff가 아닌 대기 사유, `for: 1h`. K8s [Debug Pods](https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/): Waiting 상태의 가장 흔한 원인은 이미지 받기 실패 |
 
 ### P06 — 반복 재시작 (CrashLoop)
@@ -162,6 +166,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 직전 스냅샷 없음 | 직전 점검 스냅샷이 없거나(첫 점검) 직전에 없던 컨테이너는 `restartCount`를 비교하지 않고 `CrashLoopBackOff` 상태만으로 판정한다. 첫 점검에서 과거 재시작을 증가로 오인하지 않기 위함이다 |
 | 1차 심각도 | §3 기준 (가용 Pod 수로 판단) |
 | 근거로 남길 값 | Pod, 컨테이너, `restartCount`(현재·직전), 대기 사유, `lastState.terminated`의 reason·exitCode·종료 시각 |
+| 확인할 사항 | 컨테이너의 마지막 종료 사유·종료 코드와 재시작 직전 로그를 확인하세요. |
 | 출처 | mixin `KubePodCrashLooping`: 5분 구간에 CrashLoopBackOff가 한 번이라도 보이면 참(`max_over_time[5m] >= 1`), `for: 15m`. 우리는 재시작 사이에 컨테이너가 잠깐 Running이 되는 것을 놓치지 않도록 `restartCount` 증가로 보정한다. [Runbook](https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubepodcrashlooping/)의 원인 목록(리소스 부족, 의존 서비스 미준비, 설정·ConfigMap·Secret 누락 등)은 지침에 쓴다 |
 
 ### P07 — OOMKilled
@@ -173,6 +178,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 제외 | 종료 시각이 15분보다 오래됨 (이미 지난 일. 반복되면 P06이 잡는다) |
 | 1차 심각도 | 🟠 주의 |
 | 근거로 남길 값 | Pod, 컨테이너, 종료 시각, memory limits·requests |
+| 확인할 사항 | 컨테이너의 memory limits와 종료 시각 전후의 메모리 사용량을 확인하세요. |
 | 출처 | **설계값.** kubernetes-mixin 알림 규칙에는 OOMKilled 대응 규칙이 없다. 15분은 다른 규칙의 지속 시간에 맞춘 값이며 W4 평가에서 조정한다 |
 
 ### W01 — 가용 replicas 부족
@@ -185,6 +191,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 첫 관측 | replicas 부족을 처음 관측하면 이전 `updatedReplicas` 값을 모르므로 그 시각에 방금 바뀐 것으로 본다. 그래서 10분 뒤에 "바뀌지 않음"이 되고, 그때부터 15분 지속을 재므로 첫 관측 후 약 25분에 적발된다 |
 | 1차 심각도 | `availableReplicas = 0`이면 §3 기준, 일부면 🟠 주의 |
 | 근거로 남길 값 | replicas, availableReplicas, updatedReplicas와 마지막 변경 시각 |
+| 확인할 사항 | Deployment의 replicas와 가용 replicas 차이, 준비 안 된 Pod의 상태·이벤트를 확인하세요. |
 | 출처 | mixin `KubeDeploymentReplicasMismatch`: 위 두 조건, `for: 15m`. [Runbook](https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubedeploymentreplicasmismatch/) |
 
 `updatedReplicas`의 변경 시각은 관측 기록에 같이 저장한다.
@@ -198,6 +205,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 제외 | — |
 | 1차 심각도 | 이전 버전 Pod가 Ready로 남아 있으면 🟠 주의, 없으면 §3 기준 |
 | 근거로 남길 값 | Progressing 조건의 reason·message·전이 시각, `progressDeadlineSeconds`, 새·이전 ReplicaSet의 Ready 수 |
+| 확인할 사항 | Deployment의 Progressing 조건 메시지와 새 ReplicaSet Pod의 상태를 확인하세요. |
 | 출처 | mixin `KubeDeploymentRolloutStuck`: Progressing=false, `for: 15m`. K8s [Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/): `progressDeadlineSeconds` 기본 600초, 넘으면 `Progressing=False`, `reason: ProgressDeadlineExceeded`. Kubernetes는 상태 조건만 남기고 다른 조치를 하지 않는다 |
 
 ### S01 — selector에 맞는 Pod 없음
@@ -210,6 +218,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 1차 심각도 | §3 기준 (대상 서비스가 요청을 받을 수 없음) |
 | 알려진 한계 | 의도적으로 `replicas: 0`으로 둔 Deployment의 Service도 적발된다. 실수로 replicas를 0으로 줄인 경우를 S01·W01·S02 어느 것도 잡지 못하는 구멍을 막기 위해 예외를 두지 않았다 |
 | 근거로 남길 값 | Service selector, 같은 앱으로 보이는 Pod의 라벨 (비교용) |
+| 확인할 사항 | Service selector와 대상 Pod의 라벨이 일치하는지 확인하세요. |
 | 출처 | K8s [Debug Services](https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/): selector가 Pod 라벨과 맞는지 확인. [learnk8s](https://learnkube.com/troubleshooting-deployments): Endpoints가 비면 selector와 Pod 라벨 불일치 |
 
 ### S02 — Ready 엔드포인트 없음·일부
@@ -222,6 +231,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 롤아웃 중인 새 버전 Pod | Ready가 아닌 엔드포인트 중 다음을 모두 만족하면 전체에서 뺀다. ① 그 Pod의 소유 ReplicaSet이 같은 Deployment의 ReplicaSet 가운데 `deployment.kubernetes.io/revision`이 가장 크다 (새 버전). ② 같은 Service에 같은 Deployment의 이전 revision ReplicaSet Pod가 Ready 엔드포인트로 남아 있다 (이전 버전이 트래픽을 받는 중). 사용자 영향이 없고, 새 버전이 뜨지 않는 원인은 P03·W02가 다룬다. 이전 버전 Pod가 모두 Ready가 아니면 빼지 않는다. 롤아웃이 끝나면 이전 ReplicaSet은 0으로 줄어 ②가 성립하지 않으므로 Deployment 상태(`updatedReplicas`·`observedGeneration`)는 보지 않는다 (replicas 1에서는 `maxUnavailable`이 0으로 내림돼 롤아웃 중에도 `updatedReplicas = replicas`다). ReplicaSet을 수집하지 못했으면 새 버전인지 알 수 없으므로 이 제외 없이 판정하고, 근거 값에 `failed_kinds`를 남긴다 (§0.3). 그 Deployment의 ReplicaSet 중 `deployment.kubernetes.io/revision` 값이 없거나 숫자가 아닌 것이 있으면 새 버전을 정할 수 없으므로 그 Deployment에는 이 제외를 적용하지 않는다. 알려진 한계: Deployment가 일시 중지(`paused`)되면 Progressing이 Unknown이라 W02가 나오지 않으므로, 일시 중지된 롤아웃의 새 버전 Pod는 S02·W02 어느 쪽에도 잡히지 않는다 (P03은 이미지 받기 실패일 때만 잡는다) |
 | 1차 심각도 | 없음은 §3 기준, 일부는 🟠 주의 |
 | 근거로 남길 값 | Ready / 전체 엔드포인트 수, Ready가 아닌 Pod와 그 Pod의 Ready 조건, 롤아웃 중이라 뺀 새 버전 Pod |
+| 확인할 사항 | EndpointSlice에서 Ready가 아닌 엔드포인트의 Pod와 그 Ready 조건을 확인하세요. |
 | 출처 | mixin `KubePodNotReady`: Running인데 Ready가 아닌 Pod, `for: 15m`. K8s [EndpointSlice](https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/): `ready`는 "serving이고 terminating이 아님". K8s [Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/): Ready가 아닌 Pod는 Service 트래픽을 받지 않음 |
 
 ### S03 — targetPort 불일치
@@ -233,6 +243,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 제외 | 대상 Pod가 0개 (S01이 다룸). 컨테이너에 `ports`를 아예 선언하지 않고 숫자 targetPort를 쓰는 경우는 판정하지 않고 "확인하지 못함"으로 둔다 (컨테이너 포트 선언은 선택 사항이라 오탐이 나기 쉬움) |
 | 1차 심각도 | §3 기준 |
 | 근거로 남길 값 | Service port·targetPort, 컨테이너 포트 목록 |
+| 확인할 사항 | Service targetPort와 컨테이너가 실제로 여는 포트가 같은지 확인하세요. |
 | 출처 | K8s [Debug Services](https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/): port와 targetPort가 컨테이너가 실제로 듣는 포트를 가리키는지 확인. [learnk8s](https://learnkube.com/troubleshooting-deployments): Endpoints가 있는데 응답이 없으면 targetPort 확인 |
 
 ### S04 — 서비스 주소 설정 오류
@@ -245,6 +256,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 사이드카 판정 출처 | Deployment 템플릿의 `containers`와 `restartPolicy: Always`인 `initContainers` 중 **자기 컨테이너를 제외한** 컨테이너의 `containerPort`. URL에 포트가 없으면 scheme 기본 포트(http=80, https=443)로 본다. 포트가 마스킹되었거나 알 수 없으면 예외를 적용하지 않는다. 알려진 한계: webhook이 주입하는 사이드카(Pod spec에만 있음)는 보지 않는다 |
 | 1차 심각도 | 그 env를 쓰는 서비스가 핵심 경로면 🔴 긴급, 아니면 🟠 주의 |
 | 근거로 남길 값 | 서비스, env 이름, 값(마스킹 후), 매칭 결과(declared / unresolved) |
+| 확인할 사항 | 적발된 env 값의 호스트·포트가 네임스페이스의 Service 이름·포트와 맞는지 확인하세요. |
 | 출처 | **운영 사례.** 템플릿에서 서비스 주소 env가 없으면 `localhost`로 호출하는 결함(기획서 §2.3 T1)에서 나온 규칙이다. 외부 표준은 없다 |
 
 ### C01 — 설정 참조 누락
@@ -256,6 +268,7 @@ ID는 **대상 리소스 카테고리 접두사 + 번호**다.
 | 제외 | `optional: true`인 참조 |
 | 1차 심각도 | 참조하는 Pod가 시작되지 못하므로 §3 기준. 이전 버전 Pod가 Ready로 남아 있으면 🟠 주의 |
 | 근거로 남길 값 | 참조 위치, 객체 종류·이름·키, 존재 여부 (Secret은 메타데이터와 키 이름만, 값은 읽지 않음) |
+| 확인할 사항 | 참조한 ConfigMap·Secret과 키가 네임스페이스에 있는지 확인하세요. |
 | 출처 | K8s [Configure a Pod to Use a ConfigMap](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/): 없는 ConfigMap이나 키를 참조하고 optional로 표시하지 않으면 Pod가 시작되지 않는다. Secret에도 같은 규칙을 적용하며, Secret 쪽 공식 문서 문구는 아직 확인하지 않았다 |
 
 ### C05 — 필수 설정 누락 (`required_config`)
@@ -279,6 +292,7 @@ required_config:
 | 제외 | 선언하지 않은 서비스와 이름 (판정 대상이 아님) |
 | 1차 심각도 | S04와 같은 기준: 그 서비스가 핵심 경로면 🔴 긴급, 아니면 🟠 주의 |
 | 근거로 남길 값 | 서비스, 선언된 이름, 확인한 env·envFrom 위치와 결과 (Secret은 키 이름만) |
+| 확인할 사항 | 선언한 필수 env가 해당 서비스의 env·envFrom에 있는지 확인하세요. |
 | 관련 지침 | failure-after-deploy, service-unreachable (S04·C01의 지침) |
 | 출처 | 운영자 선언 (C01 확장, [#60](https://github.com/skax-jihyeryu/KubeGuardian/issues/60)의 (b)안) |
 
@@ -289,6 +303,7 @@ required_config:
 | 판정 조건 | 서비스를 받는 컨테이너(Service가 선택하는 Pod)에 `readinessProbe`가 없거나 `tcpSocket`만 씀 |
 | 1차 심각도 | ⚪ 참고 (게이트를 열지 않음, 알림 없음) |
 | 근거로 남길 값 | 컨테이너, probe 종류와 설정 |
+| 확인할 사항 | 서비스를 받는 컨테이너의 readinessProbe 종류와 설정을 확인하세요. |
 | 출처 | Polaris `readinessProbeMissing` (warning). K8s [Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/): TCP 검사는 소켓 연결만 확인하므로, 앱이 오류를 내도 Ready로 남을 수 있다 (partial-failure 지침의 함정으로 연결) |
 
 ### H02 — requests·limits 미설정
@@ -298,6 +313,7 @@ required_config:
 | 판정 조건 | 컨테이너 `resources.requests` 또는 `resources.limits`의 cpu·memory 중 하나라도 없음 |
 | 1차 심각도 | ⚪ 참고 |
 | 근거로 남길 값 | 컨테이너, 설정된 resources |
+| 확인할 사항 | 컨테이너의 resources.requests·limits 설정을 확인하세요. |
 | 출처 | Polaris 리소스 검사 항목 (**해당 페이지 미확인**). 확인 후 출처를 보강한다 |
 
 ## 5. 판정 시점이 시나리오에 주는 영향

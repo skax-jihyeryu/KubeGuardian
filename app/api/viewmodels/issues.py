@@ -14,9 +14,11 @@ from api.viewmodels.checks import (
     TRIGGER_LABEL,
     Sev,
 )
+from api.viewmodels.rule_report import RuleReport, build_rule_report
 from api.viewmodels.shell import IMPACT, SEVERITY
 from core.db import (
     AlertStore,
+    CheckResultStore,
     CheckRunStore,
     EvidenceStore,
     IncidentAckStore,
@@ -83,6 +85,7 @@ class IssueDetail:
     investigation_state: str
     log_evidence: frozenset[str] = frozenset()  # 로그 근거 id. 사전 확인의 로그 사실을 가린다
     ack_state: str = ""  # 머리 줄에 보이는 확인 상태. 긴급 열림이 아니면 비어 있다
+    rule_report: RuleReport | None = None  # 규칙 진단 이슈의 규칙 기반 진단 결과 (#185)
 
 
 def issue_row(engine: Engine, incident: Incident) -> IssueRow:
@@ -150,7 +153,8 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
         and queued_run is not None
         and (selected is None or selected.check_run_id != queued_run)
     )
-    state = "queued" if queued else selected.status if selected else "none"
+    rule = report_id is None and incident.investigation == "rule"
+    state = "rule" if rule else "queued" if queued else selected.status if selected else "none"
     if state == "running" and (now - selected.started_at).total_seconds() > (
         STALE_INVESTIGATION_MINUTES * 60
     ):
@@ -164,6 +168,11 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
                 .order_by(IncidentCheckRow.check_run_id)
             )
         )
+    # 규칙 진단은 이 이슈를 마지막으로 본(해결 제외) 점검의 적발로 보인다
+    rule_report = None
+    if rule:
+        last = next((run_id for run_id, action in reversed(actions) if action != "resolved"), None)
+        rule_report = build_rule_report(CheckResultStore(engine).get(last)) if last else None
     for run_id, action in actions:
         run = CheckRunStore(engine).get_run(run_id)
         if run:
@@ -207,7 +216,7 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
                 Event(
                     prev.at,
                     event.label,
-                    "같은 문제라 AI 조사 생략",
+                    "같은 문제가 이어짐" if rule else "같은 문제라 AI 조사 생략",
                     event.run_id,
                     count=prev.count + 1,
                     runs=(*(prev.runs or (prev.run_id,)), event.run_id),
@@ -237,4 +246,5 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
         state,
         frozenset(log_evidence),
         ack_state,
+        rule_report,
     )

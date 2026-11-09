@@ -87,3 +87,18 @@ def test_documented_inputs_include_detector_dependencies(rid):
 
     detector = import_module(f"service.checks.detectors.{rid.lower()}")
     assert set(detector.KINDS) <= {kind for kind, _ in CATALOG[rid].inputs}
+
+
+def _detail_section(rule_id: str) -> str:
+    text = RULES_MD.read_text(encoding="utf-8")
+    detail = text.split("## 4. 규칙 상세", 1)[1].split("\n## 5.", 1)[0]
+    return detail.split(f"### {rule_id} — ", 1)[1].split("\n### ", 1)[0]
+
+
+@pytest.mark.parametrize("rule_id", sorted(CATALOG))
+def test_guidance_matches_spec(rule_id):
+    # 규칙 결과 화면의 정적 "확인할 사항" (#185). 원인을 단정하지 않고 규칙이 본 것을 확인하게 한다
+    rule = CATALOG[rule_id]
+
+    assert rule.guidance.endswith("확인하세요.")
+    assert f"| 확인할 사항 | {rule.guidance} |" in _detail_section(rule_id)

@@ -1,0 +1,13 @@
+{#- 규칙 기반 진단 결과. rr = RuleReport. 이슈 보고서와 점검 상세가 같이 쓴다 (#185). -#}
+<h3 class="sub">규칙 기반 진단 결과</h3>
+<p class="aux">AI 조사 없이 규칙이 확인한 결과입니다 · <a href="/{{ p }}/checks/{{ rr.run_id }}">점검 #{{ rr.run_id }}</a> · {{ rr.observed_at|md_hm }} 관측</p>
+<table class="tbl"><thead><tr><th>위치</th><th>규칙</th><th>심각도</th><th>확인한 사실·근거</th><th>확인할 사항</th></tr></thead><tbody>
+{%- for f in rr.findings %}
+<tr><td class="subj">{{ f.location }}</td><td><span class="mono">{{ f.rule_id }}</span> {{ f.rule_name }}</td><td class="nowrap">{% if f.severity %}<span class="bdg sm c-{{ f.severity.key }}">{{ f.severity.label }}</span>{% endif %}</td><td>{{ f.message }}{% for k, v in f.values %}<div class="s13 muted"><span class="mono">{{ k }}</span> {{ v }}</div>{% endfor %}{% for n in f.evidence %} <a class="ev" href="/{{ p }}/checks/{{ rr.run_id }}?ev={{ n }}">근거 {{ n }}</a>{% endfor %}</td><td class="s13">{{ f.guidance }}</td></tr>
+{%- endfor %}
+</tbody></table>
+{%- if rr.failed_features %}
+<h3 class="sub">함께 확인된 기능 실패</h3>
+<ul class="facts">{% for x in rr.failed_features %}<li><span class="mono">{{ x.scenario }}</span> — {{ x.summary }}{% for n in x.evidence %} <a class="ev" href="/{{ p }}/checks/{{ rr.run_id }}?ev={{ n }}">근거 {{ n }}</a>{% endfor %}</li>{% endfor %}</ul>
+{%- endif %}
+<p class="s13 muted">규칙이 확인한 위치와 사실입니다. 근본 원인과 영향 범위는 확인하지 않았습니다.</p>
