@@ -41,8 +41,15 @@ def test_services_definition_and_masking(setup_client):
 def test_rules_groups_and_candidates(setup_client):
     response = setup_client.get("/dev/setup/rules")
     assert response.status_code == 200
-    assert 'value="N02" aria-label="N02 점검 사용" disabled' in response.text
-    assert "준비 중" in response.text
+    assert "준비 중" not in response.text
+    assert "사용 14 · 끔 0 · 향후 계획 11" in response.text
+    main, fold = response.text.split('<details class="future"', 1)
+    assert "N02" not in main
+    assert "N02" in fold
+    assert 'value="N02"' not in response.text
+    assert "<details class=\"future\" open" not in response.text
+    assert "향후 계획 11개" in fold
+    assert "향후 계획 2개" in main
     assert 'value="C05" aria-label="C05 점검 사용" checked' in response.text
     assert "점검 중단 감시 · 구현 완료" in response.text
     response = setup_client.get("/dev/setup/rules?view=kind&rule=S03")
@@ -50,6 +57,14 @@ def test_rules_groups_and_candidates(setup_client):
     assert "targetPort 불일치" in response.text
     assert setup_client.get("/dev/setup/rules?view=bad").status_code == 400
     assert setup_client.get("/dev/setup/rules?rule=bad").status_code == 404
+
+
+def test_future_rule_selected_opens_fold_and_shows_plan(setup_client):
+    text = setup_client.get("/dev/setup/rules?rule=N02").text
+    assert '<details class="future" open>' in text
+    assert "<h2>향후 계획</h2>" in text
+    assert "다음 단계에서 구현할 규칙입니다" in text
+    assert "준비 중" not in text
 
 
 def test_selection_save_and_reject_candidate(setup_client, engine):
