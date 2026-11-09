@@ -1,6 +1,7 @@
 {% from "_icons.html" import badge, ic %}
-<a class="crow{% if row.severity %} bar c-{{ row.severity.key }}{% endif %}{% if selected_run == row.id %} sel{% endif %}" href="{{ row.url }}">
-  <div class="l1"><span class="t">점검 #{{ row.id }} · {{ row.time }}</span>{% if row.severity %}{{ badge(row.severity) }}{% if row.more_issues %}<span class="s13">+{{ row.more_issues }}</span>{% endif %}{% elif row.status == "완료" %}<span class="calm check-ok">{{ ic("check-circle") }}정상</span>{% endif %}<span class="rel">{{ row.relation }}</span></div>
+{% set normal = not row.severity and row.status == "완료" %}
+<a class="crow{% if row.severity %} bar c-{{ row.severity.key }}{% elif normal %} bar c-ok{% endif %}{% if selected_run == row.id %} sel{% endif %}" href="{{ row.url }}">
+  <div class="l1"><span class="t">점검 #{{ row.id }} · {{ row.time }}</span>{% if row.severity %}{{ badge(row.severity) }}{% if row.more_issues %}<span class="s13">+{{ row.more_issues }}</span>{% endif %}{% elif normal %}<span class="bdg c-ok">{{ ic("check-circle") }}정상</span>{% endif %}<span class="rel">{{ row.relation }}</span></div>
   <div class="l2"><span class="sum">{{ row.summary }}</span><span class="pillm">{{ row.trigger }}</span></div>
   <div class="s13 muted">{{ row.status }}{% if row.advice %} · 권고 {{ row.advice }}{% endif %}{% if row.unknown %} · 확인하지 못함 {{ row.unknown }}{% endif %}</div>
 </a>
