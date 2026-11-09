@@ -247,3 +247,50 @@ def test_list_args_and_list_values_are_masked():
         "args": ["--db-password", MASK, "--port", "80"],
         "password": [MASK],
     }
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["Authorization", "authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-Api-Key"],
+)
+def test_auth_and_cookie_header_mapping_keys_are_masked(name):
+    assert redact_mapping({name: "Basic abc"}) == {name: MASK}
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("Cookie: sid=abc123", "Cookie: ***"),
+        ("Set-Cookie: session=zzz; Path=/", "Set-Cookie: ***"),
+        ("cookie: a=1; b=secretvalue", "cookie: ***"),
+        ("Proxy-Authorization: Basic abc", "Proxy-Authorization: Basic ***"),
+        ("Authorization: Basic abc", "Authorization: Basic ***"),
+        ("X-Api-Key: abc123", "X-Api-Key: ***"),
+        ('{"Cookie": "sid=abc123; b=2"}', '{"Cookie": "***"}'),
+        ("GET / HTTP/1.1\nCookie: sid=abc123\nHost: x", "GET / HTTP/1.1\nCookie: ***\nHost: x"),
+    ],
+)
+def test_auth_and_cookie_headers_in_text_are_masked(text, expected):
+    assert redact_text(text) == expected
+    assert redact_text(expected) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "cookie_name: sessionid",
+        "cookieConsent: true",
+        "my_cookie: x",
+        "authorization-mode: Node,RBAC",
+        "Cookie jar is empty",
+    ],
+)
+def test_cookie_like_words_are_untouched(text):
+    assert redact_text(text) == text
+    assert redact_mapping(
+        {"cookie_name": "sid", "cookieConsent": "true", "authorization-mode": "RBAC"}
+    ) == {
+        "cookie_name": "sid",
+        "cookieConsent": "true",
+        "authorization-mode": "RBAC",
+    }

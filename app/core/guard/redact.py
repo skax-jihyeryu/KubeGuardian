@@ -10,6 +10,11 @@
   `<set to the key ...>`처럼 `<`로 시작하는 값은 참조 설명이라 두고, 이스케이프된 JSON
   (`\\"password\\":\\"x\\"`)과 닫히지 않은 따옴표(잘린 로그)도 가린다.
 
+- `Authorization`·`Proxy-Authorization` 헤더는 값을(`Basic` 같은 방식 이름은 둔다),
+  `Cookie`·`Set-Cookie` 헤더는 줄 끝까지(`;`·`=`가 든 값 전체)를 `***`로 바꾼다.
+  매핑 키로 쓰인 경우도 같다. 이름 전체가 일치할 때만이라 `cookie_name`·`cookieConsent`는
+  가리지 않는다. `X-Api-Key`는 `api_key`와 같은 규칙으로 가린다.
+
 이름이 민감한지는 `_`·`-`·`.`·공백·camelCase로 나눈 단어로 판단한다.
 - `password`·`passwd`·`passphrase`·`pass`·`secret`·`token`·`apikey`·`credential(s)` 단어가
   있거나, 단어가 `password`·`passwd`·`secret`·`token`으로 끝나면 민감하다
@@ -43,6 +48,8 @@ _SENSITIVE_WORDS = {
 }
 _SENSITIVE_SUFFIXES = ("password", "passwd", "secret", "token")
 _COMPOUND_ONLY_WORDS = {"key", "pwd"}
+# 이름 전체가 이 값일 때만 민감한 HTTP 헤더 (`cookie_name`·`cookieConsent`는 해당 없음).
+_SENSITIVE_HEADERS = {"authorization", "proxy-authorization", "cookie", "set-cookie"}
 _NON_VALUE_SUFFIXES = {"name", "ref", "id", "type", "count", "ttl", "expiry", "url", "path", "file"}
 
 # END만 있는 경우 (로그를 앞에서 잘라 BEGIN이 없다):
@@ -70,6 +77,13 @@ _AUTH_HEADER = re.compile(
     r"(?P<head>\bAuthorization\\?[\"']?[ \t]*[:=][ \t]*\\?[\"']?"
     r"(?:(?:Basic|Bearer|Digest|Token|ApiKey|Negotiate)[ \t]+)?)[^\s\"'\\,;]+",
     re.IGNORECASE,
+)
+# Cookie·Set-Cookie 값은 `;`·`=`를 담으므로 줄 끝까지 가린다.
+_COOKIE_HEADER = re.compile(
+    r"(?P<head>(?<![A-Za-z0-9_.\-])(?:Set-)?Cookie[ \t]*:[ \t]*)[^\n]+", re.IGNORECASE
+)
+_COOKIE_JSON = re.compile(
+    r"(?P<head>\\?[\"'](?:Set-)?Cookie\\?[\"'][ \t]*:[ \t]*\\?[\"'])[^\"'\\\n]+", re.IGNORECASE
 )
 _CLI_FLAG = re.compile(
     r"(?<![^\s\"'\[,])--(?P<key>[A-Za-z0-9_.\-]+)[ \t]+(?P<val>[^\s\"'\-][^\s\"',]*)"
@@ -108,6 +122,8 @@ def redact_text(text: str) -> str:
     text = _KNOWN_TOKEN.sub(MASK, text)
     text = _BEARER.sub(rf"\g<head>{MASK}", text)
     text = _AUTH_HEADER.sub(rf"\g<head>{MASK}", text)
+    text = _COOKIE_HEADER.sub(rf"\g<head>{MASK}", text)
+    text = _COOKIE_JSON.sub(rf"\g<head>{MASK}", text)
     text = _CLI_FLAG.sub(_mask_cli_flag, text)
     return _redact_key_values(text)
 
@@ -191,7 +207,11 @@ def redact_mapping(data: Any) -> Any:
         mask_env_value = isinstance(env_name, str) and is_sensitive_name(env_name)
         out = {}
         for k, v in data.items():
-            sensitive = is_sensitive_name(str(k)) or (mask_env_value and k == "value")
+            sensitive = (
+                str(k).lower() in _SENSITIVE_HEADERS
+                or is_sensitive_name(str(k))
+                or (mask_env_value and k == "value")
+            )
             out[k] = _mask_value(v) if sensitive else redact_mapping(v)
         return out
     if isinstance(data, list | tuple):
