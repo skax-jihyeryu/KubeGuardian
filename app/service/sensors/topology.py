@@ -230,6 +230,11 @@ def service_hierarchy(snapshot: ClusterSnapshot) -> dict[str, list[PodPath]] | N
     return out
 
 
+def is_ready(pod: Obj) -> bool:
+    conditions = (pod.get("status") or {}).get("conditions") or []
+    return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+
+
 def _selects(selector: dict[str, str] | None, labels: dict[str, str]) -> bool:
     return bool(selector) and all(labels.get(k) == v for k, v in selector.items())
 

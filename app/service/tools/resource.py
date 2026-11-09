@@ -11,7 +11,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from core.config import KubeGuardianConfig
-from service.sensors.topology import build_topology, service_hierarchy
+from service.sensors.topology import build_topology, is_ready, service_hierarchy
 from service.tools._common import (
     MAX_ITEMS,
     K8sName,
@@ -50,6 +50,7 @@ class GetTopology(Tool):
         require(snapshot, "Deployment")
         topology = build_topology(snapshot, self._config)
         hierarchy = service_hierarchy(snapshot)
+        ready = {p["metadata"]["name"]: is_ready(p) for p in snapshot.items("Pod") or []}
         unresolved = [e for e in topology.edges if e.status == "unresolved"]
         summary = f"서비스 {len(topology.services)}개, 호출 관계 {len(topology.edges)}개"
         if unresolved:
@@ -65,7 +66,10 @@ class GetTopology(Tool):
                 "edges": [e.model_dump(exclude_none=True) for e in topology.edges],
                 "hierarchy": None
                 if hierarchy is None
-                else {svc: [p._asdict() for p in paths] for svc, paths in hierarchy.items()},
+                else {
+                    svc: [{**p._asdict(), "ready": ready.get(p.pod, False)} for p in paths]
+                    for svc, paths in hierarchy.items()
+                },
                 "unknown": snapshot.failed,
             },
         )

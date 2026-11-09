@@ -55,9 +55,19 @@ def test_topology_returns_edges_and_service_hierarchy(make_ctx):
     edges = {(e["source"], e["target"], e["status"]) for e in result.data["edges"]}
     assert edges == {("gateway", "agent", "declared"), ("gateway", "localhost", "unresolved")}
     assert result.data["hierarchy"]["gateway"] == [
-        {"deployment": "gateway", "replicaset": "gateway-rs", "pod": "gateway-1"}
+        {"deployment": "gateway", "replicaset": "gateway-rs", "pod": "gateway-1", "ready": True}
     ]
     assert result.summary == "서비스 2개, 호출 관계 2개 (unresolved 1개: gateway→localhost)"
+
+
+def test_topology_hierarchy_marks_pods_that_are_not_ready(make_ctx):
+    cluster = _cluster()
+    cluster.objects["Pod"][1]["status"]["conditions"] = [{"type": "Ready", "status": "False"}]
+
+    result = GetTopology(CONFIG).run({}, make_ctx(cluster))
+
+    assert [p["ready"] for p in result.data["hierarchy"]["agent"]] == [False]
+    assert [p["ready"] for p in result.data["hierarchy"]["gateway"]] == [True]
 
 
 def test_topology_shows_sidecar_edge_via(make_ctx):
