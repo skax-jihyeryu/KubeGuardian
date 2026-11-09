@@ -30,7 +30,7 @@ def _context(engine, config, now, tab):
         "shell": build_shell(engine, config, now),
         "tab": tab,
         "service_names": services(config),
-        "rule_count": len(CATALOG) + 11,
+        "rule_count": len(CATALOG),
         "feature_count": len(config.api_scenarios),
     }
 
@@ -87,6 +87,8 @@ def setup_rules(
         view=view,
         saved=saved,
         enabled_count=sum(r.enabled for r in definitions.values()),
+        implemented_count=sum(r.available for r in definitions.values()),
+        future_count=sum(not r.available for r in definitions.values()),
         recent=recent_links(engine, rule=selected),
     )
 

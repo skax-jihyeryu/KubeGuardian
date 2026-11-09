@@ -11,3 +11,4 @@
   .setup-page .setup-back{display:block;margin-bottom:16px}
   .setup-page .selbar{flex-wrap:wrap}
 }
+details.future>summary{cursor:pointer;font-weight:700;color:var(--ink)}
