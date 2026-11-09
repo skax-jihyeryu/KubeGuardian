@@ -236,6 +236,55 @@ def test_complete_pem_is_unchanged_by_the_cut_rule():
     assert redact_text(result) == result
 
 
+_L64 = "MIIEpAIBAAKCAQEAzzQ9" + "abcdefghijklmnopqrstuvwxyz0123456789+/ABCDEF"  # 64자 base64 줄
+
+
+def test_pem_body_without_begin_or_end_is_masked():
+    assert len(_L64) == 64
+    result = redact_text(f"starting\n{_L64}\n{_L64}\n{_L64}\nserver ready")
+    assert result == f"starting\n{MASK}\nserver ready"
+    assert redact_text(result) == result
+
+
+def test_pem_body_with_padded_last_line_is_masked():
+    result = redact_text(f"{_L64}\n{_L64}\nQUJDRA==\nnext")
+    assert result == f"{MASK}\nnext"
+
+
+def test_pem_body_with_crlf_is_masked():
+    result = redact_text(f"a\r\n{_L64}\r\n{_L64}\r\nb")
+    assert "MIIEpAIB" not in result and result.startswith("a\r\n") and result.endswith("b")
+
+
+def test_single_64_char_line_is_kept():
+    text = f"x\n{_L64}\ny"
+    assert redact_text(text) == text
+
+
+def test_ordinary_lines_after_cut_pem_body_are_kept():
+    # 마지막 줄에 `=` 패딩이 없으면 일반 단어(`after`)와 구분할 수 없어 가리지 않는다.
+    result = redact_text(f"{_L64}\n{_L64}\nafter\nINFO done")
+    assert result == f"{MASK}\nafter\nINFO done"
+
+
+def test_consecutive_hex_digest_lines_are_kept():
+    d = "a" * 64
+    text = f"{d}\n{d}"
+    assert redact_text(text) == text
+
+
+def test_lines_longer_than_64_chars_are_not_pem_body():
+    text = f"{_L64}x\n{_L64}x"
+    assert redact_text(text) == text
+
+
+def test_pem_body_masking_is_linear_on_many_lines():
+    text = "\n".join([_L64[:63] + "!"] * 20000)
+    start = time.perf_counter()
+    redact_text(text)
+    assert time.perf_counter() - start < 2
+
+
 def test_begin_without_end_still_masks_everything_after():
     result = redact_text(f"a\n-----BEGIN RSA PRIVATE KEY-----\n{_B64}\nlater line")
     assert result == f"a\n-----BEGIN RSA PRIVATE KEY-----{MASK}"
@@ -316,3 +365,46 @@ def test_cookie_like_words_are_untouched(text):
         "cookieConsent": "true",
         "authorization-mode": "RBAC",
     }
+
+
+_CERT = (
+    "-----BEGIN CERTIFICATE-----\n"
+    + "\n".join([_L64] * 3)
+    + "\nQUJDRA==\n-----END CERTIFICATE-----"
+)
+
+
+def test_public_certificate_body_is_kept():
+    text = f"tls:\n{_CERT}\nnext"
+    assert redact_text(text) == text
+    assert redact_text(redact_text(text)) == text
+
+
+def test_public_key_block_is_kept_but_headerless_private_body_is_masked():
+    pub = "-----BEGIN PUBLIC KEY-----\n" + f"{_L64}\n{_L64}\n-----END PUBLIC KEY-----"
+    result = redact_text(f"{pub}\nmid\n{_L64}\n{_L64}\ntail")
+    assert result == f"{pub}\nmid\n{MASK}\ntail"
+
+
+def test_private_key_after_certificate_is_still_masked():
+    key = f"-----BEGIN PRIVATE KEY-----\n{_L64}\n-----END PRIVATE KEY-----"
+    result = redact_text(f"{_CERT}\n{key}")
+    assert result.startswith(_CERT) and _L64 not in result.split("-----END CERTIFICATE-----")[1]
+
+
+def test_unterminated_certificate_begin_does_not_hide_later_body():
+    result = redact_text(f"-----BEGIN CERTIFICATE-----\nx\n{_L64}\n{_L64}")
+    assert _L64 not in result
+
+
+def test_many_certificate_begins_without_end_is_linear():
+    text = "-----BEGIN CERTIFICATE-----\n" * 20000
+    start = time.perf_counter()
+    redact_text(text)
+    assert time.perf_counter() - start < 2
+
+
+def test_indented_pem_body_in_yaml_is_masked_keeping_indent():
+    result = redact_text(f"key: |\n    {_L64}\n    {_L64}\n    QUJDRA==\nnext: 1")
+    assert result == f"key: |\n    {MASK}\nnext: 1"
+    assert redact_text(result) == result
