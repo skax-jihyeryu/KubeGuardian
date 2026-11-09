@@ -174,11 +174,11 @@ def rule_groups(engine: Engine, view: str):
             spec is not None,
             hold if minutes else "즉시",
             "개선 권고" if rid.startswith("H") else "장애 신호",
-            " / ".join(SEVERITIES[s] for s in spec.severities) if spec else "준비 중",
-            NATURES[spec.nature] if spec else "준비 중",
+            " / ".join(SEVERITIES[s] for s in spec.severities) if spec else "향후 계획",
+            NATURES[spec.nature] if spec else "향후 계획",
             stage_of[rid],
             kind_of[rid],
-            *RULE_DETAILS.get(rid, ("준비 중", "아직 구현되지 않은 규칙", None)),
+            *RULE_DETAILS.get(rid, ("향후 계획", "아직 구현되지 않은 규칙", None)),
             spec.inputs if spec else (),
         )
     groups = [

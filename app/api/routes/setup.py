@@ -87,6 +87,8 @@ def setup_rules(
         view=view,
         saved=saved,
         enabled_count=sum(r.enabled for r in definitions.values()),
+        implemented_count=sum(r.available for r in definitions.values()),
+        future_count=sum(not r.available for r in definitions.values()),
         recent=recent_links(engine, rule=selected),
     )
 
