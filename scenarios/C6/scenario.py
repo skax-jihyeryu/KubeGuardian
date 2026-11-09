@@ -85,8 +85,16 @@ def verify():
     if smoke.returncode == 0 or "오류가 발생했습니다" not in output:
         raise RuntimeError("Expected actual chat failure; response omitted")
     injected_at = json.loads(STATE.read_text())["injected_at"]
-    logs = kubectl("logs", "-l", "app=llm-gateway", "--prefix", "--since-time=" + injected_at)
-    if "deployment_not_allowed" not in logs or "status=403" not in logs or BAD_NAME not in logs:
+    # llm-gateway 파드 로그는 SQLAlchemy가 log_data를 잘라 403 근거가 남지 않는다.
+    # 같은 근거는 게이트웨이가 서버 측에 기록한 llm_audit_log에 온전히 있다.
+    evidence = sql(
+        "SELECT count(*) FROM llm_audit_log "
+        f"WHERE deployment_name={quote(BAD_NAME)} AND response_status='error' "
+        f"AND create_dt >= {quote(injected_at)}::timestamptz "
+        "AND log_data::text LIKE '%deployment_not_allowed%' "
+        "AND log_data::text LIKE '%403: Azure OpenAI%';"
+    ).strip()
+    if not evidence.isdigit() or int(evidence) < 1:
         raise RuntimeError("Server-side 403 deployment_not_allowed evidence missing")
     print(
         json.dumps(

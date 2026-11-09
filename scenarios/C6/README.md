@@ -35,9 +35,13 @@ bash scenarios/H0/verify_symptom.sh
 
 - 원래 배포명·행 ID는 `.state/dev-deployment.json`에 보관하고 원복 후 제거한다. 비밀 키·endpoint를 저장하지 않는다.
 - 주입 중 재실행을 거절한다. 복구 시 해당 행이 예상 주입값과 다르면 덮어쓰지 않고 중단한다.
-- 검증기는 DB 주입 상태, 대상 Pod Ready, 실제 채팅 실패, 주입 이후 서버 로그의 403·거절 코드·배포명을 모두 확인한다. 정상 환경에서는 실패해야 한다.
+- 검증기는 DB 주입 상태, 대상 Pod Ready, 실제 채팅 실패, 주입 이후 llm-gateway 서버 측 감사 로그(`llm_audit_log`)의 403·거절 코드·배포명을 모두 확인한다. 정상 환경에서는 실패해야 한다.
 - 1회 사전 시험 성공은 3회 반복 정확도나 기존 KPI 달성을 뜻하지 않는다.
 
 ## 사전 시험 결과
 
 이슈 #188에 기록했다.
+
+## 확인 상태
+
+2026-11-09 #232: 검증기가 파드 로그(`kubectl logs`)에서 `status=403`·`deployment_not_allowed`를 찾았으나, 실제 파드 로그에는 둘 다 없다. 파드 로그에는 SQLAlchemy 감사 로그 INSERT 줄(`'deployment_name': 'gpt-4.1-next'`, `'response_status': 'error'`)과 `POST /api/v1/chat/completions ... 500`만 있고 `log_data`는 `... (N characters truncated) ...`로 잘린다. 403 근거(`403: Azure OpenAI API 호출 실패 (403): {"error": {"code": "deployment_not_allowed", ...}}`)는 `llm_audit_log.log_data`에만 온전히 남는다. 검증기를 이 테이블 조회로 바꿨다. 에이전트에는 여전히 DB 조회 수단이 없다.
