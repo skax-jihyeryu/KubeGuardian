@@ -1201,7 +1201,12 @@ def test_log_lines_cannot_escape_the_tool_output_tag_in_prompts():
 # ── 경로 B 사전 확인: 호출 구간 근거표 (#246) ──
 
 _ERR = "error|exception|fail|timeout|refused|429|502|503|504"
-_APPS = ("gateway", "agent", "auth", "redis", "postgres", "front-chat", "admin")
+_APPS = ("gateway", "agent", "auth", "redis", "postgres", "front-chat", "admin", "llm-gateway")
+
+
+def _svc(app: str) -> str:
+    """Deployment(앱) 이름에 대응하는 Service 이름. llm-gateway만 이름이 다르다."""
+    return "llm-gateway-svc" if app == "llm-gateway" else app
 
 
 def _edge(source, target, **extra):
@@ -1211,7 +1216,7 @@ def _edge(source, target, **extra):
 def _hierarchy(not_ready=()):
     pods = {"agent": ["agent-1", "agent-2"]}
     return {
-        app: [
+        _svc(app): [
             {"deployment": app, "replicaset": f"{app}-rs", "pod": n, "ready": n not in not_ready}
             for n in pods.get(app, [f"{app}-1"])
         ]
@@ -1285,7 +1290,7 @@ def _edge_k8s():
     pods["agent"] = ["agent-1", "agent-2"]
     return FakeK8s(
         {
-            "Service": [service(a) for a in _APPS],
+            "Service": [service(_svc(a), selector={"app": a}) for a in _APPS],
             "ReplicaSet": [replicaset(f"{a}-rs", a) for a in _APPS],
             "Pod": [pod(n, app=a) for a, names in pods.items() for n in names],
         }
@@ -1333,9 +1338,94 @@ def test_select_edges_puts_next_hop_first_then_outside_dependencies_up_to_the_ca
     assert [(e["source"], e["target"]) for e in picked] == [
         ("gateway", "agent"),
         ("agent", "auth"),
-        ("gateway", "redis"),
+        ("agent", "redis"),  # 경로 밖 의존성은 경로 끝에 가까운 서비스부터
     ]
     assert len(select_edges(edges, path, 10)) == 5
+    assert [(e["source"], e["target"]) for e in select_edges(edges, path, 10)][-1] == (
+        "auth",
+        "agent",
+    )  # 다음 홉이 아닌 경로 안 서비스로 가는 구간은 맨 뒤
+
+
+C1_PATH = ("front-chat", "gateway", "agent", "llm-gateway")
+C1_EDGES = [
+    _edge("gateway", "admin"),
+    _edge("gateway", "llm-gateway-svc"),  # 홉을 건너뛰는 구간
+    _edge("gateway", "agent"),
+    _edge("gateway", "postgres"),
+    _edge("agent", "llm-gateway-svc"),
+]
+
+
+def test_resolve_path_maps_deployment_names_to_service_names():
+    from service.agent.investigator.v1.edge_table import resolve_path
+
+    deployments = {"gateway": {"gateway"}, "llm-gateway-svc": {"llm-gateway"}}
+
+    assert resolve_path(["gateway", "llm-gateway", "ghost"], deployments) == [
+        "gateway",
+        "llm-gateway-svc",
+        "ghost",
+    ]
+
+
+def test_select_edges_c1_picks_the_next_hops_before_gateway_side_dependencies():
+    from service.agent.investigator.v1.edge_table import select_edges
+
+    path = ["front-chat", "gateway", "agent", "llm-gateway-svc"]
+
+    picked = select_edges(C1_EDGES, path, 3)
+
+    assert [(e["source"], e["target"]) for e in picked] == [
+        ("gateway", "agent"),
+        ("agent", "llm-gateway-svc"),
+        ("gateway", "admin"),
+    ]
+
+
+def test_edge_table_c1_service_name_differs_from_the_deployment_name():
+    by_pod = {
+        "agent-1": ["ERROR 429 POST http://llm-gateway-svc:8080/v1/chat"],
+        "llm-gateway-1": [],
+        "gateway-1": ["ERROR refused http://admin:8001"],
+    }
+
+    result, tool, _ = _run_edges(C1_EDGES, by_pod, path=C1_PATH)
+
+    (statement,) = _table(result)
+    rows = [x for x in statement.splitlines() if x[:1].isdigit()]
+    assert [r.split(":")[0] for r in rows] == [
+        "1. gateway → agent (포트 8080)",
+        "2. agent → llm-gateway-svc (포트 8080)",
+        "3. gateway → admin (포트 8080)",
+    ]
+    # 경로 이름(llm-gateway)의 Pod를 읽어 오류 로그를 다시 쓴다. 새 조회는 경로 밖 admin뿐이다
+    pods = [c["pod"] for c in tool.calls]
+    assert pods[:4] == ["front-chat-1", "gateway-1", "agent-1", "llm-gateway-1"]
+    assert pods[4:] == ["admin-1"]
+    assert "llm-gateway-svc Pod Ready 1/1" in rows[1] and "받는 쪽 오류 로그 0줄" in rows[1]
+    assert "=> 호출하는 쪽만 오류, 구간 불일치" in rows[1]
+    assert "확인하지 못함" not in statement
+
+
+def test_edge_table_c2_login_path_picks_gateway_admin_and_admin_redis():
+    login = ("front-chat", "gateway", "admin")
+    edges = [
+        _edge("gateway", "agent"),
+        _edge("gateway", "llm-gateway-svc"),
+        _edge("gateway", "admin"),
+        _edge("admin", "redis"),
+    ]
+    sym = _fail_symptom().model_copy(update={"failed_step": 1})
+
+    result, tool, _ = _run_edges(
+        edges, {"admin-1": ["ERROR refused redis:6379"]}, symptoms=[sym], step_services={1: login}
+    )
+
+    (statement,) = _table(result)
+    heads = [x.split(":")[0] for x in statement.splitlines() if x[:1].isdigit()]
+    assert heads[:2] == ["1. gateway → admin (포트 8080)", "2. admin → redis (포트 8080)"]
+    assert "=> 호출하는 쪽만 오류, 구간 불일치" in _row(statement, 2)
 
 
 def test_edge_table_marks_caller_only_errors_as_section_mismatch_and_cites_evidence():

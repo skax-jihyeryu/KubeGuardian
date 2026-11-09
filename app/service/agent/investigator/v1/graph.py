@@ -47,6 +47,7 @@ from service.agent.investigator.v1.edge_table import (
     classify,
     error_pattern,
     host_pattern,
+    resolve_path,
     select_edges,
 )
 from service.agent.investigator.v1.state import (
@@ -159,14 +160,17 @@ def build_graph(agent: "InvestigatorV1"):
 
         서비스 안에서는 Ready가 아닌 Pod를 앞에 두고, 그다음 이름순이다.
         """
-        services = scenario_path(state)
-        if not services:
+        path = scenario_path(state)
+        if not path:
             return []
         try:
             snapshot = read(tool_ctx, "Service", "ReplicaSet", "Pod")
             hierarchy = service_hierarchy(snapshot)
         except Exception:  # noqa: BLE001 — Pod를 못 읽어도 조사는 계속한다
             return []
+        services = resolve_path(
+            path, {svc: {p.deployment for p in paths} for svc, paths in (hierarchy or {}).items()}
+        )
         ready = {p["metadata"]["name"]: is_ready(p) for p in snapshot.items("Pod") or []}
         pods = {
             s: _ready_first([(p.pod, ready[p.pod]) for p in (hierarchy or {}).get(s, [])])
@@ -193,10 +197,13 @@ def build_graph(agent: "InvestigatorV1"):
         호출하는 쪽과 경로 안 받는 쪽은 이미 읽은 오류 로그(path_logs)를 다시 쓴다.
         새 조회는 경로 밖 받는 쪽의 오류 로그뿐이다 (최대 lookups회).
         """
+        hierarchy = topology.data.get("hierarchy") or {}
+        path = resolve_path(
+            path, {svc: {p["deployment"] for p in pods} for svc, pods in hierarchy.items()}
+        )
         edges = select_edges(topology.data.get("edges") or [], path, PRELIMINARY_EDGE_CALLS)
         if not edges:
             return None, [], 0
-        hierarchy = topology.data.get("hierarchy") or {}
         topo_id = topology.evidence_id
 
         def pods_of(service: str) -> list[tuple[str, bool]]:

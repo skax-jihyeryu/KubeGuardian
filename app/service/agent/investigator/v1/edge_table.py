@@ -33,10 +33,26 @@ def host_pattern(name: str) -> re.Pattern[str]:
     return re.compile(rf"(?<=//){n}(?![\w-])|(?<![\w./@-]){n}(?::\d+|\.[a-z0-9])", re.IGNORECASE)
 
 
-def select_edges(edges: list[dict], path: list[str], limit: int) -> list[dict]:
-    """경로 서비스가 호출하는 구간을 경로 순서로 limit개 고른다.
+def resolve_path(path: list[str], deployments: dict[str, set[str]]) -> list[str]:
+    """경로 이름(Deployment·앱 이름)을 토폴로지의 Service 이름으로 바꾼다.
 
-    경로의 다음 서비스로 가는 구간을 먼저, 그다음 경로 밖(또는 건너뛴) 의존성이다.
+    Service 이름이 경로 이름과 같으면 그대로, 다르면(llm-gateway → llm-gateway-svc) 그
+    Deployment의 Pod를 고르는 Service를, 못 찾으면 이름을 그대로 둔다.
+    deployments는 Service → Deployment 이름 집합이다.
+    """
+    resolved = []
+    for name in path:
+        owners = sorted(svc for svc, names in deployments.items() if name in names)
+        resolved.append(name if name in deployments or not owners else owners[0])
+    return resolved
+
+
+def select_edges(edges: list[dict], path: list[str], limit: int) -> list[dict]:
+    """경로 서비스가 호출하는 구간을 limit개 고른다. path는 Service 이름이다.
+
+    1. 경로의 다음 서비스로 가는 구간 (경로 순서)
+    2. 경로 밖 의존성 (경로 끝에 가까운 서비스부터: 데이터 저장소 같은 말단 의존성이 먼저 든다)
+    3. 다음 홉이 아닌 경로 안 서비스로 가는 구간 (홉을 건너뛰거나 거슬러 올라가는 호출)
     해석하지 못한 주소(unresolved)·사이드카·중복 구간은 뺀다.
     """
     seen: set[tuple[str, str]] = set()
@@ -53,9 +69,14 @@ def select_edges(edges: list[dict], path: list[str], limit: int) -> list[dict]:
             continue
         seen.add(key)
         index = path.index(e["source"])
-        next_hop = index + 1 < len(path) and e["target"] == path[index + 1]
-        candidates.append((not next_hop, index, order, e))
-    return [e for *_, e in sorted(candidates, key=lambda c: c[:3])][:limit]
+        if index + 1 < len(path) and e["target"] == path[index + 1]:
+            rank = (0, index, order)
+        elif e["target"] not in path:
+            rank = (1, -index, order)
+        else:
+            rank = (2, index, order)
+        candidates.append((rank, e))
+    return [e for _, e in sorted(candidates, key=lambda c: c[0])][:limit]
 
 
 def classify(caller_errors: int | None, target_errors: int | None, scope: str) -> str:
