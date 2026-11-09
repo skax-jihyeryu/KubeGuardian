@@ -201,7 +201,7 @@ def test_incomplete_or_failed_investigation_is_said_plainly(client, engine, inve
     assert POLL not in text
 
 
-# ── 상황 3: 이상 없음 ────────────────────────────────────────────
+# ── 상황 3: 정상 ────────────────────────────────────────────────
 
 
 def test_calm_check(client, engine):
@@ -217,7 +217,8 @@ def test_calm_check(client, engine):
         ],
     )
     text = detail(client, run).text
-    assert "이상 없음" in text
+    assert 'class="calm check-ok"' in text
+    assert "</svg>정상</span>" in text
     assert "조사 안 함 — 장애 신호 없음" in text
     assert "통과 2건" in text
     assert "확인하지 못함 0" not in text
