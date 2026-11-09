@@ -514,3 +514,18 @@ def test_ai_on_rules_batch_is_flagged(tmp_path):
 
     assert summary["ai_on_rules"] == ["A1"]
     assert "--ai-on-rules" in render(summary, None)
+
+
+def test_baseline_comparison_excludes_scenarios_split_into_rule_diagnosis(tmp_path):
+    full = [make_run() for _ in range(3)]
+    base, scen = build(tmp_path / "x", {"A1": full, "B1": full})  # 옛 baseline은 A1도 AI 조사
+    history = tmp_path / "y" / "history"
+    _write_rule_diagnosis(history, "r1", "A1")
+    write_result(history, "a", "B1", [make_run(), make_run(), make_run("F3", cause=False)])
+    cur = load_batch(history, "b1")
+
+    text = render(summarize(cur, {}, scen), summarize(base, {}, scen))
+
+    [row] = [x for x in text.splitlines() if x.startswith("| A1 | -")]
+    assert "규칙 진단으로 분리(비교 제외)" in row and "회귀" not in row
+    assert "L1 통과 합계: 3 → 2 (-1)" in text  # 양쪽에 AI로 있는 B1만

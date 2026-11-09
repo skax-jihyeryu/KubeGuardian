@@ -353,9 +353,12 @@ def _regression_rows(summary: dict, baseline: dict) -> tuple[list[str], int, int
     rows, cur_l1, base_l1 = [], 0, 0
     for sid in sorted(set(summary["scenarios"]) | set(baseline["scenarios"])):
         c, b = summary["scenarios"].get(sid), baseline["scenarios"].get(sid)
+        if sid in summary["rule_diagnosis"]:  # 규칙 진단(AI 미호출)은 AI 조사와 비교하지 않는다
+            rows.append(f"| {sid} | - | - | 규칙 진단으로 분리(비교 제외) |")
+            continue
         cp, bp = (c["passed"] if c else 0), (b["passed"] if b else 0)
         level = (c or b)["level"]
-        if level == "L1":
+        if level == "L1" and c and b:  # 합계는 양쪽에 모두 AI로 있는 시나리오만
             cur_l1, base_l1 = cur_l1 + cp, base_l1 + bp
         flag = "회귀" if b and c and bp - cp >= REGRESSION_DROP else ""
         rows.append(f"| {sid} | {bp} → {cp} | {_dist_change(c, b)} | {flag} |")
