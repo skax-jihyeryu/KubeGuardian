@@ -185,8 +185,19 @@ def test_ack_is_enabled_only_with_app_token_and_real_sender(
 # ── kg investigate ──
 
 
-def _investigate_args(tmp_path, *extra):
-    return ["investigate", *extra, "--config", _config(tmp_path), "--db", str(tmp_path / "kg.db")]
+CHAT_DOWN = {("gateway", "/chat"): 500}  # 규칙 신호 없이 기능 시나리오 chat만 실패 (경로 B)
+
+
+def _investigate_args(tmp_path, *extra, scenario=True):
+    config = _scenario_config(tmp_path) if scenario else _config(tmp_path)
+    return [
+        "investigate",
+        *extra,
+        "--config",
+        config,
+        "--db",
+        str(tmp_path / "kg.db"),
+    ]
 
 
 def _llm_factory(llm):
@@ -250,13 +261,13 @@ def test_investigate_runs_agent_when_gate_opens_and_prints_report(tmp_path, caps
     llm = _scripted()
     code = cli.main(
         _investigate_args(tmp_path, "채팅이 안 돼요"),
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
-        make_http=lambda cfg: FakeHttp(),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
         make_llm=_llm_factory(llm),
     )
     out = capsys.readouterr().out
     assert code == 0
-    assert "게이트: 경로 A" in out
+    assert "게이트: 경로 B (critical)" in out
     assert "조사 상태: done" in out
     assert "결론: gateway 주소 env가 localhost" in out
     assert "1순위: (추정) gateway 주소 설정 오류 (critical)" in out
@@ -266,7 +277,7 @@ def test_investigate_runs_agent_when_gate_opens_and_prints_report(tmp_path, caps
 
 def test_investigate_symptom_only_opens_path_b(tmp_path, capsys):
     code = cli.main(
-        _investigate_args(tmp_path, "채팅이 안 돼요"),
+        _investigate_args(tmp_path, "채팅이 안 돼요", scenario=False),
         make_reader=lambda cfg: FixtureReader(*raw_cluster()),
         make_http=lambda cfg: FakeHttp(),
         make_llm=_llm_factory(_scripted()),
@@ -293,12 +304,40 @@ def test_investigate_skips_agent_on_path_c(tmp_path, capsys):
     assert "조사하지 않음" in out
 
 
+@pytest.mark.parametrize("trigger", ["investigate", "schedule"])
+def test_investigate_on_rule_detection_prints_rule_result_without_ai(tmp_path, capsys, trigger):
+    from core.db import IncidentStore, InvestigationStore, create_db_engine
+
+    def no_llm(model):
+        raise AssertionError("규칙 감지는 AI를 부르지 않는다")
+
+    code = cli.main(
+        [*_investigate_args(tmp_path, "채팅이 안 돼요"), "--trigger", trigger],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),  # 기능 실패가 함께 있어도 경로 A
+        make_llm=no_llm,
+    )
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "게이트: 경로 A" in out
+    assert "규칙 기반 진단 결과" in out
+    assert "S04 서비스 주소 설정 오류  dev/Service/gateway  (critical)" in out
+    assert "기능 실패  chat" in out
+    assert "규칙 감지: AI 원인 조사 생략" in out
+    assert "조사 상태" not in out and "조사하지 않음" not in out
+    engine = create_db_engine(str(tmp_path / "kg.db"))
+    assert InvestigationStore(engine).for_check(1) == []
+    if trigger == "schedule":
+        assert IncidentStore(engine).get(1).investigation == "rule"
+
+
 def test_investigate_exits_1_when_the_agent_fails(tmp_path, capsys):
     llm = ScriptedLLM(script=[RuntimeError("boom")], calls=[])
     code = cli.main(
         _investigate_args(tmp_path),
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
-        make_http=lambda cfg: FakeHttp(),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
         make_llm=_llm_factory(llm),
     )
     out = capsys.readouterr().out
@@ -364,8 +403,8 @@ def test_check_rejects_unknown_trigger(tmp_path):
 def test_investigate_records_schedule_trigger(tmp_path):
     cli.main(
         [*_investigate_args(tmp_path, "채팅이 안 돼요"), "--trigger", "schedule"],
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
-        make_http=lambda cfg: FakeHttp(),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
         make_llm=_llm_factory(_scripted()),
     )
     assert _stored_triggers(tmp_path) == ["schedule"]
@@ -423,8 +462,8 @@ def test_sigterm_runs_finally_so_the_lock_is_released():
 def _schedule_investigate(tmp_path, llm_factory):
     return cli.main(
         [*_investigate_args(tmp_path), "--trigger", "schedule"],
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
-        make_http=lambda cfg: FakeHttp(),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
         make_llm=llm_factory,
     )
 
@@ -454,8 +493,8 @@ def test_direct_investigate_always_runs_even_with_open_incident(tmp_path, capsys
     llm = _scripted()  # 보고서가 인용한 ev-0001은 첫 DB 기준이라 결과 상태는 보지 않는다
     cli.main(
         _investigate_args(tmp_path),
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
-        make_http=lambda cfg: FakeHttp(),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
         make_llm=_llm_factory(llm),
     )
 
@@ -496,8 +535,8 @@ def test_worker_retries_incident_left_running_by_interrupted_cli(tmp_path, capsy
     llm = _scripted()
     cli.main(
         ["worker", "--once", "--config", _config(tmp_path), "--db", str(tmp_path / "kg.db")],
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
-        make_http=lambda cfg: FakeHttp(),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
         make_llm=_llm_factory(llm),
     )
 
@@ -558,8 +597,8 @@ def test_unexpected_notify_error_does_not_stop_investigation(tmp_path):
     llm = _scripted()
     code = cli.main(
         [*_investigate_args(tmp_path), "--trigger", "schedule"],
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
-        make_http=lambda cfg: FakeHttp(),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
         make_llm=_llm_factory(llm),
         make_sender=lambda cfg: Broken(),
     )
@@ -596,16 +635,18 @@ def test_cli_ask_rejects_bad_conversation_id(tmp_path, capsys):
 def test_worker_once_investigates_incident_queued_by_check(tmp_path, capsys, trigger):
     from core.db import IncidentStore, create_db_engine
 
+    argv = ["check", "--config", _scenario_config(tmp_path), "--db", str(tmp_path / "kg.db")]
     cli.main(
-        [*_args(tmp_path), "--trigger", trigger],
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
+        [*argv, "--trigger", trigger],
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
     )
     capsys.readouterr()
 
     code = cli.main(
         ["worker", "--once", "--config", _config(tmp_path), "--db", str(tmp_path / "kg.db")],
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
-        make_http=lambda cfg: FakeHttp(),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
         make_llm=_llm_factory(_scripted()),
     )
 
@@ -616,8 +657,8 @@ def test_worker_once_investigates_incident_queued_by_check(tmp_path, capsys, tri
 def test_investigate_prints_judgement_and_llm_confidence(tmp_path, capsys):
     cli.main(
         _investigate_args(tmp_path),
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
-        make_http=lambda cfg: FakeHttp(),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
         make_llm=_llm_factory(_scripted()),
     )
 
@@ -777,8 +818,8 @@ def test_manual_investigate_links_the_investigation_to_its_open_incident(tmp_pat
     _schedule_investigate(tmp_path, _llm_factory(_scripted()))  # 주기 점검이 이슈 #1을 연다
     cli.main(
         _investigate_args(tmp_path),
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
-        make_http=lambda cfg: FakeHttp(),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
         make_llm=_llm_factory(_scripted()),
     )
 
@@ -816,8 +857,8 @@ def test_investigate_storage_error_is_mapped(tmp_path, capsys, monkeypatch):
 
     code = cli.main(
         _investigate_args(tmp_path),
-        make_reader=lambda cfg: FixtureReader(*raw_cluster("s04/localhost")),
-        make_http=lambda cfg: FakeHttp(),
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp(CHAT_DOWN),
         make_llm=_llm_factory(_scripted()),
     )
 

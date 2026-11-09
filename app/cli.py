@@ -1,7 +1,7 @@
 """KubeGuardian CLI (개발·평가·CronJob 진입). 실행: uv run python app/cli.py check
 
-kg investigate ["증상"]: kg check와 같은 점검 뒤 게이트가 열렸으면(경로 A·B) 조사하고
-  보고서를 요약한다.
+kg investigate ["증상"]: kg check와 같은 점검 뒤 증상으로 게이트가 열렸으면(경로 B) 조사하고
+  보고서를 요약한다. 규칙이 장애를 적발한 경로 A는 AI를 부르지 않고 규칙 결과를 출력한다 (#185).
   증상 문구를 주면 사용자 증상으로 게이트(경로 B)와 조사 요청에 전달한다. 경로 C면 조사하지 않는다.
 kg check: 규칙 점검과 증상 감지(API 시나리오)를 한 번 돌리고
 규칙별 판정 결과·판정에 쓴 값·증상 결과·게이트 경로를 출력한다.
@@ -151,6 +151,10 @@ def investigate(
     # 1차 감지 알림은 AI 조사를 기다리지 않는다
     _notify(lambda: notifier.after_check(outcome.run_id, outcome.gate, outcome.incidents, _now()))
     _queue(engine, config, outcome, args.trigger, symptom)
+    if outcome.gate.path == "A":
+        print_rule_result(outcome)
+        print_alerts(notifier)
+        return 0
     jobs = _claim_jobs(engine, outcome) if args.trigger == "schedule" else []
     if args.trigger == "schedule" and outcome.gate.path != "C" and not jobs:
         print("\n조사 생략: 이번 점검이 넣은 조사 대기가 없다 (같은 지문이거나 작업자가 이미 맡음)")
@@ -373,6 +377,21 @@ def print_investigation(result: AgentResult | None) -> None:
     if top := report.top_issue:
         print(f"1순위: {redact_text(top.title)} ({top.severity})")
     print(f"근거 {len(report.evidence_ids)}건")
+
+
+def print_rule_result(out: CheckOutcome) -> None:
+    """규칙 감지(경로 A)의 규칙 기반 진단 결과. 적발 규칙·위치·근거·심각도와 실패한 기능."""
+    print("\n규칙 기반 진단 결과")
+    for s in out.gate.signals:
+        line = f"  {s.rule_id} {CATALOG[s.rule_id].name}  {s.subject}  ({s.severity})"
+        if s.values:
+            line += "  " + json.dumps(s.values, ensure_ascii=False, sort_keys=True)
+        if s.message:
+            line += f"  {s.message}"
+        print(line)
+    for sym in out.gate.symptoms:
+        print(f"  기능 실패  {sym.scenario}  {sym.summary}")
+    print("규칙 감지: AI 원인 조사 생략")
 
 
 def print_outcome(out: CheckOutcome, verbose: bool = False) -> None:

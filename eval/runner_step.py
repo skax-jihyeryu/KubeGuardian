@@ -137,6 +137,7 @@ def do_investigate(
             k8s=make_reader(config),
             http=_account_http(config),
             symptom=args.symptom,
+            ai_on_rules=True,  # 4단계(평가 분리)에서 옵션으로 바꾼다
         )
         ctx = span.get_span_context()
         trace_id = format(ctx.trace_id, "032x") if ctx.is_valid else None

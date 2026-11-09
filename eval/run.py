@@ -480,6 +480,7 @@ def run(
                         k8s=reader,
                         http=target_http(config),
                         symptom=user_symptom,
+                        ai_on_rules=True,  # 4단계(평가 분리)에서 옵션으로 바꾼다
                     ),
                     judge=lambda conclusion: judge_top1(
                         conclusion, resolved, build_chat_model(JUDGE_MODEL)

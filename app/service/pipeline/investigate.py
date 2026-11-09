@@ -1,7 +1,9 @@
 """조사 실행 흐름: 점검 결과 → 조사 요청 → 에이전트 실행 (상세설계 §2.1).
 
 평가 러너·CLI·Slack 명령·주기 점검이 같은 함수를 쓴다 (실행 계획서 §1.2).
-게이트가 경로 C(정상)면 조사하지 않는다.
+게이트가 경로 C(정상)면 조사하지 않는다. 경로 A(규칙 감지)도 AI로 조사하지 않고 규칙 근거로
+결과를 보여 준다 (#185). AI 조사는 규칙 신호 없이 증상만 있는 경로 B의 일이다.
+평가만 과거 비교를 위해 ai_on_rules로 경로 A도 조사하게 할 수 있다.
 """
 
 from collections.abc import Callable
@@ -41,8 +43,9 @@ def build_request(
     *,
     trigger: Trigger,
     symptom: str | None = None,
+    ai_on_rules: bool = False,  # 평가 전용: 경로 A도 AI로 조사
 ) -> InvestigationRequest | None:
-    if outcome.gate.path == "C":
+    if outcome.gate.path == "C" or (outcome.gate.path == "A" and not ai_on_rules):
         return None
     symptom = clean_symptom(symptom)
     topology = build_topology(outcome.snapshot, config) or Topology()
@@ -67,13 +70,20 @@ def queue_investigations(
 ) -> None:
     """새 이슈·지문 변경이면 점검 시점의 조사 요청을 대기열에 넣는다 (작업자가 집는다, #28).
 
+    경로 A(규칙 감지)는 넣지 않고 이슈를 규칙 진단으로 표시하며 대기 중이던 AI 요청을 지운다 (#185).
     1차 감지 알림(M1)을 보낸 **뒤에** 부른다. 먼저 넣으면 작업자가 M1보다 먼저 조사를 끝낼 수 있다.
     """
     changed = [c.incident_id for c in outcome.incidents if c.needs_investigation]
-    request = build_request(outcome, config, trigger=trigger, symptom=symptom) if changed else None
-    if request is None:
+    if not changed:
         return
     queue = InvestigationQueue(engine)
+    if outcome.gate.path == "A":
+        for incident_id in changed:
+            queue.mark_rule(incident_id)
+        return
+    request = build_request(outcome, config, trigger=trigger, symptom=symptom)
+    if request is None:
+        return
     body = request.model_dump(mode="json")
     for incident_id in changed:
         queue.put(incident_id, outcome.run_id, body, now)
@@ -92,9 +102,12 @@ def run_investigation(
     agent_key: str = AGENT_KEY,
     symptom: str | None = None,
     incident_id: int | None = None,
+    ai_on_rules: bool = False,
 ) -> AgentResult | None:
-    """게이트가 열렸으면 조사한다. 경로 C면 None."""
-    request = build_request(outcome, config, trigger=trigger, symptom=symptom)
+    """증상 때문에 게이트가 열렸으면(경로 B) 조사한다. 경로 C와 규칙 감지(A)면 None."""
+    request = build_request(
+        outcome, config, trigger=trigger, symptom=symptom, ai_on_rules=ai_on_rules
+    )
     if request is None:
         return None
     return run_request(
