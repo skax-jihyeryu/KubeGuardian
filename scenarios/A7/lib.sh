@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# C7 공용: 안전 검사와 주입값 계산. inject.sh·reset.sh·verify_symptom.sh가 source한다.
+# A7 공용: 안전 검사와 주입값 계산. inject.sh·reset.sh·verify_symptom.sh가 source한다.
 #
 # 환경 변수
 #   KG_NAMESPACE   대상 네임스페이스 (dev만 허용)
@@ -14,12 +14,12 @@ TYPO="${KG_TYPO:-dot}"
 STATE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.state/$NS-$DEPLOY.env"
 
 if [[ "$NS" != "dev" ]]; then
-  echo "C7은 테스트 네임스페이스 dev에서만 쓴다 (KG_NAMESPACE=$NS)" >&2
+  echo "A7은 테스트 네임스페이스 dev에서만 쓴다 (KG_NAMESPACE=$NS)" >&2
   exit 1
 fi
 ctx="$(kubectl config current-context)"
 if [[ "$ctx" != "minikube" ]]; then
-  echo "C7은 kube context minikube에서만 쓴다 (현재 $ctx)" >&2
+  echo "A7은 kube context minikube에서만 쓴다 (현재 $ctx)" >&2
   exit 1
 fi
 case "$TYPO" in
