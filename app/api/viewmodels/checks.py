@@ -529,6 +529,8 @@ _RULE_STATUS = {"detected": "적발", "observing": "관찰 중", "unknown": "확
 
 
 def _judge(result: CheckResult) -> tuple[list[Item], str | None, str | None]:
+    from api.viewmodels.rule_report import format_values  # rule_report가 이 모듈을 읽는다
+
     items: list[Item] = []
     passed = rules_run = advice = 0
     for rule in result.verdicts:
@@ -553,9 +555,10 @@ def _judge(result: CheckResult) -> tuple[list[Item], str | None, str | None]:
                     css="c-run" if verdict == "unknown" else f"c-{sev[0]}" if sev else "c-warn",
                     unknown=verdict == "unknown",
                     evidence=ev,
-                    values=[
-                        (str(k), str(v)) for k, v in redact_mapping(it.get("values") or {}).items()
-                    ]
+                    values=format_values(
+                        rid if verdict == "detected" else "",
+                        redact_mapping(it.get("values") or {}),
+                    )
                     + (
                         [("입력 정보", "; ".join(f"{k} ({f})" for k, f in spec.inputs))]
                         if spec

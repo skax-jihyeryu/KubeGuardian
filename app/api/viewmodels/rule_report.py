@@ -6,6 +6,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from api.viewmodels.checks import Sev, _ev_numbers
 from api.viewmodels.shell import SEVERITY
@@ -41,6 +42,63 @@ class RuleReport:
     failed_features: list[FailedFeature]
 
 
+MAX_CHARS = 120
+
+
+def _empty(value: Any) -> bool:
+    return value is None or value == "" or (isinstance(value, dict | list | tuple) and not value)
+
+
+def _text(value: Any, *, in_list: bool = False) -> str:
+    """값을 사람이 읽는 한 줄로. 파이썬 repr을 쓰지 않는다.
+
+    사전은 `키=값, …`(중첩은 `키(a=1, b=2)`), 목록은 `; `로 잇는다.
+    목록 안 사전은 괄호로 감싸 항목 경계를 보인다. 비어 있는 값은 뺀다. 긴 문자열은 자른다.
+    """
+    if isinstance(value, bool):
+        return "예" if value else "아니오"
+    if isinstance(value, dict):
+        parts = []
+        for k, v in value.items():
+            if _empty(v):
+                continue
+            parts.append(f"{k}({_text(v)})" if isinstance(v, dict) else f"{k}={_text(v)}")
+        out = ", ".join(parts)
+        return f"({out})" if in_list else out
+    if isinstance(value, list | tuple):
+        return "; ".join(_text(v, in_list=True) for v in value if not _empty(v))
+    text = str(value)
+    return text if len(text) <= MAX_CHARS else text[:MAX_CHARS] + "…"
+
+
+def _s04_problems(values: dict[str, Any]) -> list[tuple[str, str]]:
+    """S04: 비정상 status의 주소만 `ENV=값 → Service '대상' 없음`으로 보인다."""
+    out = []
+    for a in values.get("addresses") or []:
+        if a.get("status") == "declared":
+            continue
+        env = f"{a.get('env')}={a['value']}" if a.get("value") else str(a.get("env"))
+        target = str(a.get("target"))
+        if a.get("port") is not None:
+            if ":" in target and not target.startswith("["):
+                target = f"[{target}]"
+            target = f"{target}:{a['port']}"
+        out.append(("주소", f"{env} → '{target}' 연결 대상 없음"))
+    rest = {k: v for k, v in values.items() if k not in ("service", "addresses")}
+    return out + _generic(rest)
+
+
+def _generic(values: dict[str, Any]) -> list[tuple[str, str]]:
+    return [(str(k), t) for k, v in values.items() if not _empty(v) and (t := _text(v))]
+
+
+def format_values(rule_id: str, values: dict[str, Any]) -> list[tuple[str, str]]:
+    """규칙 판정 값을 화면용 (키, 문구) 목록으로 만든다."""
+    if rule_id == "S04":
+        return _s04_problems(values)
+    return _generic(values)
+
+
 def build_rule_report(
     result: CheckResult | None, targets: set[tuple[str, str]] | None = None
 ) -> RuleReport | None:
@@ -68,10 +126,7 @@ def build_rule_report(
                     location=redact_text(str(item.get("subject", ""))),
                     severity=Sev(*sev) if sev else None,
                     message=redact_text(str(item.get("message", ""))),
-                    values=[
-                        (str(k), str(v))
-                        for k, v in redact_mapping(item.get("values") or {}).items()
-                    ],
+                    values=format_values(spec.id, redact_mapping(item.get("values") or {})),
                     evidence=_ev_numbers([item.get("evidence_id")]),
                     guidance=spec.guidance,
                 )

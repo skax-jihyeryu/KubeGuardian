@@ -65,6 +65,11 @@ INCIDENT_LABEL = {
     "resolved": "해결",
 }
 
+RULE_DIAGNOSIS_LABEL = {
+    "opened": "새로 열림 (규칙 진단)",
+    "changed": "지문 바뀜 (규칙 진단)",
+}
+
 SenderFactory = Callable[[KubeGuardianConfig], Sender]
 
 
@@ -433,7 +438,12 @@ def print_outcome(out: CheckOutcome, verbose: bool = False) -> None:
     severity = f" ({gate.severity})" if gate.severity else ""
     print(f"\n게이트: 경로 {gate.path}{severity} — {gate.reason}")
     for c in out.incidents:
-        print(f"이슈 #{c.incident_id} {INCIDENT_LABEL[c.action]}")
+        label = INCIDENT_LABEL[c.action]
+        if (
+            gate.path == "A" and c.action in RULE_DIAGNOSIS_LABEL
+        ):  # 규칙 진단은 조사를 예약하지 않는다
+            label = RULE_DIAGNOSIS_LABEL[c.action]
+        print(f"이슈 #{c.incident_id} {label}")
 
 
 def main(
