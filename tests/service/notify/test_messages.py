@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+import pytest
+
 from core.db.incidents import Incident
 from service.model import Issue, Report
 from service.notify import messages
@@ -246,3 +248,40 @@ def test_single_line_over_limit_is_cut_and_block_count_stays_under_50():
 
     assert len(blocks) < 50 and blocks[-1]["type"] == "actions"
     assert all(len(b["text"]["text"]) <= 3000 for b in blocks if b["type"] == "section")
+
+
+OWNERS = ("U0123456789", "W0123456789")
+
+
+def test_first_alert_without_owners_is_unchanged():
+    base = messages.first_alert("dev", incident(), "r", 1, NOW, URL)
+    assert "담당" not in base
+    assert messages.first_alert("dev", incident(), "r", 1, NOW, URL, owners=()) == base
+
+
+def test_first_alert_adds_mention_line_above_link_unescaped():
+    text = messages.first_alert("dev", incident(), "r", 1, NOW, URL, owners=OWNERS)
+    lines = text.split("\n")
+    assert lines[-2] == "👤 담당: <@U0123456789> <@W0123456789>"
+    assert lines[-1].startswith("🔗 이슈:")
+
+
+def test_changed_alert_keeps_mention_line():
+    text = messages.changed_alert("dev", incident(), "r", 1, NOW, URL, owners=OWNERS)
+    assert "👤 담당: <@U0123456789> <@W0123456789>" in text
+
+
+def test_cause_update_keeps_mention_line_with_and_without_report():
+    with_report = messages.cause_update(
+        "dev", incident(), "done", report(), None, 1, URL, owners=OWNERS
+    )
+    without = messages.cause_update("dev", incident(), "failed", None, "x", 1, URL, owners=OWNERS)
+    for text in (with_report, without):
+        assert text.split("\n")[-2] == "👤 담당: <@U0123456789> <@W0123456789>"
+    plain = messages.cause_update("dev", incident(), "done", report(), None, 1, URL)
+    assert "담당" not in plain
+
+
+def test_mention_line_rejects_invalid_ids():
+    with pytest.raises(ValueError):
+        messages.mention_line(["<@U0123456789> & x"])

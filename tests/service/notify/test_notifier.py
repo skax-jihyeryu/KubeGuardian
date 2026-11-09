@@ -481,3 +481,103 @@ def test_changed_fingerprint_update_keeps_button(env):
     _ack_check(engine, sender, [_sig(), _sig(rule="S02", service="gateway")], NOW, 2)
 
     assert _buttons(sender.updates[-1]["blocks"])
+
+
+def _owner_env(tmp_path, mention=None, owners=None):
+    slack = {
+        "alert_target": "C0123456789",
+        "owners": owners if owners is not None else {"agent": ["U0123456789"]},
+        "reminders": {"critical": {"first_after": "30m", "then_every": "30m"}},
+    }
+    if mention is not None:
+        slack["mention"] = mention
+    config = KubeGuardianConfig.model_validate({"target": {"namespace": "dev"}, "slack": slack})
+    engine = create_db_engine(tmp_path / "kg.db")
+    sender = FakeSender()
+    state = {"n": 0}
+
+    def check(signals, at):
+        state["n"] += 1
+        gate = decide_gate(signals)
+        changes = track(
+            engine,
+            config,
+            run_id=state["n"],
+            trigger="schedule",
+            now=at,
+            gate=gate,
+            signals=signals,
+            symptoms=[],
+        )
+        Notifier(engine, config, sender).after_check(state["n"], gate, changes, at)
+        return changes
+
+    return engine, sender, check, config
+
+
+MENTION = "👤 담당: <@U0123456789>"
+
+
+def test_critical_first_alert_mentions_owner(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path)
+    check([_sig()], NOW)
+    assert MENTION in sender.posts[0]["text"]
+
+
+def test_warning_is_not_mentioned_by_default(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path)
+    check([_sig(severity="warning")], NOW)
+    assert sender.posts and "담당" not in sender.posts[0]["text"]
+
+
+def test_warning_is_mentioned_when_configured(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path, mention=["critical", "warning"])
+    check([_sig(severity="warning")], NOW)
+    assert MENTION in sender.posts[0]["text"]
+
+
+def test_service_without_owner_has_no_mention(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path, owners={"other": ["U0123456789"]})
+    check([_sig()], NOW)
+    assert "담당" not in sender.posts[0]["text"]
+
+
+def test_reminder_and_recovery_do_not_mention(tmp_path):
+    engine, sender, check, config = _owner_env(tmp_path)
+    check([_sig()], NOW)
+    Notifier(engine, config, sender).check_reminders(NOW + timedelta(minutes=31))
+    check([_sig(verdict="passed")], NOW + timedelta(minutes=35))
+    replies = [p for p in sender.posts if p["thread"]]
+    assert [p["text"][0] for p in replies] == ["⏰", "✅"]
+    assert all("담당" not in p["text"] for p in replies)
+
+
+def test_investigation_update_keeps_mention_without_new_ping(tmp_path):
+    engine, sender, check, config = _owner_env(tmp_path)
+    [c] = check([_sig()], NOW)
+    Notifier(engine, config, sender).after_investigation(
+        c.incident_id, 1, AgentResult(status="done", report=_report()), NOW
+    )
+    assert MENTION in sender.updates[-1]["text"]
+    assert all("담당" not in p["text"] for p in sender.posts[1:])
+
+
+def test_changed_alert_update_keeps_mention(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path)
+    check([_sig()], NOW)
+    check([_sig(), _sig(rule="S02")], NOW + timedelta(minutes=5))
+    assert sender.updates and MENTION in sender.updates[-1]["text"]
+
+
+def test_multiple_services_union_deduped(tmp_path):
+    _, sender, check, _ = _owner_env(
+        tmp_path, owners={"agent": ["U0123456789"], "db": ["U0123456789", "U9876543210"]}
+    )
+    check([_sig(service="agent"), _sig(rule="S02", service="db")], NOW)
+    assert "👤 담당: <@U0123456789> <@U9876543210>" in sender.posts[0]["text"]
+
+
+def test_no_owners_configured_matches_legacy_text(env):
+    _, sender, check = env
+    check([_sig()], NOW)
+    assert "담당" not in sender.posts[0]["text"]

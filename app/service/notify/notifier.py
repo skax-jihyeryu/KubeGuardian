@@ -94,7 +94,9 @@ class Notifier:
         status = result.status if result else "failed"
         report = result.report if result else None
         error = result.error if result else None
-        text = messages.cause_update(self._ns, incident, status, report, error, run_id, self._url)
+        text = messages.cause_update(
+            self._ns, incident, status, report, error, run_id, self._url, self._owners(incident)
+        )
         thread = self._thread(incident)
         if thread is None:  # 1차 알림이 나가지 못했다 → 결과를 담아 새로 보낸다
             if ts := self._post("M1", incident.id, text, now, blocks=self._blocks(incident, text)):
@@ -215,7 +217,9 @@ class Notifier:
     def _first_alert(self, incident: Incident, reason: str, run_id: int, now: datetime) -> None:
         if incident.first_severity not in ALERTED:
             return
-        text = messages.first_alert(self._ns, incident, reason, run_id, now, self._url)
+        text = messages.first_alert(
+            self._ns, incident, reason, run_id, now, self._url, self._owners(incident)
+        )
         ts = self._post("M1", incident.id, text, now, blocks=self._blocks(incident, text))
         if ts:
             self._incidents.set_slack_ts(incident.id, ts)
@@ -225,8 +229,18 @@ class Notifier:
         if thread is None:
             self._first_alert(incident, reason, run_id, now)  # 전에는 알리지 않던 심각도로 바뀜
             return
-        text = messages.changed_alert(self._ns, incident, reason, run_id, now, self._url)
+        text = messages.changed_alert(
+            self._ns, incident, reason, run_id, now, self._url, self._owners(incident)
+        )
         self._update("M1u", incident, thread, text, now)
+
+    def _owners(self, incident: Incident) -> list[str]:
+        """멘션할 담당자: 정책에 든 1차 심각도면 영향 서비스 담당자의 합집합(순서 유지)."""
+        slack = self._config.slack
+        if slack is None or incident.first_severity not in slack.mention:
+            return []
+        users = (u for service in incident.services for u in slack.owners.get(service, []))
+        return list(dict.fromkeys(users))
 
     def _blocks(self, incident: Incident, text: str) -> list[dict[str, Any]] | None:
         """긴급 알림에만 확인 버튼(확인됐으면 확인 표시)을 붙인다. 받을 수 없으면 붙이지 않는다."""
