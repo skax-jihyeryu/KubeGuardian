@@ -29,6 +29,11 @@ class RuleSpec:
         return _INPUTS[self.id]
 
     @property
+    def guidance(self) -> str:
+        """규칙 결과 화면의 정적 안내 (05-rules "확인할 사항"). 규칙이 본 것을 확인하게만 한다."""
+        return _GUIDANCE[self.id]
+
+    @property
     def grade(self) -> Grade:
         return "advice" if self.id.startswith("H") else "signal"
 
@@ -202,4 +207,22 @@ _INPUTS: dict[str, tuple[tuple[str, str], ...]] = {
         ("ReplicaSet", "metadata.ownerReferences"),
         ("Service", "spec.selector"),
     ),
+}
+
+
+_GUIDANCE: dict[str, str] = {
+    "N01": "노드의 Ready 조건 사유·메시지와 마지막 전이 시각을 확인하세요.",
+    "P03": "Pod 이벤트의 이미지 받기 오류 메시지와 이미지 이름·태그를 확인하세요.",
+    "P06": "컨테이너의 마지막 종료 사유·종료 코드와 재시작 직전 로그를 확인하세요.",
+    "P07": "컨테이너의 memory limits와 종료 시각 전후의 메모리 사용량을 확인하세요.",
+    "W01": "Deployment의 replicas와 가용 replicas 차이, 준비 안 된 Pod의 상태·이벤트를 확인하세요.",
+    "W02": "Deployment의 Progressing 조건 메시지와 새 ReplicaSet Pod의 상태를 확인하세요.",
+    "S01": "Service selector와 대상 Pod의 라벨이 일치하는지 확인하세요.",
+    "S02": "EndpointSlice에서 Ready가 아닌 엔드포인트의 Pod와 그 Ready 조건을 확인하세요.",
+    "S03": "Service targetPort와 컨테이너가 실제로 여는 포트가 같은지 확인하세요.",
+    "S04": "적발된 env 값의 호스트·포트가 네임스페이스의 Service 이름·포트와 맞는지 확인하세요.",
+    "C01": "참조한 ConfigMap·Secret과 키가 네임스페이스에 있는지 확인하세요.",
+    "C05": "선언한 필수 env가 해당 서비스의 env·envFrom에 있는지 확인하세요.",
+    "H01": "서비스를 받는 컨테이너의 readinessProbe 종류와 설정을 확인하세요.",
+    "H02": "컨테이너의 resources.requests·limits 설정을 확인하세요.",
 }

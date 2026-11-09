@@ -7,7 +7,7 @@ from core.db import AlertStore, IncidentStore, create_db_engine
 from service.agent.base import AgentResult
 from service.alerts.incidents import track
 from service.checks.gate import decide_gate
-from service.model import Report, Signal
+from service.model import Report, Signal, Symptom
 from service.notify.notifier import Notifier
 from tests.service.checks.detectors.cases import NOW
 
@@ -68,15 +68,26 @@ def _sig(rule="S01", service="agent", verdict="detected", severity="critical"):
     )
 
 
+def _failed(step=2):
+    """규칙 신호 없이 기능 점검만 실패 (경로 B)."""
+    return Symptom(
+        scenario="chat",
+        status="failed",
+        failed_step=step,
+        summary="chat 실패",
+        severity="critical",
+    )
+
+
 @pytest.fixture
 def env(tmp_path):
     engine = create_db_engine(tmp_path / "kg.db")
     sender = FakeSender()
     state = {"n": 0}
 
-    def check(signals, at, trigger="schedule"):
+    def check(signals, at, trigger="schedule", symptoms=()):
         state["n"] += 1
-        gate = decide_gate(signals)
+        gate = decide_gate(signals, symptoms)
         changes = track(
             engine,
             CONFIG,
@@ -85,7 +96,7 @@ def env(tmp_path):
             now=at,
             gate=gate,
             signals=signals,
-            symptoms=[],
+            symptoms=list(symptoms),
         )
         Notifier(engine, CONFIG, sender).after_check(state["n"], gate, changes, at)
         return changes
@@ -118,7 +129,7 @@ def _report(**kw):
 def test_new_incident_sends_first_alert_before_investigation(env):
     engine, sender, check = env
 
-    [c] = check([_sig()], NOW)
+    [c] = check([], NOW, symptoms=[_failed()])
 
     [m1] = sender.posts
     assert m1["channel"] == "C0123456789" and m1["thread"] is None
@@ -196,14 +207,91 @@ def test_direct_check_resolution_also_sends_recovery(env):
     assert sender.posts[-1]["text"].startswith("✅")
 
 
+def _finished_ai_investigation(engine, incident_id):
+    from datetime import UTC, datetime
+
+    from core.db import CheckRunStore, InvestigationStore
+
+    run = CheckRunStore(engine).create("schedule", NOW)
+    InvestigationStore(engine).start(
+        check_run_id=run,
+        incident_id=incident_id,
+        run_key="t",
+        agent="investigator:v1",
+        trigger="schedule",
+        now=datetime.now(UTC),
+    )
+
+
 def test_changed_fingerprint_updates_first_alert(env):
+    engine, sender, check = env
+    check([], NOW, symptoms=[_failed(2)])
+
+    _finished_ai_investigation(engine, 1)  # 이전 AI 조사가 있어야 "다시"다
+
+    check([], NOW + timedelta(minutes=5), symptoms=[_failed(3)])
+
+    assert len(sender.posts) == 1
+    assert "다시 조사" in sender.updates[0]["text"] and sender.updates[0]["ts"] == "ts-1"
+
+
+# ── 규칙 감지는 AI 조사 중이라 안내하지 않는다 (#185) ──
+
+
+def test_rule_detection_first_alert_shows_rule_result_not_investigating(env):
+    _, sender, check = env
+
+    check([_sig(), _sig("S04", "gateway", severity="warning")], NOW)
+
+    [m1] = sender.posts
+    text = m1["text"]
+    assert "• S01 selector에 맞는 Pod 없음 — dev/Service/agent" in text
+    assert "• S04 서비스 주소 설정 오류 — dev/Service/gateway" in text
+    assert "📋 규칙 기반 진단 결과입니다. 근본 원인은 확인하지 않았습니다." in text
+    assert "http://localhost:8080/dev/issues/1" in text
+    assert "조사하고" not in text and "조사 중" not in text and "다시 조사" not in text
+
+
+def test_rule_summary_is_capped_at_three_lines(env):
+    _, sender, check = env
+
+    check([_sig(service=f"svc{n}") for n in range(5)], NOW)
+
+    text = sender.posts[0]["text"]
+    assert text.count("• S01 ") == 3 and "• 외 2건" in text
+
+
+def test_rule_detection_change_updates_alert_with_rule_result(env):
     _, sender, check = env
     check([_sig()], NOW)
 
     check([_sig(), _sig("S04", "gateway")], NOW + timedelta(minutes=5))
 
     assert len(sender.posts) == 1
-    assert "다시 조사" in sender.updates[0]["text"] and sender.updates[0]["ts"] == "ts-1"
+    update = sender.updates[0]["text"]
+    assert "규칙 결과를 갱신했습니다" in update and "• S04 " in update
+    assert "조사하고" not in update
+
+
+def test_rule_to_symptom_change_resumes_investigation_notice(env):
+    _, sender, check = env
+    check([_sig(service="other")], NOW, symptoms=[_failed()])  # 같은 기능(기타)로 묶인다
+
+    check([], NOW + timedelta(minutes=5), symptoms=[_failed()])
+
+    update = sender.updates[0]["text"]  # 이전 AI 조사가 없었으므로 "다시"가 없다
+    assert "원인을 조사하고 있습니다" in update and "다시" not in update
+
+
+def test_symptom_to_rule_change_replaces_investigating_notice(env):
+    _, sender, check = env
+    check([], NOW, symptoms=[_failed()])
+    assert "원인을 조사하고" in sender.posts[0]["text"]
+
+    check([_sig(service="other")], NOW + timedelta(minutes=5), symptoms=[_failed()])
+
+    update = sender.updates[0]["text"]
+    assert "• S01 " in update and "조사하고" not in update
 
 
 def test_warning_alerts_and_info_does_not(env):
@@ -301,9 +389,9 @@ def test_dry_run_thread_is_not_reused_by_real_sender(tmp_path):
     from service.notify.sender import DryRunSender
 
     engine = create_db_engine(tmp_path / "kg.db")
-    sig = _sig()
+    symptom = _failed()
     for n, sender in enumerate([DryRunSender(), FakeSender()], start=1):
-        gate = decide_gate([sig])
+        gate = decide_gate([], [symptom])
         at = NOW + timedelta(minutes=5 * n)
         changes = track(
             engine,
@@ -312,8 +400,8 @@ def test_dry_run_thread_is_not_reused_by_real_sender(tmp_path):
             trigger="schedule",
             now=at,
             gate=gate,
-            signals=[sig],
-            symptoms=[],
+            signals=[],
+            symptoms=[symptom],
         )
         Notifier(engine, CONFIG, sender).after_check(n, gate, changes, at)
 
@@ -747,3 +835,13 @@ def test_reminder_after_escalation_ignores_m2_sent_while_warning(tmp_path):
     assert len(_m2(sender)) == 2
     notifier.check_reminders(NOW + timedelta(hours=3))  # then_every 없음 → 더는 없다
     assert len(_m2(sender)) == 2
+
+
+def test_rule_first_alert_keeps_owner_mention_line(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path)
+
+    check([_sig()], NOW)
+
+    text = sender.posts[0]["text"]
+    assert "📋 규칙 기반 진단 결과입니다" in text and MENTION in text
+    assert text.index("📋") < text.index(MENTION) < text.index("🔗 이슈")

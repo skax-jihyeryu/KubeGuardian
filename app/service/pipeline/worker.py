@@ -98,6 +98,11 @@ class Worker:
         if job is None:
             return None
         logger.info(f"[작업] 조사 대기 집음: 이슈 #{job.incident_id} (점검 #{job.check_run_id})")
+        if job.request.get("gate_path") == "A":
+            # 규칙 감지는 AI로 조사하지 않는다. 배포 전에 쌓인 요청은 규칙 진단으로 마감한다 (#185)
+            logger.info(f"[작업] 이슈 #{job.incident_id} 규칙 감지 요청이라 AI 조사 생략")
+            self._queue.complete(job, "rule", None)
+            return job.incident_id
         result = self._investigate(job)
         kept = complete_job(self._engine, self._notifier, job, result, self._clock())
         ok = result is not None and result.status != "failed"

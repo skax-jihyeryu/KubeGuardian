@@ -49,20 +49,9 @@ def test_post_running_conflict_links_existing_run(client, engine):
 
 def test_manual_executes_reserved_run_and_queues_new_incident(engine):
     from core.db import CheckRunStore, IncidentStore
-    from service.notify.sender import DryRunSender
-    from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
+    from tests.service.checks.detectors.cases import NOW
 
-    tasks = []
-    run = start_manual_check(
-        engine,
-        CONFIG,
-        NOW,
-        tasks.append,
-        reader_factory=lambda config: FixtureReader(*raw_cluster("s01/detected")),
-        http_factory=lambda config: None,
-        sender_factory=lambda config: DryRunSender(),
-    )
-    tasks[0]()
+    run = _manual(engine, NOW)
     assert CheckResultStore(engine).get(run).status == "done"
     assert len(CheckRunStore(engine).list_runs()) == 1
     [incident] = IncidentStore(engine).open_incidents()
@@ -107,18 +96,21 @@ def test_race_to_lock_returns_html_conflict_with_holder_link(client, engine, mon
     assert "/dev/checks/777" in response.text
 
 
-def _manual(engine, now, fixture="s04/localhost", sender_factory=None):
+def _manual(engine, now, fixture=None, sender_factory=None, status=500):
+    """직접 점검. 기본은 규칙 신호 없이 기능 시나리오가 status를 받는다 (500이면 경로 B)."""
     from service.notify.sender import DryRunSender
-    from tests.service.checks.detectors.cases import CONFIG, FixtureReader, raw_cluster
+    from tests.service.checks.detectors.cases import FixtureReader, raw_cluster
+    from tests.service.pipeline.test_investigate import SCENARIO_CONFIG
+    from tests.service.tools.fakes import FakeHttp
 
     tasks = []
     run = start_manual_check(
         engine,
-        CONFIG,
+        SCENARIO_CONFIG,
         now,
         tasks.append,
         reader_factory=lambda _: FixtureReader(*raw_cluster(fixture)),
-        http_factory=lambda _: None,
+        http_factory=lambda _: FakeHttp({("gateway", "/chat"): status}),
         sender_factory=sender_factory or (lambda _: DryRunSender()),
     )
     tasks[0]()
@@ -162,16 +154,19 @@ def test_manual_then_schedule_same_fault_does_not_duplicate_job_or_first_alert(e
     from service.notify.sender import DryRunSender
     from service.pipeline.check import run_check
     from service.pipeline.investigate import queue_investigations
-    from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
+    from tests.service.checks.detectors.cases import NOW, FixtureReader, raw_cluster
+    from tests.service.pipeline.test_investigate import SCENARIO_CONFIG as CONFIG
+    from tests.service.tools.fakes import FakeHttp
 
     first = _manual(engine, NOW)
     _manual(engine, NOW + timedelta(seconds=61))
     later = run_check(
-        FixtureReader(*raw_cluster("s04/localhost")),
+        FixtureReader(*raw_cluster()),
         CONFIG,
         engine,
         trigger="schedule",
         now=NOW + timedelta(seconds=62),
+        http=FakeHttp({("gateway", "/chat"): 500}),
     )
     Notifier(engine, CONFIG, DryRunSender()).after_check(
         later.run_id, later.gate, later.incidents, NOW
@@ -208,8 +203,8 @@ def test_manual_recovery_sends_m3_once_and_clears_pending_job(engine):
     from tests.service.checks.detectors.cases import NOW
 
     _manual(engine, NOW)
-    run = _manual(engine, NOW + timedelta(minutes=2), fixture=None)
-    _manual(engine, NOW + timedelta(minutes=4), fixture=None)
+    run = _manual(engine, NOW + timedelta(minutes=2), status=200)
+    _manual(engine, NOW + timedelta(minutes=4), status=200)
     incident = IncidentStore(engine).get(1)
     assert incident.status == "resolved"
     assert run in IncidentStore(engine).check_ids(1)
@@ -263,18 +258,29 @@ def test_manual_new_alert_keeps_ack_button_when_listener_configured(engine, monk
     assert "kg_ack" in json.dumps(sender.blocks)
 
 
-def test_manual_fingerprint_change_replaces_pending_request(engine):
+def test_manual_rule_detection_is_not_investigated_by_ai(engine):
+    from core.db import AlertStore, IncidentStore, InvestigationQueue
+    from tests.service.checks.detectors.cases import NOW
+
+    run = _manual(engine, NOW, fixture="s01/detected")
+    [incident] = IncidentStore(engine).open_incidents()
+    assert CheckResultStore(engine).get(run).gate_path == "A"
+    assert incident.investigation == "rule"
+    assert InvestigationQueue(engine).claim(NOW, CHECK_LOCK_TTL) is None
+    assert [a.kind for a in AlertStore(engine).for_incident(incident.id)] == ["M1"]
+
+
+def test_manual_fingerprint_change_to_rule_removes_pending_request(engine):
     from datetime import timedelta
 
     from core.db import AlertStore, IncidentStore, InvestigationQueue
     from tests.service.checks.detectors.cases import NOW
 
     _manual(engine, NOW)
-    latest = _manual(engine, NOW + timedelta(minutes=2), fixture="s01/detected")
+    _manual(engine, NOW + timedelta(minutes=2), fixture="s01/detected")
     [incident] = IncidentStore(engine).open_incidents()
-    job = InvestigationQueue(engine).claim(NOW, CHECK_LOCK_TTL)
-    assert job.check_run_id == latest and job.incident_id == incident.id
-    assert job.request["trigger"] == "ui"
+    assert incident.investigation == "rule"
+    assert InvestigationQueue(engine).claim(NOW, CHECK_LOCK_TTL) is None
     assert sum(a.kind == "M1" for a in AlertStore(engine).for_incident(incident.id)) == 1
 
 

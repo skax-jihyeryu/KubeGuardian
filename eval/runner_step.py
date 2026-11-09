@@ -137,6 +137,7 @@ def do_investigate(
             k8s=make_reader(config),
             http=_account_http(config),
             symptom=args.symptom,
+            ai_on_rules=args.ai_on_rules,
         )
         ctx = span.get_span_context()
         trace_id = format(ctx.trace_id, "032x") if ctx.is_valid else None
@@ -162,6 +163,9 @@ def main(
         if name == "investigate":
             s.add_argument("--check-run-id", type=int, required=True)
             s.add_argument("--run-id", required=True)
+            s.add_argument(
+                "--ai-on-rules", action="store_true", help="평가 전용: 규칙 감지도 AI로 조사"
+            )
     args = p.parse_args(argv)
     try:
         if args.command == "check":

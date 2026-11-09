@@ -178,6 +178,7 @@ class CheckDetail:
     live: bool
     error: str | None
     corrections: list["Correction"] = field(default_factory=list)
+    rule_report: Any = None  # 규칙 기반 진단 결과 (RuleReport, AI 조사가 없을 때만, #185)
 
 
 @dataclass(frozen=True)
@@ -246,7 +247,8 @@ def _load(engine: Engine, run_id: int, now: datetime) -> _Loaded | None:
         ):
             inv_state = "stalled"
     queued = False
-    if inv is None:
+    rule_path = result is not None and result.gate_path == "A"  # 규칙 감지는 조사를 기다리지 않는다
+    if inv is None and not rule_path:
         queue = InvestigationQueue(engine)
         lock = CheckLockStore(engine).current(now) if trigger == "ui" else None
         dispatching = lock is not None and lock.run_id == run_id
@@ -281,6 +283,8 @@ def build_check_detail(
     *,
     config: KubeGuardianConfig | None = None,
 ) -> CheckDetail | None:
+    from api.viewmodels.rule_report import build_rule_report  # rule_report가 이 모듈을 읽는다
+
     d = _load(engine, run_id, now)
     if d is None:
         return None
@@ -303,6 +307,7 @@ def build_check_detail(
         live=d.live,
         error=result.error if result else None,
         corrections=configuration_corrections(engine, run_id, result, config),
+        rule_report=build_rule_report(result) if d.investigation is None else None,
     )
 
 
@@ -616,6 +621,12 @@ def _gate(d: _Loaded) -> GateLine | None:
     if d.queued:
         return GateLine(
             f"조사 시작 — {why} (대기 중)", True, "작업자가 조사를 가져가면 시작합니다."
+        )
+    if path == "A":
+        return GateLine(
+            "조사 안 함 — 규칙 기반 진단 결과",
+            False,
+            "규칙이 장애를 적발해 AI 원인 조사를 하지 않고 규칙 근거로 보여 줍니다.",
         )
     continued = [inc for inc, action in d.links if action == "continued"]
     if continued:
@@ -940,9 +951,12 @@ def _steps(d: _Loaded, now: datetime) -> StepsView:
     if inv is None:
         na = None
         if d.state in ("done",):
+            rule = d.result is not None and d.result.gate_path == "A"
             na = (
                 "조사 대기 중입니다. 작업자가 조사를 시작하면 이곳에 단계가 이어집니다."
                 if d.queued
+                else "해당 없음 — 규칙 감지라 AI 조사 없이 규칙 기반 진단 결과로 보여 줍니다."
+                if rule
                 else "해당 없음 — 조사 판단에서 조사 안 함으로 정해 AI 조사를 시작하지 않았습니다."
             )
         return StepsView(d.run_id, d.live, check_steps, None, None, [], na, None)

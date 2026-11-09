@@ -146,6 +146,7 @@ def test_investigate_rebuilds_outcome_from_the_check_and_prints_result(tmp_path,
             "--run-id",
             "eval-x",
             "--json",
+            "--ai-on-rules",
         ],
         make_reader=_reader("s04/localhost"),
         llm_factory=lambda m: llm,
@@ -157,6 +158,33 @@ def test_investigate_rebuilds_outcome_from_the_check_and_prints_result(tmp_path,
     assert data["report"]["conclusion"] == "gateway 주소 env가 localhost"
     assert data["usage"]["llm_calls"] >= 1
     assert {"steps", "trace_id"} <= data.keys()
+
+
+def test_investigate_skips_rule_detection_unless_ai_on_rules(tmp_path, capsys):
+    _, out, db = _check(tmp_path, capsys, "s04/localhost")
+
+    def no_llm(model):
+        raise AssertionError("규칙 감지는 LLM을 부르지 않는다")
+
+    code = runner_step.main(
+        [
+            "investigate",
+            "--config",
+            _config(tmp_path),
+            "--db",
+            str(db),
+            "--check-run-id",
+            str(json.loads(out)["run_id"]),
+            "--run-id",
+            "eval-x",
+            "--json",
+        ],
+        make_reader=_reader("s04/localhost"),
+        llm_factory=no_llm,
+    )
+
+    assert code == 0
+    assert json.loads(capsys.readouterr().out) == {"skipped": True}
 
 
 def test_investigate_on_gate_c_prints_null_result(tmp_path, capsys):

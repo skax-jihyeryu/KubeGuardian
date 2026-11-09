@@ -14,9 +14,11 @@ from api.viewmodels.checks import (
     TRIGGER_LABEL,
     Sev,
 )
+from api.viewmodels.rule_report import RuleReport, build_rule_report
 from api.viewmodels.shell import IMPACT, SEVERITY
 from core.db import (
     AlertStore,
+    CheckResultStore,
     CheckRunStore,
     EvidenceStore,
     IncidentAckStore,
@@ -83,11 +85,17 @@ class IssueDetail:
     investigation_state: str
     log_evidence: frozenset[str] = frozenset()  # 로그 근거 id. 사전 확인의 로그 사실을 가린다
     ack_state: str = ""  # 머리 줄에 보이는 확인 상태. 긴급 열림이 아니면 비어 있다
+    rule_report: RuleReport | None = None  # 규칙 진단 이슈의 규칙 기반 진단 결과 (#185)
 
 
 def issue_row(engine: Engine, incident: Incident) -> IssueRow:
     investigations = InvestigationStore(engine).for_incident(incident.id)
-    latest = next((i.report for i in reversed(investigations) if i.report), None)
+    # 규칙 진단 이슈는 옛 AI 보고서가 아니라 규칙 기준(AI 없는 이슈와 같은 제목)을 쓴다 (#185)
+    latest = (
+        None
+        if incident.investigation == "rule"
+        else next((i.report for i in reversed(investigations) if i.report), None)
+    )
     top = latest.top_issue if latest else None
     title = top.title if top else ", ".join(incident.features or incident.services)
     title = title or "장애 신호·기능 점검 실패"
@@ -142,6 +150,8 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
     )
     if report_id and selected is None:
         return None
+    if report_id is None and incident.investigation == "rule":
+        selected = None  # 옛 AI 보고서는 타임라인 항목에서 연다
     queued_run = InvestigationQueue(engine).queued_run(incident_id)
     queued = (
         report_id is None
@@ -150,7 +160,8 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
         and queued_run is not None
         and (selected is None or selected.check_run_id != queued_run)
     )
-    state = "queued" if queued else selected.status if selected else "none"
+    rule = report_id is None and incident.investigation == "rule"
+    state = "rule" if rule else "queued" if queued else selected.status if selected else "none"
     if state == "running" and (now - selected.started_at).total_seconds() > (
         STALE_INVESTIGATION_MINUTES * 60
     ):
@@ -164,6 +175,20 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
                 .order_by(IncidentCheckRow.check_run_id)
             )
         )
+    gate_paths = {}  # 이어짐 점검의 경로 (규칙 점검만 "AI 조사 생략"이라 하지 않는다)
+    for run_id, action in actions:
+        if action == "continued":
+            result = CheckResultStore(engine).get(run_id)
+            gate_paths[run_id] = result.gate_path if result else None
+    # 규칙 진단은 이 이슈를 마지막으로 본(해결 제외) 경로 A 점검의 적발로 보인다
+    rule_report = None
+    if rule:
+        checks = CheckResultStore(engine)
+        for run_id, action in reversed(actions):  # 최근 점검부터 경로 A인 것을 찾는다
+            if action != "resolved":
+                rule_report = build_rule_report(checks.get(run_id), set(incident.targets))
+                if rule_report:
+                    break
     for run_id, action in actions:
         run = CheckRunStore(engine).get_run(run_id)
         if run:
@@ -207,7 +232,9 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
                 Event(
                     prev.at,
                     event.label,
-                    "같은 문제라 AI 조사 생략",
+                    "같은 문제가 이어짐"
+                    if gate_paths.get(event.run_id) == "A"
+                    else "같은 문제라 AI 조사 생략",
                     event.run_id,
                     count=prev.count + 1,
                     runs=(*(prev.runs or (prev.run_id,)), event.run_id),
@@ -237,4 +264,5 @@ def build_issue_detail(engine: Engine, incident_id: int, report_id: int | None, 
         state,
         frozenset(log_evidence),
         ack_state,
+        rule_report,
     )

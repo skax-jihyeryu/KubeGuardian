@@ -34,7 +34,7 @@ def test_gate_c_builds_no_request(engine):
 def test_gate_a_request_carries_signal_board_and_topology(engine):
     out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
 
-    req = build_request(out, CONFIG, trigger="check")
+    req = build_request(out, CONFIG, trigger="check", ai_on_rules=True)
 
     assert req.gate_path == "A"
     assert any(s.rule_id == "S04" for ss in req.signal_board.by_service.values() for s in ss)
@@ -73,7 +73,7 @@ def test_run_investigation_uses_registered_agent_and_stores_evidence(engine):
     llm = ScriptedLLM(script=[triage, PLAN, AIMessage(content="조사 완료"), report], calls=[])
 
     result = run_investigation(
-        out, CONFIG, engine, llm_factory=lambda m: llm, k8s=reader, run_id="inv-1"
+        out, CONFIG, engine, llm_factory=lambda m: llm, k8s=reader, run_id="inv-1", ai_on_rules=True
     )
 
     assert result.status == "done", result.error
@@ -84,7 +84,9 @@ def test_run_investigation_uses_registered_agent_and_stores_evidence(engine):
 def test_build_request_carries_user_symptom(engine):
     out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
 
-    req = build_request(out, CONFIG, trigger="investigate", symptom="채팅이 안 돼요")
+    req = build_request(
+        out, CONFIG, trigger="investigate", symptom="채팅이 안 돼요", ai_on_rules=True
+    )
 
     assert (req.trigger, req.user_symptom) == ("investigate", "채팅이 안 돼요")
 
@@ -103,6 +105,7 @@ def test_run_investigation_passes_symptom_to_the_agent(engine):
         k8s=_reader("s04/localhost"),
         run_id="inv-2",
         symptom="채팅이 안 돼요",
+        ai_on_rules=True,
     )
 
     assert any("채팅이 안 돼요" in str(m.content) for m in llm.calls[0])
@@ -142,7 +145,11 @@ def test_build_request_masks_secrets_in_user_symptom(engine):
     out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
 
     req = build_request(
-        out, CONFIG, trigger="investigate", symptom="로그인이 안 돼요 password=hunter22abc"
+        out,
+        CONFIG,
+        trigger="investigate",
+        symptom="로그인이 안 돼요 password=hunter22abc",
+        ai_on_rules=True,
     )
 
     assert "hunter22abc" not in req.user_symptom
@@ -152,10 +159,52 @@ def test_build_request_masks_secrets_in_user_symptom(engine):
 def test_build_request_drops_blank_user_symptom(engine):
     out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
 
-    assert build_request(out, CONFIG, trigger="investigate", symptom="  ").user_symptom is None
+    req = build_request(out, CONFIG, trigger="investigate", symptom="  ", ai_on_rules=True)
+
+    assert req.user_symptom is None
 
 
 # ── 조사 대기열 (#28) ──
+
+SCENARIO_CONFIG = CONFIG.model_copy(
+    update={
+        "core_paths": {"chat": ["gateway", "agent"]},
+        "api_scenarios": [
+            ApiScenario.model_validate(
+                {
+                    "name": "chat",
+                    "feature": "chat",
+                    "steps": [{"call": {"via": "gateway", "path": "/chat", "method": "GET"}}],
+                }
+            )
+        ],
+    }
+)
+
+
+def _scheduled(engine, case=None, *, status=500, minutes=0):
+    """주기 점검 한 번 (기능 시나리오 chat이 status를 받는다) + 조사 예약."""
+    from datetime import timedelta
+
+    from service.pipeline.investigate import queue_investigations
+
+    at = NOW + timedelta(minutes=minutes)
+    out = run_check(
+        _reader(case),
+        SCENARIO_CONFIG,
+        engine,
+        trigger="schedule",
+        now=at,
+        http=FakeHttp({("gateway", "/chat"): status}),
+    )
+    queue_investigations(engine, SCENARIO_CONFIG, out, trigger="schedule", now=at)
+    return out
+
+
+def _incident(engine, out):
+    from core.db import IncidentStore
+
+    return IncidentStore(engine).get(out.incidents[0].incident_id)
 
 
 def test_queue_investigations_puts_request_for_new_incident(engine):
@@ -165,36 +214,120 @@ def test_queue_investigations_puts_request_for_new_incident(engine):
     from service.model import InvestigationRequest
     from service.pipeline.investigate import queue_investigations
 
-    out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="schedule", now=NOW)
-    queue_investigations(engine, CONFIG, out, trigger="schedule", now=NOW, symptom="채팅 실패")
+    out = run_check(
+        _reader(),
+        SCENARIO_CONFIG,
+        engine,
+        trigger="schedule",
+        now=NOW,
+        http=FakeHttp({("gateway", "/chat"): 500}),
+    )
+    queue_investigations(
+        engine, SCENARIO_CONFIG, out, trigger="schedule", now=NOW, symptom="채팅 실패"
+    )
     job = InvestigationQueue(engine).claim(NOW, timedelta(minutes=10))
 
     assert (job.incident_id, job.check_run_id) == (out.incidents[0].incident_id, out.run_id)
     request = InvestigationRequest.model_validate(job.request)
     assert (request.trigger, request.gate_path, request.user_symptom) == (
         "schedule",
-        "A",
+        "B",
         "채팅 실패",
     )
-    assert "S01" in {s.rule_id for ss in request.signal_board.by_service.values() for s in ss}
+    assert [x.scenario for x in request.symptoms] == ["chat"]
 
 
 def test_continuing_incident_is_not_requeued(engine):
     from datetime import timedelta
 
     from core.db import InvestigationQueue
-    from service.pipeline.investigate import queue_investigations
 
     queue = InvestigationQueue(engine)
     for minutes in (0, 5):
-        at = NOW + timedelta(minutes=minutes)
-        out = run_check(_reader("s01/detected"), CONFIG, engine, trigger="schedule", now=at)
-        queue_investigations(engine, CONFIG, out, trigger="schedule", now=at)
+        out = _scheduled(engine, minutes=minutes)
         if minutes == 0:
-            job = queue.claim(at, timedelta(minutes=10))
+            job = queue.claim(NOW, timedelta(minutes=10))
             queue.complete(job, "done", None)
 
+    assert out.incidents[0].action == "continued"
     assert queue.claim(NOW + timedelta(minutes=5), timedelta(minutes=10)) is None
+
+
+# ── 규칙 감지는 AI 조사 없이 (#185) ──
+
+
+def test_gate_a_builds_no_request_unless_evaluation_asks(engine):
+    out = run_check(_reader("s04/localhost"), CONFIG, engine, trigger="check", now=NOW)
+
+    assert out.gate.path == "A"
+    assert build_request(out, CONFIG, trigger="check") is None
+    assert build_request(out, CONFIG, trigger="check", ai_on_rules=True) is not None
+
+
+def test_run_investigation_does_not_call_llm_on_rule_detection(engine):
+    reader = _reader("s04/localhost")
+    out = run_check(reader, CONFIG, engine, trigger="check", now=NOW)
+
+    def no_llm(model):
+        raise AssertionError("규칙 감지는 LLM을 부르지 않는다")
+
+    result = run_investigation(out, CONFIG, engine, run_id="r", llm_factory=no_llm, k8s=reader)
+
+    assert result is None
+
+
+def test_rule_detection_queues_nothing_and_marks_incident_rule(engine):
+    from datetime import timedelta
+
+    from core.db import InvestigationQueue, InvestigationStore
+
+    out = _scheduled(engine, "s01/detected", status=200)
+
+    assert out.gate.path == "A" and out.incidents[0].action == "opened"
+    assert InvestigationQueue(engine).claim(NOW, timedelta(minutes=10)) is None
+    assert _incident(engine, out).investigation == "rule"
+    assert InvestigationStore(engine).for_check(out.run_id) == []  # AI 조사 이력을 만들지 않는다
+
+
+def test_rule_plus_functional_failure_stays_on_rule_path(engine):
+    from datetime import timedelta
+
+    from core.db import InvestigationQueue
+
+    out = _scheduled(engine, "s01/detected", status=500)
+
+    assert out.gate.path == "A" and [x.scenario for x in out.gate.symptoms] == ["chat"]
+    assert InvestigationQueue(engine).claim(NOW, timedelta(minutes=10)) is None
+    assert _incident(engine, out).investigation == "rule"
+
+
+def test_rule_to_symptom_change_queues_ai_investigation(engine):
+    from datetime import timedelta
+
+    from core.db import InvestigationQueue
+
+    first = _scheduled(engine, "s01/detected", status=500)
+    second = _scheduled(engine, None, status=500, minutes=5)  # 규칙 신호가 사라지고 기능 실패만
+
+    assert (second.gate.path, second.incidents[0].action) == ("B", "changed")
+    assert second.incidents[0].incident_id == first.incidents[0].incident_id
+    job = InvestigationQueue(engine).claim(NOW, timedelta(minutes=10))
+    assert job is not None and job.request["gate_path"] == "B"
+    assert _incident(engine, second).investigation == "running"
+
+
+def test_symptom_to_rule_change_removes_pending_request(engine):
+    from datetime import timedelta
+
+    from core.db import InvestigationQueue
+
+    first = _scheduled(engine, None, status=500)
+    assert _incident(engine, first).investigation == "pending"
+    second = _scheduled(engine, "s01/detected", status=500, minutes=5)
+
+    assert (second.gate.path, second.incidents[0].action) == ("A", "changed")
+    assert InvestigationQueue(engine).claim(NOW, timedelta(hours=1)) is None
+    assert _incident(engine, second).investigation == "rule"
 
 
 # ── 판단 수준 (#106) ──
@@ -215,6 +348,7 @@ def test_run_investigation_attaches_judgement_from_stored_evidence(engine):
         llm_factory=lambda m: llm,
         k8s=reader,
         http=FakeHttp(),
+        ai_on_rules=True,
     )
 
     # 예전 스크립트 보고서도 읽지만 호출 체인 없는 원인 주장을 새로 확정하지 않는다.
@@ -297,7 +431,14 @@ def test_run_investigation_confirms_with_cause_config_and_supported_hypothesis(e
     llm = ScriptedLLM(script=script, calls=[])
 
     result = run_investigation(
-        out, CONFIG, engine, run_id="t-c", llm_factory=lambda m: llm, k8s=reader, http=FakeHttp()
+        out,
+        CONFIG,
+        engine,
+        run_id="t-c",
+        llm_factory=lambda m: llm,
+        k8s=reader,
+        http=FakeHttp(),
+        ai_on_rules=True,
     )
 
     assert result.status == "done", result.error
@@ -326,6 +467,7 @@ def test_investigation_and_steps_are_stored_for_the_check(engine):
         llm_factory=lambda m: llm,
         k8s=reader,
         http=FakeHttp(),
+        ai_on_rules=True,
     )
 
     store = InvestigationStore(engine)
@@ -355,6 +497,7 @@ def _run(engine, **kw):
         llm_factory=lambda m: llm,
         k8s=reader,
         http=FakeHttp(),
+        ai_on_rules=True,
         **kw,
     )
 
@@ -483,3 +626,33 @@ def test_trace_id_of_the_investigation_span_is_stored(engine, monkeypatch):
 
     [inv] = InvestigationStore(engine).for_check(out.run_id)
     assert inv.trace_id is not None and len(inv.trace_id) == 32
+
+
+def test_rule_incident_recovery_and_continuation_flow_is_unchanged(engine):
+    from datetime import timedelta
+
+    from core.db import AlertStore, IncidentStore, InvestigationQueue
+    from service.notify.notifier import Notifier
+    from service.notify.sender import DryRunSender
+
+    def check(case, minutes):
+        out = _scheduled(engine, case, status=200, minutes=minutes)
+        at = NOW + timedelta(minutes=minutes)
+        Notifier(engine, SCENARIO_CONFIG, DryRunSender()).after_check(
+            out.run_id, out.gate, out.incidents, at
+        )
+        return out
+
+    opened = check("s01/detected", 0)
+    continued = check("s01/detected", 5)
+    resolved = check(None, 10)
+
+    assert [c.action for c in (opened.incidents[0], continued.incidents[0])] == [
+        "opened",
+        "continued",
+    ]
+    incident_id = opened.incidents[0].incident_id
+    assert resolved.incidents[0].action == "resolved"
+    assert IncidentStore(engine).get(incident_id).status == "resolved"
+    assert [a.kind for a in AlertStore(engine).for_incident(incident_id)] == ["M1", "M3"]
+    assert InvestigationQueue(engine).claim(NOW, timedelta(hours=1)) is None

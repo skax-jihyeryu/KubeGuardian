@@ -5,7 +5,7 @@
 - 끝내기(complete)는 token이 그대로일 때만 되고, 대기열에서 지우기와 이슈에 결과 남기기를
   한 트랜잭션으로 한다(중간에 죽으면 둘 다 안 되어 만료 뒤 다시 조사). 조사 중에 지문이 바뀌어
   새 요청이 들어왔거나 만료로 남이 가져갔으면 False를 돌려주고 옛 결과는 남기지 않는다.
-- 이슈의 조사 상태(pending → running → done·incomplete·failed)는 여기서만 바꾼다.
+- 이슈의 조사 상태(pending → running → done·incomplete·failed, 규칙 감지는 rule)는 여기서만 바꾼다.
 """
 
 import secrets
@@ -52,6 +52,19 @@ class InvestigationQueue:
         with Session(self._engine) as s, s.begin():
             s.execute(stmt)
             s.get_one(IncidentRow, incident_id).investigation = "pending"
+
+    def mark_rule(self, incident_id: int) -> None:
+        """규칙 감지(경로 A)라 AI 조사 없이 규칙 진단으로 표시한다. 대기 중인 요청은 지운다 (#185).
+
+        조사 중에 규칙 감지로 바뀌어도 지운다. 그 조사는 끝나도 결과를 남기지 못한다(complete).
+        """
+        with Session(self._engine) as s, s.begin():
+            s.execute(
+                delete(InvestigationQueueRow).where(
+                    InvestigationQueueRow.incident_id == incident_id
+                )
+            )
+            s.get_one(IncidentRow, incident_id).investigation = "rule"
 
     def claim(
         self,

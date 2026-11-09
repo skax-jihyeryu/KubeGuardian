@@ -151,6 +151,9 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
     scen: dict[str, dict] = {}
     rules: dict[str, list[bool]] = defaultdict(list)
     rules_invalid: dict[str, int] = defaultdict(int)
+    rule_diag: dict[str, list[bool]] = defaultdict(list)  # 규칙 진단(AI 미호출), #185
+    rule_diag_invalid: dict[str, int] = defaultdict(int)
+    ai_on_rules: set[str] = set()
     agree_conc, agree_claims = [], []
     for name, result in results:
         sid = result["scenario"]
@@ -160,6 +163,15 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
             else:
                 rules[sid].append(bool((result.get("score") or {}).get("passed")))
             continue
+        if result.get("rule_diagnosis"):
+            # AI를 부르지 않은 규칙 진단은 AI 조사 집계(통과율·KPI)에 넣지 않는다
+            if result.get("invalid"):
+                rule_diag_invalid[sid] += 1
+            else:
+                rule_diag[sid].append(bool((result.get("score") or {}).get("passed")))
+            continue
+        if result.get("ai_on_rules"):
+            ai_on_rules.add(sid)
         s = scen.setdefault(
             sid,
             {
@@ -294,6 +306,11 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
             sid: (sum(rules[sid]), len(rules[sid]), rules_invalid[sid])
             for sid in sorted(set(rules) | set(rules_invalid))
         },
+        "rule_diagnosis": {
+            sid: (sum(rule_diag[sid]), len(rule_diag[sid]), rule_diag_invalid[sid])
+            for sid in sorted(set(rule_diag) | set(rule_diag_invalid))
+        },
+        "ai_on_rules": sorted(ai_on_rules),
     }
 
 
@@ -336,9 +353,12 @@ def _regression_rows(summary: dict, baseline: dict) -> tuple[list[str], int, int
     rows, cur_l1, base_l1 = [], 0, 0
     for sid in sorted(set(summary["scenarios"]) | set(baseline["scenarios"])):
         c, b = summary["scenarios"].get(sid), baseline["scenarios"].get(sid)
+        if sid in summary["rule_diagnosis"]:  # 규칙 진단(AI 미호출)은 AI 조사와 비교하지 않는다
+            rows.append(f"| {sid} | - | - | 규칙 진단으로 분리(비교 제외) |")
+            continue
         cp, bp = (c["passed"] if c else 0), (b["passed"] if b else 0)
         level = (c or b)["level"]
-        if level == "L1":
+        if level == "L1" and c and b:  # 합계는 양쪽에 모두 AI로 있는 시나리오만
             cur_l1, base_l1 = cur_l1 + cp, base_l1 + bp
         flag = "회귀" if b and c and bp - cp >= REGRESSION_DROP else ""
         rows.append(f"| {sid} | {bp} → {cp} | {_dist_change(c, b)} | {flag} |")
@@ -444,6 +464,28 @@ def render(summary: dict, baseline: dict | None) -> str:
             f"L1 통과 합계: {base} → {cur} ({cur - base:+d})",
             "",
         ]
+    if summary["ai_on_rules"]:
+        out += [
+            "> 이 묶음의 일부 시나리오는 `--ai-on-rules`로 규칙 감지(경로 A)도 AI가 조사했다 "
+            f"({', '.join(summary['ai_on_rules'])}). 서비스의 기본 흐름(규칙 진단)이 아니다.",
+            "",
+        ]
+    if summary["rule_diagnosis"]:
+        out += [
+            "## 규칙 진단(AI 미호출)",
+            "",
+            "규칙이 장애를 적발해 AI 조사 없이 끝난 실행이다. 통과는 규칙 채점 기준이며 "
+            "AI 조사 집계에 넣지 않습니다. 이 묶음의 AI 조사 수치는 규칙 진단 사례를 뺀 "
+            "회차만 센 값이다.",
+            "",
+            "| 시나리오 | 규칙 통과율 | 무효 |",
+            "|---|---|---|",
+        ]
+        out += [
+            f"| {sid} | {_ci(p, n)} | {inv} |"
+            for sid, (p, n, inv) in summary["rule_diagnosis"].items()
+        ]
+        out.append("")
     if summary["rules"]:
         out += ["## 규칙 조건 (rules-only)", "", "| 시나리오 | 통과율 | 무효 |", "|---|---|---|"]
         out += [f"| {sid} | {_ci(p, n)} | {inv} |" for sid, (p, n, inv) in summary["rules"].items()]
