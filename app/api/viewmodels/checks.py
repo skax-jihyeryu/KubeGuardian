@@ -6,9 +6,11 @@
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from difflib import get_close_matches
+from functools import cache
 from typing import Any
 
 from sqlalchemy import Engine
@@ -100,6 +102,7 @@ class StepView:
     progress: tuple[int, int] | None = None  # (도구 호출 수, 문제당 예산)
     collect: list["CollectRow"] = field(default_factory=list)  # 정보 수집 단계
     rules: "RuleSummary | None" = None  # 점검 규칙 단계
+    cited_lines: list[tuple[str, list[int]]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -302,7 +305,7 @@ def build_check_detail(
         passed_text=passed_text,
         advice_text=advice_text,
         gate=_gate(d),
-        steps=_steps(d, now),
+        steps=_steps(engine, d, now),
         evidence=evidence,
         live=d.live,
         error=result.error if result else None,
@@ -376,7 +379,7 @@ def build_steps(engine: Engine, run_id: int, now: datetime) -> tuple[StepsView, 
     d = _load(engine, run_id, now)
     if d is None:
         return None
-    return _steps(d, now), d.live, d.state
+    return _steps(engine, d, now), d.live, d.state
 
 
 def _log_caption(data: dict) -> str:
@@ -948,7 +951,7 @@ def _phase_view(d: _Loaded, result: CheckResult, p: Phase, title: str) -> StepVi
 _SYMPTOM_STATUS = {"passed": "통과", "failed": "실패", "unknown": "확인하지 못함"}
 
 
-def _steps(d: _Loaded, now: datetime) -> StepsView:
+def _steps(engine: Engine, d: _Loaded, now: datetime) -> StepsView:
     check_steps = _check_steps(d)
     inv = d.investigation
     if inv is None:
@@ -969,7 +972,7 @@ def _steps(d: _Loaded, now: datetime) -> StepsView:
         check_steps,
         f"조사 과정 — {md_hm(d.started_at)} 점검 ({TRIGGER_LABEL.get(d.trigger, d.trigger)})",
         _inv_meta(d, inv, now),
-        _inv_steps(d),
+        _inv_steps(engine, d),
         None,
         _progress(d),
     )
@@ -1009,7 +1012,43 @@ def _args_text(args: dict[str, Any]) -> str:
     return ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in safe.items())
 
 
-def _inv_steps(d: _Loaded) -> list[StepView]:
+_PLAN_REFS = re.compile(r"\[\s*ev-[0-9]{4,10}(?:\s*,\s*ev-[0-9]{4,10})*\s*\]")
+
+
+def _plan_step(
+    engine: Engine, run_id: int, triage: AgentStep | None, plans: list[AgentStep]
+) -> StepView:
+    check_run_of = cache(EvidenceStore(engine).check_run_of)
+
+    def cited(text: str) -> tuple[str, list[int]]:
+        ids = []
+
+        def extract(match: re.Match[str]) -> str:
+            ids.extend(part.strip() for part in match[0][1:-1].split(","))
+            return ""
+
+        text = _PLAN_REFS.sub(extract, redact_text(text)).strip()
+        return text, [int(ev[3:]) for ev in dict.fromkeys(ids) if check_run_of(ev) == run_id]
+
+    titles = triage.detail.get("issues", []) if triage else []
+    issues = [cited(t) for t in titles if isinstance(t, str)] if isinstance(titles, list) else []
+    hypotheses = [
+        cited(hypothesis)
+        for plan in plans
+        if isinstance(items := plan.detail.get("hypotheses"), list)
+        for hypothesis in items
+        if isinstance(hypothesis, str) and hypothesis.strip()
+    ]
+    return StepView(
+        "계획",
+        " · ".join(text for text, _ in issues),
+        _step_time((plans or [triage])[0]),
+        evidence=list(dict.fromkeys(n for _, refs in issues for n in refs)),
+        cited_lines=hypotheses,
+    )
+
+
+def _inv_steps(engine: Engine, d: _Loaded) -> list[StepView]:
     steps = d.inv_steps
     running = d.inv_state == "running"
     out: list[StepView] = []
@@ -1031,16 +1070,7 @@ def _inv_steps(d: _Loaded) -> list[StepView]:
     triage = next((s for s in steps if s.node == "triage"), None)
     plans = [s for s in steps if s.node == "plan"]
     if triage is not None or plans:
-        titles = (triage.detail.get("issues") if triage else None) or []
-        summary = " ".join(f"{_CIRCLED[i]} {redact_text(str(t))}" for i, t in enumerate(titles[:9]))
-        lines = [
-            redact_text(hypothesis)
-            for plan in plans
-            if isinstance(hypotheses := plan.detail.get("hypotheses"), list)
-            for hypothesis in hypotheses
-            if isinstance(hypothesis, str) and hypothesis.strip()
-        ]
-        out.append(StepView("계획", summary, _step_time((plans or [triage])[0]), lines=lines))
+        out.append(_plan_step(engine, d.run_id, triage, plans))
     elif running:
         out.append(StepView("계획", "아직 하지 않음", state="todo"))
 
@@ -1077,9 +1107,6 @@ def _inv_steps(d: _Loaded) -> list[StepView]:
     elif running:
         out.append(StepView("보고서·검증", "아직 하지 않음", state="todo"))
     return out
-
-
-_CIRCLED = "①②③④⑤⑥⑦⑧⑨"
 
 
 def _validate_text(step: AgentStep) -> str:
