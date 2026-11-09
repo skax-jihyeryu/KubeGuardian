@@ -336,7 +336,7 @@ llm-gateway LLM 할당량 소진 (판단 확정). 위 메시지에 조치와 보
 
 | 명령 | 내용 |
 |---|---|
-| `kg check [--config <kubeguardian.yaml>] [--db <SQLite>] [--trigger check\|schedule] [--verbose]` | 규칙·기능 점검 결과를 터미널에 출력(기본은 적발·주의·요약만, `--verbose`는 통과·대상 없음까지 전체)하고 새 장애·지문 변경은 이슈와 비동기 조사 큐·알림에 연결한다. 조사 결과는 연결된 이슈 화면에서 확인한다. `--trigger schedule`은 CronJob이 쓰며, 다른 점검이 진행 중이면 실패하지 않고 건너뜀 |
+| `kg check [--config <kubeguardian.yaml>] [--db <SQLite>] [--trigger check\|schedule] [--verbose]` | 규칙·기능 점검 결과를 터미널에 출력(기본은 적발·주의·요약만, `--verbose`는 통과·대상 없음까지 전체)하고 새 장애·지문 변경은 이슈와 비동기 조사 큐·알림에 연결한다. 조사 결과는 연결된 이슈 화면에서 확인한다. `--trigger schedule`은 CronJob이 쓰며, 다른 점검이 진행 중이면 실패하지 않고 건너뜀 이슈 변화 줄은 경로 A의 새로 열림·지문 바뀜을 `(규칙 진단)`, 경로 B를 `(조사 대기)`로 보인다 (#231) |
 | `kg investigate ["<증상>"] [--config] [--db] [--trigger investigate\|schedule] [--verbose]` | 점검 뒤 증상으로 조사 게이트가 열리면(경로 B) 조사 에이전트 실행. 증상(최대 500자)을 주면 증상 조사. 조사 뒤 상태·결론 요약을 터미널에 출력. 규칙이 장애를 적발한 경로 A는 AI를 부르지 않고 규칙 기반 진단 결과(적발 규칙·위치·근거·심각도·실패한 기능)와 `규칙 감지: AI 원인 조사 생략`을 출력 |
 | `kg ask "<질문>" [--conversation <대화 ID>] [--config] [--db]` | 저장된 점검·이슈·알림 이력에 질문 (질의 채팅과 같은 에이전트, 질문 최대 500자) |
 | `kg worker [--once] [--config] [--db]` | 조사 대기 이슈를 집어 조사하고 점검 중단을 감시 (diagnostic-agent 작업자). `--once`는 한 번만 처리. 규칙 감지(경로 A) 요청이 대기열에 남아 있으면(배포 전에 쌓인 것) AI 없이 규칙 진단으로 마감 |

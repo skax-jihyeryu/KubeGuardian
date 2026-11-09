@@ -955,3 +955,46 @@ def test_check_verbose_prints_every_rule_and_target(tmp_path, capsys):
     assert "통과 " in out and "건 · 규칙" not in out
     assert "N01 노드 NotReady" in out
     assert "대상 없음" in out
+
+
+def test_check_labels_rule_detection_incident_as_rule_diagnosis(tmp_path, capsys):
+    cli.main(_args(tmp_path), make_reader=lambda cfg: FixtureReader(*raw_cluster("s01/detected")))
+    out = capsys.readouterr().out
+    assert "게이트: 경로 A" in out
+    assert "이슈 #1 새로 열림 (규칙 진단)" in out
+    assert "조사 대기" not in out
+
+
+def test_check_labels_function_failure_incident_as_waiting_for_investigation(tmp_path, capsys):
+    argv = ["check", "--config", _scenario_config(tmp_path), "--db", str(tmp_path / "kg.db")]
+    cli.main(
+        argv,
+        make_reader=lambda cfg: FixtureReader(*raw_cluster()),
+        make_http=lambda cfg: FakeHttp({("gateway", "/chat"): 500}),
+    )
+    out = capsys.readouterr().out
+    assert "게이트: 경로 B" in out
+    assert "이슈 #1 새로 열림 (조사 대기)" in out
+
+
+def test_check_labels_changed_incident_by_gate_path(tmp_path, capsys):
+    from types import SimpleNamespace as NS
+
+    from service.alerts.incidents import IncidentChange
+
+    def lines(path):
+        out = NS(
+            run_id=1,
+            snapshot=NS(
+                namespace="dev", collected_at=__import__("datetime").datetime(2026, 1, 1), failed={}
+            ),
+            signals=[],
+            gate=NS(path=path, severity=None, reason=""),
+            symptoms=[],
+            incidents=[IncidentChange(1, "changed", "critical")],
+        )
+        cli.print_outcome(out)
+        return capsys.readouterr().out
+
+    assert "지문 바뀜 (규칙 진단)" in lines("A")
+    assert "지문 바뀜 (같은 이슈에서 재조사)" in lines("B")
