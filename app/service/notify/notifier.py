@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from core.config import KubeGuardianConfig
 from core.db import AlertStore, CheckRunStore, IncidentAckStore, IncidentStore
+from core.db.alerts import Alert
 from core.db.incidents import Incident
 from core.db.tables import AlertRow, CheckResultRow
 from core.error.service_exception import ServiceException
@@ -79,7 +80,7 @@ class Notifier:
             if change.action == "opened":
                 self._first_alert(incident, gate.reason, run_id, now)
             elif change.action == "changed":
-                self._changed(incident, gate.reason, run_id, now)
+                self._changed(incident, gate.reason, run_id, now, change.escalated)
             elif change.action == "continued":
                 if not self._thread(incident):  # 1차 알림이 실패했거나 dry-run이었다 → 다시 보낸다
                     self._first_alert(incident, gate.reason, run_id, now)
@@ -226,13 +227,15 @@ class Notifier:
         if ts:
             self._incidents.set_slack_ts(incident.id, ts)
 
-    def _changed(self, incident: Incident, reason: str, run_id: int, now: datetime) -> None:
+    def _changed(
+        self, incident: Incident, reason: str, run_id: int, now: datetime, escalated: bool = False
+    ) -> None:
         thread = self._thread(incident)
         if thread is None:
             self._first_alert(incident, reason, run_id, now)  # 전에는 알리지 않던 심각도로 바뀜
             return
         text = messages.changed_alert(
-            self._ns, incident, reason, run_id, now, self._url, self._owners(incident)
+            self._ns, incident, reason, run_id, now, self._url, self._owners(incident), escalated
         )
         self._update("M1u", incident, thread, text, now)
         self._call_new_owners(incident, thread, now)
@@ -274,7 +277,8 @@ class Notifier:
     def _maybe_remind(self, incident: Incident, now: datetime) -> None:
         slack = self._config.slack
         policy = slack.reminders.get(incident.first_severity) if slack else None  # type: ignore[arg-type]
-        first = self._alerts.first_sent(incident.id, "M1")
+        alerts = self._alerts.for_incident(incident.id)
+        first = _severity_start(alerts, incident.first_severity)
         thread = self._thread(incident)
         if policy is None or first is None or thread is None:
             return
@@ -285,10 +289,11 @@ class Notifier:
             policy.require_ack and not self._ack_enabled
         ):  # 확인할 수단이 없다 → 끝없이 울리지 않는다
             limit = NO_ACK_REMINDER_CAP if limit is None else min(limit, NO_ACK_REMINDER_CAP)
-        sent = self._alerts.count(incident.id, "M2")
+        reminders = [a for a in alerts if a.kind == "M2" and not a.error and a.id > first.id]
+        sent = len(reminders)
         if (limit is not None and sent >= limit) or (sent and policy.then_every is None):
             return
-        last = self._alerts.last_sent_for(incident.id, "M2")
+        last = reminders[-1] if reminders else None
         # 밀린 리마인드가 연달아 나가지 않게 다음 시각은 마지막 M2 기준이다
         due = (
             last.sent_at + parse_duration(policy.then_every or "0m")
@@ -359,3 +364,16 @@ class Notifier:
             dry_run=self._sender.dry_run,
             error=error,
         )
+
+
+def _severity_start(alerts: list[Alert], severity: str | None) -> Alert | None:
+    """현재 심각도로 처음 보낸 M1·M1u. 상승했으면 상승 때의 갱신이 리마인드 기준이다."""
+    prefix = messages.severity_prefix(severity)
+    return next(
+        (
+            a
+            for a in alerts
+            if a.kind in ("M1", "M1u") and not a.error and a.text.startswith(prefix)
+        ),
+        None,
+    )

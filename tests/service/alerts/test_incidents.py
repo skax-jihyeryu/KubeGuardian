@@ -15,13 +15,13 @@ def engine(tmp_path):
     return create_db_engine(tmp_path / "kg.db")
 
 
-def _sig(rule="S01", service="agent", verdict="detected", subject=None):
+def _sig(rule="S01", service="agent", verdict="detected", subject=None, severity="critical"):
     return Signal(
         rule_id=rule,
         verdict=verdict,
         subject=subject or f"dev/Service/{service}",
         service=service,
-        severity="critical" if verdict == "detected" else None,
+        severity=severity if verdict == "detected" else None,
     )
 
 
@@ -84,6 +84,38 @@ def test_same_fingerprint_continues_without_investigation(engine):
         False,
     )
     assert len(IncidentStore(engine).open_incidents()) == 1
+
+
+def test_severity_escalation_with_same_fingerprint_is_changed(engine):
+    checks = Checks(engine)
+    [first] = checks.run([_sig(severity="warning")])
+
+    [esc] = checks.run([_sig(severity="critical")])
+
+    assert (esc.action, esc.incident_id, esc.severity, esc.needs_investigation) == (
+        "changed",
+        first.incident_id,
+        "critical",
+        True,
+    )
+    assert esc.escalated
+    assert IncidentStore(engine).get(first.incident_id).first_severity == "critical"
+    [again] = checks.run([_sig(severity="critical")])
+    assert again.action == "continued"  # 올라간 뒤에는 같은 심각도라 다시 갱신하지 않는다
+
+
+def test_severity_decrease_with_same_fingerprint_continues_and_keeps_severity(engine):
+    checks = Checks(engine)
+    [first] = checks.run([_sig(severity="critical")])
+
+    [down] = checks.run([_sig(severity="warning")])
+
+    assert (down.action, down.severity, down.needs_investigation) == (
+        "continued",
+        "critical",
+        False,
+    )
+    assert IncidentStore(engine).get(first.incident_id).first_severity == "critical"
 
 
 def test_changed_fingerprint_on_same_feature_reinvestigates_same_incident(engine):

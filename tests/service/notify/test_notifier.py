@@ -483,11 +483,11 @@ def test_changed_fingerprint_update_keeps_button(env):
     assert _buttons(sender.updates[-1]["blocks"])
 
 
-def _owner_env(tmp_path, mention=None, owners=None):
+def _owner_env(tmp_path, mention=None, owners=None, reminders=None):
     slack = {
         "alert_target": "C0123456789",
         "owners": owners if owners is not None else {"agent": ["U0123456789"]},
-        "reminders": {"critical": {"first_after": "30m", "then_every": "30m"}},
+        "reminders": reminders or {"critical": {"first_after": "30m", "then_every": "30m"}},
     }
     if mention is not None:
         slack["mention"] = mention
@@ -572,9 +572,29 @@ def test_changed_alert_update_keeps_mention(tmp_path):
 def test_escalation_to_critical_calls_owner_in_thread_reply(tmp_path):
     _, sender, check, _ = _owner_env(tmp_path, mention=["critical"])
     check([_sig(severity="warning")], NOW)
-    check([_sig(), _sig(rule="S02")], NOW + timedelta(minutes=5))  # 지문이 바뀌어야 갱신된다
+    check([_sig(), _sig(rule="S02")], NOW + timedelta(minutes=5))  # 지문이 바뀐 경우
     [reply] = [p for p in sender.posts if p["thread"]]
     assert "<@U0123456789>" in reply["text"]
+
+
+def test_escalation_with_same_fingerprint_updates_m1_and_calls_owner_once(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path, mention=["critical"])
+    check([_sig(severity="warning")], NOW)
+    assert "<@U0123456789>" not in sender.posts[0]["text"]
+    check([_sig(severity="critical")], NOW + timedelta(minutes=5))  # 지문 그대로, 심각도만 상승
+    assert sender.updates and "<@U0123456789>" in sender.updates[-1]["text"]
+    [reply] = [p for p in sender.posts if p["thread"]]
+    assert "<@U0123456789>" in reply["text"]
+    check([_sig(severity="critical")], NOW + timedelta(minutes=10))  # 이어짐: 다시 부르지 않는다
+    assert len([p for p in sender.posts if p["thread"]]) == 1
+
+
+def test_severity_decrease_with_same_fingerprint_sends_nothing(tmp_path):
+    _, sender, check, _ = _owner_env(tmp_path, mention=["critical"])
+    check([_sig(severity="critical")], NOW)
+    posts, updates = len(sender.posts), len(sender.updates)
+    check([_sig(severity="warning")], NOW + timedelta(minutes=5))
+    assert (len(sender.posts), len(sender.updates)) == (posts, updates)
 
 
 def test_joined_service_calls_only_new_owner(tmp_path):
@@ -694,3 +714,36 @@ def test_secrets_in_report_do_not_reach_first_post_when_no_thread(tmp_path):
 
     assert sender.posts[0]["blocks"]
     _assert_no_secrets(sender, engine, c.incident_id)
+
+
+def _m2(sender):
+    return [p for p in sender.posts if p["text"].startswith("⏰")]
+
+
+def test_reminder_after_escalation_counts_from_escalation_not_first_warning(tmp_path):
+    reminders = {
+        "warning": {"first_after": "2h", "max": 1},
+        "critical": {"first_after": "30m", "then_every": "30m"},
+    }
+    engine, sender, check, config = _owner_env(tmp_path, reminders=reminders)
+    check([_sig(severity="warning")], NOW)
+    check([_sig(severity="critical")], NOW + timedelta(minutes=40))  # 지문 그대로, 상승
+    notifier = Notifier(engine, config, sender)
+    notifier.check_reminders(NOW + timedelta(minutes=45))  # 경고 M1 기준이면 이미 지났다
+    assert _m2(sender) == []
+    notifier.check_reminders(NOW + timedelta(minutes=71))  # 상승 + 30분
+    assert len(_m2(sender)) == 1
+
+
+def test_reminder_after_escalation_ignores_m2_sent_while_warning(tmp_path):
+    reminders = {"warning": {"first_after": "1h", "max": 1}, "critical": {"first_after": "30m"}}
+    engine, sender, check, config = _owner_env(tmp_path, reminders=reminders)
+    check([_sig(severity="warning")], NOW)
+    notifier = Notifier(engine, config, sender)
+    notifier.check_reminders(NOW + timedelta(hours=1))  # 주의 M2
+    assert len(_m2(sender)) == 1
+    check([_sig(severity="critical")], NOW + timedelta(hours=1, minutes=10))
+    notifier.check_reminders(NOW + timedelta(hours=1, minutes=41))  # 긴급 first_after 지남
+    assert len(_m2(sender)) == 2
+    notifier.check_reminders(NOW + timedelta(hours=3))  # then_every 없음 → 더는 없다
+    assert len(_m2(sender)) == 2
