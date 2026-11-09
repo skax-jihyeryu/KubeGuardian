@@ -24,7 +24,8 @@
 .btn-sm{height:30px}
 .crow,.irow{padding:12px 20px 12px 24px}
 .crow .l1{flex-wrap:wrap;row-gap:4px}
-.crow .t{font-size:14px}
+.crow .t{font-size:14px;white-space:nowrap}
+.crow .rel{min-width:0;white-space:normal;overflow-wrap:anywhere;text-align:right}
 .crow .l2{font-size:14px;line-height:22px;margin:4px 0 2px}
 .crow .l2 .sum{white-space:normal;overflow-wrap:anywhere}
 .crow:not(.sel):hover,.irow:not(.sel):hover{background:var(--bg)}
@@ -86,6 +87,10 @@ details.stp>.sbody{padding-left:22px}
   .lhead,.filters,.crow,.irow{padding-inline:14px}
   .crow .l2{flex-wrap:wrap}
   .crow .l2 .sum{flex-basis:9rem}
+  .stp>summary.hd{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:2px 8px}
+  .stp>summary.hd b{min-width:0}
+  .stp>summary.hd .sum{grid-column:2/-1;grid-row:2}
+  .stp>summary.hd .tm{grid-column:3;grid-row:1}
   .tbl th,.tbl td,.tbl.dense td{padding:6px}
 }
 .chat{position:fixed;top:96px;max-width:100%;height:calc(100dvh - 96px)}
