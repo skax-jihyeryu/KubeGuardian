@@ -6,11 +6,11 @@ from datetime import datetime, timedelta
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from api.timefmt import hm
 from core.config import KubeGuardianConfig
 from core.db import CheckLockStore, CheckResultStore, CheckRunStore, IncidentStore
 from core.db.tables import CheckRunRow
 from core.schedule import next_check, stalled_after
+from web.timefmt import hm
 
 CLUSTER_LABEL = "minikube"  # 프로젝트 표시는 지금 고정 값이다
 

@@ -5,11 +5,11 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from api.router import api_router
-from api.routes import chat_pages, checks, issues, pages, setup
-from api.web import STATIC_DIR
 from core.config import get_setting
 from core.error.error_handler import set_error_handlers
 from core.log.logging import get_logging
+from web.rendering import STATIC_DIR
+from web.routes import chat_pages, checks, issues, pages, setup
 
 settings = get_setting()
 logger = get_logging()

@@ -10,17 +10,17 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import Engine
 
-from api import timefmt
-from api.deps import get_config, get_engine, get_now
-from api.viewmodels.shell import Shell
 from core.config import KubeGuardianConfig
 from core.guard.redact import redact_text
+from deps import get_config, get_engine, get_now
+from web import timefmt
+from web.viewmodels.shell import Shell
 
-API_DIR = Path(__file__).parent
-STATIC_DIR = API_DIR / "static"
+WEB_DIR = Path(__file__).parent
+STATIC_DIR = WEB_DIR / "static"
 
 # autoescape를 켠다. 로그·LLM 문자열을 |safe로 내보내지 않는다 (Review Focus 1)
-_env = Environment(loader=FileSystemLoader(API_DIR / "templates"), autoescape=True)
+_env = Environment(loader=FileSystemLoader(WEB_DIR / "templates"), autoescape=True)
 _env.filters.update(
     hm=timefmt.hm,
     hms=timefmt.hms,

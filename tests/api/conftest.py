@@ -1,9 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from api.deps import get_config, get_engine, get_now
 from core.config import KubeGuardianConfig
 from core.db import create_db_engine
+from deps import get_config, get_engine, get_now
 from main import create_app
 from tests.api.seed import at
 

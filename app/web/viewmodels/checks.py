@@ -15,9 +15,6 @@ from typing import Any
 
 from sqlalchemy import Engine
 
-from api.timefmt import hms, md_hm, seconds_text
-from api.viewmodels.setup import STAGES
-from api.viewmodels.shell import IMPACT, SEVERITY
 from core.config import KubeGuardianConfig
 from core.db import (
     CheckLockStore,
@@ -37,8 +34,19 @@ from core.guard.redact import redact_mapping, redact_text
 from service.agent.base import AgentStep
 from service.agent.investigator.v1.config import SPEC
 from service.checks.detectors._common import container_statuses
-from service.checks.detectors.catalog import CATALOG
 from service.model import JUDGEMENT_LABEL, ClusterSnapshot
+from web.timefmt import hms, md_hm, seconds_text
+from web.viewmodels.common import Sev, evidence_numbers, limited_names
+from web.viewmodels.rule_report import (
+    RULE_STATUS,
+    Item,
+    RuleReport,
+    RuleSummary,
+    build_check_findings,
+    build_rule_report,
+    rule_summary,
+)
+from web.viewmodels.shell import IMPACT, SEVERITY
 
 STALE_INVESTIGATION_MINUTES = 10  # worker.STALE_CLAIM과 같다. 이보다 오래 running이면 멈춘 조사
 TRIGGER_LABEL = {
@@ -69,12 +77,6 @@ RAW_LIMIT = 50_000  # 서랍에 보이는 원문 길이 상한
 
 
 @dataclass(frozen=True)
-class Sev:
-    key: str  # crit / warn / risk / tip
-    label: str
-
-
-@dataclass(frozen=True)
 class IssueLink:
     id: int
     label: str  # 열림 / 이어짐 / 재조사 / 확인 / 해결
@@ -101,7 +103,7 @@ class StepView:
     state: str = "done"  # done / cur / todo
     progress: tuple[int, int] | None = None  # (도구 호출 수, 문제당 예산)
     collect: list["CollectRow"] = field(default_factory=list)  # 정보 수집 단계
-    rules: "RuleSummary | None" = None  # 점검 규칙 단계
+    rules: RuleSummary | None = None  # 점검 규칙 단계
     cited_summary: list[tuple[str, list[int]]] = field(default_factory=list)
     cited_lines: list[tuple[str, list[int]]] = field(default_factory=list)
 
@@ -116,17 +118,6 @@ class StepsView:
     investigation_steps: list[StepView]
     investigation_na: str | None  # 조사가 없을 때 이유
     progress: tuple[int, int] | None  # 조사 중이면 (도구 호출 수, 문제당 예산)
-
-
-@dataclass(frozen=True)
-class Item:
-    name: str  # "점검 규칙 W02" / "기능 점검 chat"
-    status: str  # 적발 / 관찰 중 / 확인하지 못함 / 실패
-    text: str
-    css: str  # 상태색 (c-crit ...)
-    unknown: bool
-    evidence: list[int] = field(default_factory=list)
-    values: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -182,7 +173,7 @@ class CheckDetail:
     live: bool
     error: str | None
     corrections: list["Correction"] = field(default_factory=list)
-    rule_report: Any = None  # 규칙 기반 진단 결과 (RuleReport, AI 조사가 없을 때만, #185)
+    rule_report: RuleReport | None = None  # AI 조사가 없을 때만 (#185)
 
 
 @dataclass(frozen=True)
@@ -287,13 +278,11 @@ def build_check_detail(
     *,
     config: KubeGuardianConfig | None = None,
 ) -> CheckDetail | None:
-    from api.viewmodels.rule_report import build_rule_report  # rule_report가 이 모듈을 읽는다
-
     d = _load(engine, run_id, now)
     if d is None:
         return None
     result = d.result
-    items, passed_text, advice_text = _judge(result) if result else ([], None, None)
+    items, passed_text, advice_text = build_check_findings(result) if result else ([], None, None)
     evidence = _evidence_rows(engine, d)
     return CheckDetail(
         run_id=run_id,
@@ -527,89 +516,6 @@ def _header(d: _Loaded, items: list[Item], now: datetime) -> Header:
     )
 
 
-# ── 판정 ────────────────────────────────────────────────────────
-
-_RULE_STATUS = {"detected": "적발", "observing": "관찰 중", "unknown": "확인하지 못함"}
-
-
-def _judge(result: CheckResult) -> tuple[list[Item], str | None, str | None]:
-    from api.viewmodels.rule_report import format_values  # rule_report가 이 모듈을 읽는다
-
-    items: list[Item] = []
-    passed = rules_run = advice = 0
-    for rule in result.verdicts:
-        rid = rule.get("rule_id", "")
-        spec = CATALOG.get(rid)
-        is_advice = spec is not None and spec.grade == "advice"
-        if not is_advice:
-            rules_run += 1
-            passed += int(rule.get("passed", 0))
-        for it in rule.get("items", []):
-            verdict = it.get("verdict")
-            if is_advice and verdict == "detected":
-                advice += 1
-                continue
-            sev = SEVERITY.get(it.get("severity") or "")
-            ev = _ev_numbers([it.get("evidence_id")])
-            items.append(
-                Item(
-                    name=f"점검 규칙 {rid}",
-                    status=_RULE_STATUS.get(verdict, str(verdict)),
-                    text=_item_text(spec.name if spec else "", it),
-                    css="c-run" if verdict == "unknown" else f"c-{sev[0]}" if sev else "c-warn",
-                    unknown=verdict == "unknown",
-                    evidence=ev,
-                    values=format_values(
-                        rid if verdict == "detected" else "",
-                        redact_mapping(it.get("values") or {}),
-                    )
-                    + (
-                        [("입력 정보", "; ".join(f"{k} ({f})" for k, f in spec.inputs))]
-                        if spec
-                        else []
-                    ),
-                )
-            )
-    features_passed: list[str] = []
-    for s in result.symptoms:
-        status = s.get("status")
-        if status == "passed":
-            features_passed.append(str(s.get("scenario")))
-            continue
-        failed = status == "failed"
-        items.append(
-            Item(
-                name=f"기능 점검 {s.get('scenario')}",
-                status="실패" if failed else "확인하지 못함",
-                text=redact_text(str(s.get("summary", ""))),
-                css="c-crit" if failed else "c-run",
-                unknown=not failed,
-                evidence=_ev_numbers([s.get("evidence_id")]),
-            )
-        )
-    parts = []
-    if rules_run:
-        parts.append(f"점검 규칙 통과 {passed}건 (장애 신호 점검 규칙 {rules_run}개)")
-    if features_passed:
-        parts.append(f"기능 점검 통과 {len(features_passed)}건 ({', '.join(features_passed)})")
-    return items, " · ".join(parts) or None, f"개선 권고 {advice}건" if advice else None
-
-
-def _item_text(rule_name: str, it: dict[str, Any]) -> str:
-    subject = it.get("subject", "")
-    message = it.get("message", "")
-    head = f"{rule_name} — {subject}" if rule_name else str(subject)
-    return redact_text(f"{head} — {message}" if message else head)
-
-
-def _ev_numbers(ids: list[Any]) -> list[int]:
-    out = []
-    for ev in ids:
-        if isinstance(ev, str) and ev.startswith("ev-") and ev[3:].isdigit():
-            out.append(int(ev[3:]))
-    return out
-
-
 # ── 조사 판단 ───────────────────────────────────────────────────
 
 
@@ -711,12 +617,6 @@ def _pod_base_name(pod: dict[str, Any]) -> str:
     return _name(pod)
 
 
-def _limited(names: list[str], limit: int = NAME_LIMIT) -> tuple[str, ...]:
-    if len(names) <= limit:
-        return tuple(names)
-    return (*names[:limit], f"외 {len(names) - limit}개")
-
-
 def _pod_state(pod: dict[str, Any]) -> str:
     """ready / not_ready / unknown / done / terminating."""
     if (pod.get("status") or {}).get("phase") == "Succeeded":
@@ -749,7 +649,7 @@ def _pod_row(pods: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
             parts.append(f"{label} {counts[key]}")
     parts.append(f"재시작 {restarts}")
     names = [f"{n} ×{c}" if c > 1 else n for n, c in groups.items()]
-    return " · ".join(parts), _limited(names)
+    return " · ".join(parts), limited_names(names, NAME_LIMIT)
 
 
 def _deployment_row(deployments: list[dict[str, Any]]) -> tuple[str, tuple[str, ...]]:
@@ -770,7 +670,7 @@ def _deployment_row(deployments: list[dict[str, Any]]) -> tuple[str, tuple[str, 
         text += f" · 부족 {len(short)} ({', '.join(short)})"
     if unknown:
         text += f" · 확인 불가 {unknown}"
-    return text, _limited([_name(d) for d in deployments])
+    return text, limited_names([_name(d) for d in deployments], NAME_LIMIT)
 
 
 def collect_summary(snapshot: ClusterSnapshot | None) -> list[CollectRow]:
@@ -800,7 +700,7 @@ def collect_summary(snapshot: ClusterSnapshot | None) -> list[CollectRow]:
         elif kind == "Service":
             no_selector = sum(1 for s in items if not (s.get("spec") or {}).get("selector"))
             status = f"selector 없음 {no_selector}" if no_selector else ""
-            names = _limited([_name(s) for s in items])
+            names = limited_names([_name(s) for s in items], NAME_LIMIT)
         elif kind == "Node":
             states = [_condition(n, "Ready") for n in items]
             parts = [f"Ready {states.count(True)}"]
@@ -809,120 +709,9 @@ def collect_summary(snapshot: ClusterSnapshot | None) -> list[CollectRow]:
             if states.count(None):
                 parts.append(f"확인 불가 {states.count(None)}")
             status = " · ".join(parts)
-            names = _limited([_name(n) for n in items])
+            names = limited_names([_name(n) for n in items], NAME_LIMIT)
         rows.append(CollectRow(kind, len(items), status, names, None, primary))
     return rows
-
-
-ADVICE_LIMIT = 6
-
-
-def _advice_action(rid: str, values: dict[str, Any]) -> str:
-    """개선 권고의 조치 문구. 판정 조건(values)에 맞춘다. 문구가 없는 규칙은 빈 문자열."""
-    if rid == "H01":
-        if values.get("probe") is None:
-            return "준비 상태 검사가 없습니다"
-        return "준비 상태 검사가 포트만 확인합니다"
-    if rid == "H02":
-        missing = ", ".join(str(m) for m in values.get("missing") or [])
-        return "CPU·메모리 요청·제한 일부가 없습니다" + (f": {missing}" if missing else "")
-    return ""
-
-
-@dataclass(frozen=True)
-class RuleFinding:
-    status: str  # 적발 / 확인하지 못함 / 관찰 중
-    rule_name: str
-    rule_id: str
-    subject: str
-    message: str
-
-
-@dataclass(frozen=True)
-class AdviceLine:
-    rule_name: str
-    rule_id: str
-    action: str
-    targets: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class StagePass:
-    name: str
-    passed: tuple[str, ...]  # 항목이 없고 통과 대상이 있던 규칙 이름
-    no_target: tuple[str, ...] = ()  # 확인할 대상이 없던 규칙 이름
-
-
-@dataclass(frozen=True)
-class RuleSummary:
-    findings: tuple[RuleFinding, ...] = ()
-    advice: tuple[AdviceLine, ...] = ()
-    stages: tuple[StagePass, ...] = ()
-    developer_lines: tuple[str, ...] = ()
-    excluded: tuple[str, ...] = ()
-
-    def __bool__(self) -> bool:
-        return bool(
-            self.findings or self.advice or self.stages or self.developer_lines or self.excluded
-        )
-
-
-def _rule_name(rid: str) -> str:
-    spec = CATALOG.get(rid)
-    return spec.name if spec else rid
-
-
-def rule_summary(result: CheckResult) -> RuleSummary:
-    """규칙 결과를 적발 → 확인하지 못함·관찰 중 → 단계별 통과 → 개선 권고 순서 값으로 만든다."""
-    findings: list[RuleFinding] = []
-    advice: dict[tuple[str, str], list[str]] = {}
-    developer: list[str] = []
-    state: dict[str, str] = {}  # 규칙 ID → items / pass / no_target
-    for rule in result.verdicts:
-        rid = rule.get("rule_id", "")
-        spec = CATALOG.get(rid)
-        if spec:
-            developer.append(f"{rid} 입력: " + "; ".join(f"{k} ({f})" for k, f in spec.inputs))
-        items = rule.get("items", [])
-        state[rid] = (
-            "items" if items else "pass" if rule.get("passed", 1) else "no_target"
-        )  # passed 필드가 없는 옛 결과는 통과
-        for it in items:
-            verdict = it.get("verdict")
-            if spec and spec.grade == "advice" and verdict == "detected":
-                values = it.get("values") or {}
-                target = str(it.get("service") or it.get("subject", ""))
-                targets = advice.setdefault((rid, _advice_action(rid, values)), [])
-                if target not in targets:
-                    targets.append(target)
-                continue
-            findings.append(
-                RuleFinding(
-                    _RULE_STATUS.get(verdict, str(verdict)),
-                    _rule_name(rid),
-                    rid,
-                    str(it.get("subject", "")),
-                    str(it.get("message", "")),
-                )
-            )
-    findings.sort(key=lambda f: 0 if f.status == "적발" else 1)  # 안정 정렬: 나머지는 원래 순서
-    stages = []
-    for name, ids in STAGES:
-        ran = [r for r in ids if r in state]
-        passed = tuple(_rule_name(r) for r in ran if state[r] == "pass")
-        no_target = tuple(_rule_name(r) for r in ran if state[r] == "no_target")
-        if passed or no_target:
-            stages.append(StagePass(name, passed, no_target))
-    return RuleSummary(
-        tuple(findings),
-        tuple(
-            AdviceLine(_rule_name(rid), rid, action, _limited(targets, ADVICE_LIMIT))
-            for (rid, action), targets in advice.items()
-        ),
-        tuple(stages),
-        tuple(developer),
-        tuple(_rule_name(r) for r in result.excluded_rules),
-    )
 
 
 def _phase_view(d: _Loaded, result: CheckResult, p: Phase, title: str) -> StepView:
@@ -943,7 +732,7 @@ def _phase_view(d: _Loaded, result: CheckResult, p: Phase, title: str) -> StepVi
             (
                 f"{s.get('scenario')}",
                 f"{s.get('summary', '')} ({_SYMPTOM_STATUS.get(s.get('status'), '')})",
-                _ev_numbers([s.get("evidence_id")]),
+                evidence_numbers([s.get("evidence_id")]),
             )
             for s in result.symptoms
         ]
@@ -1060,7 +849,7 @@ def _inv_steps(engine: Engine, d: _Loaded) -> list[StepView]:
 
     pre = next((s for s in steps if s.node == "preliminary"), None)
     if pre is not None:
-        ev = _ev_numbers(pre.evidence_ids)
+        ev = evidence_numbers(pre.evidence_ids)
         out.append(
             StepView(
                 "사전 확인",
@@ -1083,7 +872,7 @@ def _inv_steps(engine: Engine, d: _Loaded) -> list[StepView]:
     budget = SPEC.budget.per_issue_tool_calls
     if tools or (running and (pre is not None or plans)):
         calls = [
-            Call(s.tool or "?", _args_text(s.args), _ev_numbers(s.evidence_ids)) for s in tools
+            Call(s.tool or "?", _args_text(s.args), evidence_numbers(s.evidence_ids)) for s in tools
         ]
         evidence = [n for c in calls for n in c.evidence]
         out.append(
@@ -1140,11 +929,11 @@ def _evidence_rows(engine: Engine, d: _Loaded) -> list[EvidenceRow]:
             "사전 확인" if s.node == "preliminary" else "가설 검증" if s.node == "tools" else None
         )
         if label:
-            for n in _ev_numbers(s.evidence_ids):
+            for n in evidence_numbers(s.evidence_ids):
                 stage_of.setdefault(n, label)
     if d.result:
         for sym in d.result.symptoms:
-            for n in _ev_numbers([sym.get("evidence_id")]):
+            for n in evidence_numbers([sym.get("evidence_id")]):
                 stage_of.setdefault(n, "기능 점검")
     rows = []
     for ev in EvidenceStore(engine).list_for_run(d.run_id, limit=EVIDENCE_LIMIT):
@@ -1171,7 +960,7 @@ def _evidence_summary(kind: str, data: dict[str, Any]) -> str:
     if data.get("error"):
         text = f"조회 실패: {data['error']}"
     elif kind == "detector":
-        parts = [_RULE_STATUS.get(data.get("verdict"), ""), str(data.get("message") or "")]
+        parts = [RULE_STATUS.get(data.get("verdict"), ""), str(data.get("message") or "")]
         text = " · ".join(p for p in parts if p) or text
     elif kind == "app_api":
         if "scenario" in data and isinstance(data.get("steps"), list) and "failed_step" in data:

@@ -5,9 +5,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy import Engine
 
-from api.deps import get_config, get_engine, get_llm_factory
 from api.schemas.chat import ChatMessageIn
 from core.config import KubeGuardianConfig
+from deps import get_config, get_engine, get_llm_factory
 from service.agent.base import LlmFactory
 from service.chat import ChatReply, answer_question
 

@@ -130,8 +130,8 @@ def test_issue_filters_survive_selection(client, engine):
 
 
 def test_timeline_reminder_splits_continued_group(client, engine, clock):
-    from api.viewmodels.issues import build_issue_detail
     from tests.api.seed import link_incident
+    from web.viewmodels.issues import build_issue_detail
 
     run = make_run(engine)
     inc = open_incident(engine, run)
@@ -162,8 +162,8 @@ def test_list_title_is_top_issue_title_but_search_finds_conclusion(client, engin
 
 
 def test_list_title_falls_back_without_issues_or_report(client, engine):
-    from api.viewmodels.issues import issue_row
     from core.db import IncidentStore
+    from web.viewmodels.issues import issue_row
 
     run = make_run(engine)
     inc = open_incident(engine, run)
@@ -326,7 +326,7 @@ def test_failed_old_investigation_has_no_fold(client, engine):
 
 
 def test_timeline_shows_message_name_not_number(client, engine, clock):
-    from api.viewmodels.issues import build_issue_detail
+    from web.viewmodels.issues import build_issue_detail
 
     run = make_run(engine)
     inc = open_incident(engine, run)
@@ -342,7 +342,7 @@ def test_timeline_shows_message_name_not_number(client, engine, clock):
 
 
 def _timeline_text(engine, clock, stored):
-    from api.viewmodels.issues import build_issue_detail
+    from web.viewmodels.issues import build_issue_detail
 
     inc = open_incident(engine, make_run(engine))
     AlertStore(engine).add(kind="M1", channel="C", text=stored, sent_at=at(10), incident_id=inc)
@@ -372,7 +372,7 @@ def test_timeline_redacts_after_restoring_escapes(engine, clock, stored):
 
 
 def test_timeline_labels_ack_message(engine, clock):
-    from api.viewmodels.issues import ALERT_LABEL, build_issue_detail
+    from web.viewmodels.issues import ALERT_LABEL, build_issue_detail
 
     inc = open_incident(engine, make_run(engine))
     AlertStore(engine).add(

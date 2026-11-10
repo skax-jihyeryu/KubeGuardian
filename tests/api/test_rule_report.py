@@ -207,8 +207,8 @@ def test_timeline_ai_skip_wording_only_for_non_rule_checks(client, engine):
 
 
 def _s04_report(engine, values, *, severity="critical", check_detail=False):
-    from api.viewmodels.rule_report import build_rule_report
     from core.db.check_results import CheckResultStore
+    from web.viewmodels.rule_report import build_rule_report
 
     run = make_run(engine)
     finish_check(
@@ -232,9 +232,9 @@ def _s04_report(engine, values, *, severity="critical", check_detail=False):
     )
     result = CheckResultStore(engine).get(run)
     if check_detail:
-        from api.viewmodels.checks import _judge
+        from web.viewmodels.rule_report import build_check_findings
 
-        return _judge(result)[0][0].values
+        return build_check_findings(result)[0][0].values
     return build_rule_report(result)
 
 
@@ -335,7 +335,7 @@ def test_s04_port_mismatch_and_localhost_do_not_claim_missing_service(engine):
 
 
 def _fmt(rule, values):
-    from api.viewmodels.rule_report import format_values
+    from web.viewmodels.rule_report import format_values
 
     return dict(format_values(rule, values))
 

@@ -1,7 +1,7 @@
 import pytest
 
-from api.viewmodels.checks import build_check_detail
 from tests.api.seed import add_evidence, at, finish_check, make_run
+from web.viewmodels.checks import build_check_detail
 
 
 @pytest.mark.parametrize(

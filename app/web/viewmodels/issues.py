@@ -7,15 +7,6 @@ from datetime import datetime
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from api.timefmt import hm
-from api.viewmodels.checks import (
-    ACTION_LABEL,
-    STALE_INVESTIGATION_MINUTES,
-    TRIGGER_LABEL,
-    Sev,
-)
-from api.viewmodels.rule_report import RuleReport, build_rule_report
-from api.viewmodels.shell import IMPACT, SEVERITY
 from core.db import (
     AlertStore,
     CheckResultStore,
@@ -30,6 +21,15 @@ from core.db.incidents import Incident
 from core.db.investigations import Investigation
 from core.db.tables import IncidentCheckRow
 from core.guard.redact import redact_text
+from web.timefmt import hm
+from web.viewmodels.checks import (
+    ACTION_LABEL,
+    STALE_INVESTIGATION_MINUTES,
+    TRIGGER_LABEL,
+)
+from web.viewmodels.common import Sev
+from web.viewmodels.rule_report import RuleReport, build_rule_report
+from web.viewmodels.shell import IMPACT, SEVERITY
 
 # 알림 kind(M 번호는 코드·DB 식별자)를 화면에 보이는 이름으로
 ALERT_LABEL = {

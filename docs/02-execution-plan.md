@@ -51,14 +51,19 @@ F 목록 밖 수정은 기동에 꼭 필요한 것만 했다: frontend `pnpm@9`,
 
 ```text
 KubeGuardian/
-├── app/                       # Python 루트 (import는 app/ 기준: from core.config import ...). 템플릿 backend-agent 규약: api / service / core
-│   ├── main.py                # FastAPI 앱 진입 (보고서 화면)
+├── app/                       # Python 루트 (import는 app/ 기준: from core.config import ...)
+│   ├── main.py                # FastAPI 앱 진입 (JSON API와 보고서 화면)
+│   ├── deps.py                # API와 화면이 공유하는 FastAPI 의존성
 │   ├── cli.py                 # kg check / investigate / report / evidence / alerts (CronJob·평가 러너 진입)
-│   ├── api/                   # ── 진입점: 요청을 받아 service를 호출 ──
-│   │   ├── routes/            #   보고서 화면 라우트(점검·이슈·점검 구성·근거), 점검 실행 (UI 정의서 §6.3)
-│   │   ├── templates/         #   Jinja2 템플릿, HTMX 조각
-│   │   ├── schemas/           #   요청·응답·화면 표시 모델
+│   ├── api/                   # ── JSON API (/api/v1) ──
+│   │   ├── routes/            #   헬스 체크, 이력 질의 API
+│   │   ├── schemas/           #   JSON API 스키마
 │   │   └── slack/             #   (확장 후보) Slack 명령 수신. 10/31 제외
+│   ├── web/                   # ── 서버에서 렌더링하는 웹 화면 ──
+│   │   ├── routes/            #   점검·이슈·설정·채팅 화면
+│   │   ├── viewmodels/        #   화면 표시용 데이터
+│   │   ├── templates/         #   Jinja2 템플릿, HTMX 조각
+│   │   └── static/            #   CSS, JavaScript, 이미지
 │   ├── service/               # ── 업무 로직: 기능별 하위 패키지 ──
 │   │   ├── model/             #   도메인 모델 (§1.3): ClusterSnapshot, Evidence, Signal, SignalBoard, GateResult, InvestigationRequest, Issue, Hypothesis, Report
 │   │   ├── pipeline/          #   점검 실행 흐름 (점검 → 게이트 → 조사 → 저장 → 알림), 동시 실행 제한
@@ -87,7 +92,7 @@ KubeGuardian/
 │       ├── k8s.py             #   Kubernetes 클라이언트 (읽기 전용, 네임스페이스 제한)
 │       ├── guard/             #   redact, validate, budget
 │       └── tracing.py         #   Phoenix / OpenTelemetry
-├── tests/                     # app 구조와 같게 + fixtures/(K8s 스냅샷)
+├── tests/                     # 기능별 테스트와 fixtures/(K8s 스냅샷)
 ├── Dockerfile                 # KubeGuardian 이미지 (CronJob·Deployment 공용)
 ├── deploy/
 │   ├── kubeguardian/          # SA·Role(dev)·ClusterRole(Node 조회), PVC, CronJob, diagnostic-agent Deployment·Service, Secret 예시
@@ -103,7 +108,7 @@ KubeGuardian/
     └── learning/              # 주간 학습 노트
 ```
 
-**나누는 기준**: 외부 요청을 받는 진입점(화면·Slack)은 `api/`, 기능 로직은 `service/` 아래 기능별 패키지, 여러 기능이 같이 쓰는 기반(설정·저장소·K8s 클라이언트·가드레일·추적)은 `core/`에 둔다. 주기 점검(CronJob → `cli.py`), Slack 명령, 화면의 점검 실행, 평가 러너는 모두 `service/pipeline/`의 같은 함수를 호출한다. `service/checks`·`sensors`·`tools`는 에이전트 프레임워크에 묶이지 않는 일반 Python 모듈로 둔다 (기획서 §6.1).
+**나누는 기준**: JSON API는 `api/`, 서버에서 렌더링하는 화면은 `web/`에 둔다. 기능 로직은 `service/` 아래 기능별 패키지에, 여러 기능이 같이 쓰는 기반(설정·저장소·K8s 클라이언트·가드레일·추적)은 `core/`에 둔다. 주기 점검(CronJob → `cli.py`), Slack 명령, 화면의 점검 실행, 평가 러너는 모두 `service/pipeline/`의 같은 함수를 호출한다. `service/checks`·`sensors`·`tools`는 에이전트 프레임워크에 묶이지 않는 일반 Python 모듈로 둔다 (기획서 §6.1).
 
 - Python 앱이 하나뿐이라 `apps/<이름>/` 단계 없이 레포 루트에 `app/`·`tests/`를 둔다 (템플릿 backend-agent와 같음). 실행은 `cd app && python main.py`, 테스트는 pytest `pythonpath`로 맞춘다.
 - **배포 단위는 Deployment 1개(조사 작업자 + FastAPI 보고서 화면) + CronJob 1개(주기 점검)**다. 같은 이미지·같은 SQLite(PVC)를 쓰고 실행 명령만 다르다. Slack 알림 발송은 Web API 호출이라 결과를 만든 쪽이 직접 보낸다. 명령 수신과 조사 실행을 한 Deployment에 두는 분리 조건(조사로 인한 수신 중단, 수신부 권한 분리 필요, replicas 증가로 Postgres 전환)은 ADR-002에 기록한다.
@@ -226,7 +231,7 @@ W1 이슈 12개 중 10개를 마치고 2개를 W2로 넘겼다. 계획과 달라
 | 가설 루프 + 보고서 섹션 완성 (배제 이유, 확인한 범위·확인하지 못한 것, 권장 조치, 재검증) | 3 | `service/agent/investigator/v1/` | W4 |
 | C1(할당량), C2(Redis 차단) 시나리오 + `verify_symptom.sh` | 2.5 | `scenarios/` | W4 |
 | B1(Pod 1개만 오류) 시나리오 | 1 | `scenarios/B1` | W4 |
-| 보고서 화면 골격(FastAPI·Jinja2·HTMX) + P5 조사 과정 + P3 근거 원문 — 개발 중 에이전트 확인용으로 먼저 만듦 (Chainlit 대체) | 1.5 | `main.py`, `api/routes/`, `api/templates/` | W4 |
+| 보고서 화면 골격(FastAPI·Jinja2·HTMX) + P5 조사 과정 + P3 근거 원문 — 개발 중 에이전트 확인용으로 먼저 만듦 (Chainlit 대체) | 1.5 | `main.py`, `web/routes/`, `web/templates/` | W4 |
 | 기준 조건(규칙만) 결과 기록 + 학습 노트 | 1 | `eval/history/` | W4 |
 | (W1에서 넘김) Slack 앱 승인 요청 #9, 평가 러너 최소판 #16 | 2.5 | | W1 |
 | (W1 리뷰) 명세 결정 8건 반영 #46 | 4 | `docs/05-rules.md`, `service/` | 신규 |
@@ -313,13 +318,13 @@ W2 이슈 중 #16·#18·#19·#22·#24·#46과 W2에 새로 생긴 #53·#54·#59�
 | 평가 러너에 장애 감지 시간·원인 파악 시간 기록 (주입 시각 → 알림 이력의 1차 발송·갱신 시각), 평가 중 알림은 Slack 전송 생략(dry-run) | 1 | `eval/` | W5 |
 | diagnostic-agent Deployment + 조사 작업자(조사 대기열, 점검 중단 감시 M7) #28 — 10/28 결정: 점검은 CronJob, 조사는 Deployment 작업자 | 4 | `service/pipeline/worker.py`, `deploy/kubeguardian/diagnostic-agent.yaml` | W6 |
 | ~~`/kg check`, `/kg investigate` Slack 명령~~ — 10/31 제외(#96, 확장 후보). 즉시 점검은 화면·CLI, 증상 조사는 CLI | 0 | | W6 |
-| 보고서 화면 완성(서버 렌더링): 점검 이력(홈)·점검 상세, 이슈·이슈 상세(근거·알림 이력 포함), 점검 구성, GNB **점검 실행 버튼**(백그라운드 실행, 동시 1건, 1분 간격), 진행 중 갱신, 마스킹 적용 | 4 | `api/routes/`, `api/templates/` | W6 |
+| 보고서 화면 완성(서버 렌더링): 점검 이력(홈)·점검 상세, 이슈·이슈 상세(근거·알림 이력 포함), 점검 구성, GNB **점검 실행 버튼**(백그라운드 실행, 동시 1건, 1분 간격), 진행 중 갱신, 마스킹 적용 | 4 | `web/routes/`, `web/templates/` | W6 |
 | Slack 연동 테스트 (Slack API 모의 객체로 메시지 형식·스레드·오류 경로) | 1.5 | `tests/` | W6 |
 | **평가 신뢰성 (10/28 W4에서 당김)** eval: chaos-mesh 주입 흔적을 에이전트 입력에서 제외 #82 — **먼저** | 1.5 | `service/sensors/`, `service/tools/`, eval 설정 | 신규 |
 | agent: C2 하위 의존 연결 차단 원인 찾기 (probe·로그 지침 보강) #83 — #82 뒤 | 3 | `service/knowledge/`, `service/tools/` | 신규 |
 | AI 조건 기준선: 현재 시나리오 8개(H0·H1·A1·A3·A5·B1·C1·C2) 1회씩, W4 튜닝 전 출발점. 기존 "A1·A3·A5·H0·H1 실측 2h"를 대체 | 2 | `eval/history/` | 신규 |
 | 학습 노트 | 0.5 | | W5 |
-| (W2에서 넘김) #23 보고서 화면 골격(P5·P3) | 1.5 | `main.py`, `api/routes/`, `api/templates/` | W2 |
+| (W2에서 넘김) #23 보고서 화면 골격(P5·P3) | 1.5 | `main.py`, `web/routes/`, `web/templates/` | W2 |
 | spike: C2 점검 140초 원인 확인 #76 | 1 | 확인 기록 | 신규 |
 | fix: `query_app_api` 허용 목록 키 불일치 #77 (P0) | 0.5 | `service/tools/` | 신규 |
 | (W3 중 추가) 점검 동시 실행 1건 잠금 #88 — 화면·CLI 점검과 주기 점검의 겹침 방지 | 2 | `core/db/check_lock.py` | 신규 |
@@ -374,7 +379,7 @@ W2 이슈 중 #16·#18·#19·#22·#24·#46과 W2에 새로 생긴 #53·#54·#59�
 | 최종 점검 | 전체 시나리오 × 2조건 × 3회 재실행, 성공 기준 표 판정, 회귀 확인 | — | `eval/history/`, `eval/report.md` |
 | 보강 | 미달 KPI·잘못 판정한 시나리오의 원인 분석과 지침·프롬프트·도구 출력 보강 (보강 후 전체 eval) | — | 보강 기록 |
 | 테스트 | 단위·Slack 연동 테스트 보완, H0 장시간 실행 재확인, 오류 경로(LLM 실패, 수집 실패, 전송 실패) 확인 | — | `tests/` |
-| UI 수정 | 보고서 화면과 Slack 메시지 문구·표시 개선 | — | `api/templates/`, `service/notify/` |
+| UI 수정 | 보고서 화면과 Slack 메시지 문구·표시 개선 | — | `web/templates/`, `service/notify/` |
 | 산출물 제작 | 데모 스크립트, 학습 회고, 학습 노트·ADR 정리 | — | `docs/07-demo-script.md`, `docs/08-retrospective.md` |
 
 **Exit (11/15)**

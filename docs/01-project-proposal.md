@@ -274,7 +274,7 @@ flowchart TB
 **계층을 나누는 이유**: 감지기·증상 감지·도구·가드레일은 **어떤 에이전트 프레임워크에도 묶이지 않는 일반 Python 모듈**로 만든다. 에이전트 코어만 구현 방식에 따라 바뀐다. 그래야 비교 실험(§10)을 같은 도구·같은 시나리오로 할 수 있다.
 
 - 기본 구현은 **LangGraph**(실무 숙련 도구)로 하고, 직접 구현한 도구 호출 루프와 비교한다 (§10 실험 1).
-- API·앱 구조는 템플릿 backend-agent 규약(`app/api`, `app/service`, `app/core`)을 따른다. 진입점(화면 라우트·Slack 수신)은 `api/`, 기능 로직은 `service/` 아래 기능별 패키지(checks, sensors, tools, agent, alerts, notify, pipeline), 공통 기반(설정, SQLite, K8s 클라이언트, 가드레일, 추적)은 `core/`에 둔다. 폴더 구조는 [실행 계획서 §1.2](02-execution-plan.md).
+- JSON API는 `api/`, 웹 화면은 `web/`에 둔다. 기능 로직은 `service/` 아래 기능별 패키지(checks, sensors, tools, agent, alerts, notify, pipeline), 공통 기반(설정, SQLite, K8s 클라이언트, 가드레일, 추적)은 `core/`에 둔다. 폴더 구조는 [실행 계획서 §1.2](02-execution-plan.md).
 - 에이전트 실행은 **Phoenix**로 추적한다 (OpenTelemetry GenAI 표준 속성).
 
 ### 6.2 흐름

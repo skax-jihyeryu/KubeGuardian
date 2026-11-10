@@ -3,9 +3,9 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from api.viewmodels.check_list import CheckFilters, list_checks
-from api.viewmodels.shell import build_shell
-from api.web import ConfigDep, EngineDep, NowDep, ProjectDep, render, templates
+from web.rendering import ConfigDep, EngineDep, NowDep, ProjectDep, render, templates
+from web.viewmodels.check_list import CheckFilters, list_checks
+from web.viewmodels.shell import build_shell
 
 router = APIRouter(include_in_schema=False)
 
@@ -30,7 +30,7 @@ def checks_home(
 ):
     """필터·페이지 단위 점검 이력."""
     cursor = request.query_params.get("cursor")
-    from api.web import parse_id
+    from web.rendering import parse_id
 
     page = list_checks(
         engine,

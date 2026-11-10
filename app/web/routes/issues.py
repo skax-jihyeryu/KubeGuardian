@@ -7,10 +7,10 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
-from api.timefmt import date_range, date_window
-from api.viewmodels.issues import build_issue_detail, list_issues
-from api.viewmodels.shell import build_shell
-from api.web import ConfigDep, EngineDep, NowDep, ProjectDep, parse_id, render
+from web.rendering import ConfigDep, EngineDep, NowDep, ProjectDep, parse_id, render
+from web.timefmt import date_range, date_window
+from web.viewmodels.issues import build_issue_detail, list_issues
+from web.viewmodels.shell import build_shell
 
 router = APIRouter(include_in_schema=False)
 

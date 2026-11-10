@@ -65,7 +65,7 @@ def test_manual_executes_reserved_run_and_queues_new_incident(engine):
 
 
 def test_post_redirects_to_reserved_run(client, monkeypatch):
-    from api.routes import checks
+    from web.routes import checks
 
     calls = []
 
@@ -285,9 +285,9 @@ def test_manual_fingerprint_change_to_rule_removes_pending_request(engine):
 
 
 def test_manual_page_keeps_polling_while_notification_precedes_queue(engine):
-    from api.viewmodels.checks import build_check_detail, build_steps
     from service.notify.sender import DryRunSender
     from tests.service.checks.detectors.cases import NOW
+    from web.viewmodels.checks import build_check_detail, build_steps
 
     observed = []
 

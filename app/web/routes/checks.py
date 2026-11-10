@@ -5,16 +5,16 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from api.deps import get_evidence_summary_factory
-from api.viewmodels.check_list import CheckFilters, list_checks
-from api.viewmodels.checks import build_check_detail, build_drawer, build_steps
-from api.viewmodels.shell import build_shell
-from api.web import ConfigDep, EngineDep, NowDep, ProjectDep, parse_id, render, templates
 from core.config import get_setting
 from core.db.evidence import format_evidence_id
+from deps import get_evidence_summary_factory
 from service.agent.base import LlmFactory
 from service.evidence_summary import summarize_evidence
 from service.pipeline.manual_check import ManualCheckConflict, start_manual_check
+from web.rendering import ConfigDep, EngineDep, NowDep, ProjectDep, parse_id, render, templates
+from web.viewmodels.check_list import CheckFilters, list_checks
+from web.viewmodels.checks import build_check_detail, build_drawer, build_steps
+from web.viewmodels.shell import build_shell
 
 router = APIRouter(include_in_schema=False)
 

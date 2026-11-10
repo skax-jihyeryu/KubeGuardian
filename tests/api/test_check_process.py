@@ -2,9 +2,9 @@
 
 from datetime import UTC, datetime
 
-from api.viewmodels.checks import collect_summary
 from service.checks.detectors.catalog import CATALOG
 from service.model import ClusterSnapshot
+from web.viewmodels.checks import collect_summary
 
 NOW = datetime(2026, 11, 2, 5, 5, tzinfo=UTC)
 
@@ -114,8 +114,8 @@ def test_no_snapshot_gives_no_rows():
 
 # ── 점검 규칙 결과 ──────────────────────────────────────────────
 
-from api.viewmodels.checks import rule_summary  # noqa: E402
 from core.db.check_results import CheckResult  # noqa: E402
+from web.viewmodels.rule_report import rule_summary  # noqa: E402
 
 
 def result(verdicts, excluded=()):
@@ -213,7 +213,7 @@ def test_advice_rule_unknown_goes_to_findings_not_advice():
 
 
 def test_advice_rule_without_action_text_has_empty_action(monkeypatch):
-    import api.viewmodels.checks as mod
+    import web.viewmodels.rule_report as mod
 
     monkeypatch.setattr(mod, "_advice_action", lambda rid, values: "")
     summary = rule_summary(
@@ -246,7 +246,7 @@ def test_rule_with_no_targets_is_separated_from_passed():
 
 
 def test_stages_cover_every_signal_rule_in_the_catalog():
-    from api.viewmodels.setup import STAGES
+    from web.viewmodels.setup import STAGES
 
     staged = {rid for _, ids in STAGES for rid in ids}
     missing = [rid for rid, spec in CATALOG.items() if spec.grade == "signal" and rid not in staged]
