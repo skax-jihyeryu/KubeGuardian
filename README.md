@@ -33,7 +33,7 @@ make doctor  # minikube·kubectl·docker·메모리 확인
 ## 레포 구조
 
 ```text
-app/        # 진단 에이전트 (FastAPI, Python 루트: from core.config import ...) — api / service / core
+app/        # 진단 에이전트 (FastAPI, Python 루트: from core.config import ...) — api / web / service / core
 tests/      # 테스트 (app 구조와 같게)
 deploy/     # 쿠버네티스 매니페스트
 scenarios/  # 장애 시나리오 (_template/ 복사해서 추가)

@@ -102,8 +102,8 @@ def test_claim_is_atomic_and_stale_completion_cannot_overwrite_retry(engine):
 
 
 def test_drawer_load_and_summary_routes_are_scoped(client, engine):
-    from api.deps import get_evidence_summary_factory
     from core.db.evidence_summaries import EvidenceSummaryStore
+    from deps import get_evidence_summary_factory
 
     run, ev = setup_evidence(engine, data={"status": 502})
     n = int(ev[3:])
@@ -136,7 +136,7 @@ def test_drawer_load_and_summary_routes_are_scoped(client, engine):
 
 
 def test_failed_fragment_keeps_raw_and_retry(client, engine):
-    from api.deps import get_evidence_summary_factory
+    from deps import get_evidence_summary_factory
 
     run, ev = setup_evidence(engine, data={"status": 502})
     model = SummaryModel(error=RuntimeError("internal-secret"))

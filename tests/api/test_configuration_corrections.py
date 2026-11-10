@@ -1,8 +1,8 @@
 """확인하지 못한 기능 점검의 설정과 저장된 Service 스냅샷을 비교한다."""
 
-from api.deps import get_config
 from core.config import KubeGuardianConfig
 from core.db import CheckRunStore
+from deps import get_config
 from service.model import ClusterSnapshot, Symptom
 from tests.api.seed import at, finish_check, make_run
 

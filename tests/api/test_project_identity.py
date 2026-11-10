@@ -5,15 +5,15 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from api.deps import get_config
-from api.viewmodels.shell import build_shell
 from core.config import KubeGuardianConfig, ProjectConfig, load_kubeguardian_config
 from core.db import CheckRunStore
+from deps import get_config
 from service.chat import answer_question
 from service.notify.notifier import Notifier
 from tests.api.seed import at, finish_check, make_run
 from tests.service.agent.history_qa.fakes import ScriptedLLM
 from tests.service.notify.test_notifier import FakeSender, _sig
+from web.viewmodels.shell import build_shell
 
 CONFIG = KubeGuardianConfig(project={"id": "llm-gateway"}, target={"namespace": "dev"})
 
@@ -47,7 +47,7 @@ def test_routes_use_project_id_and_shell_displays_namespace(client, engine):
 
 def test_manual_check_keeps_namespace_when_project_differs(client):
     client.app.dependency_overrides[get_config] = lambda: CONFIG
-    with patch("api.routes.checks.start_manual_check", return_value=42) as start:
+    with patch("web.routes.checks.start_manual_check", return_value=42) as start:
         response = client.post("/llm-gateway/checks")
     assert response.headers["location"] == "/llm-gateway/checks/42"
     config = start.call_args.args[1]

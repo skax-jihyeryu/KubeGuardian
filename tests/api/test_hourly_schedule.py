@@ -1,12 +1,12 @@
 from datetime import timedelta
 
-from api.deps import get_config
-from api.viewmodels.shell import build_shell
 from core.config import KubeGuardianConfig
 from core.db import CheckRunStore
+from deps import get_config
 from service.notify.notifier import Notifier
 from tests.api.seed import at
 from tests.service.notify.test_notifier import FakeSender
+from web.viewmodels.shell import build_shell
 
 
 def hourly():

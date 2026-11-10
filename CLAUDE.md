@@ -31,7 +31,7 @@ AI 기반 Kubernetes 서비스 진단 Agent (1인 PoC, 2026-10-12 ~ 11-20). 기�
 
 ## 코드 규칙
 
-- 구조·배포 단위·기반 계약은 [실행 계획서 §1.2·§1.3](docs/02-execution-plan.md#12-kubeguardian-레포). 템플릿 backend-agent 규약(api / service / core)을 따른다.
+- 구조·배포 단위·기반 계약은 [실행 계획서 §1.2·§1.3](docs/02-execution-plan.md#12-kubeguardian-레포). JSON API는 `api/`, 웹 화면은 `web/`, 기능 로직은 `service/`, 공통 기반은 `core/`에 둔다.
 - `app/`이 Python 루트다. import에 `app.` 접두사를 쓰지 않는다 (`from core.config import get_setting`).
 - 에이전트는 `service/agent/<이름>/v<N>/`에 두고 `BaseAgent`를 상속해 `registry.py`에 등록한다. 모델 이름은 버전의 `config.py`, LLM 생성은 `core/llm.py`.
 - 규칙(감지기)의 명세는 `docs/05-rules.md`가 정본이고, `service/checks/detectors/catalog.py`는 그 코드 표현이다.

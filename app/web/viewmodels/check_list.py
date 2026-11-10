@@ -7,14 +7,15 @@ from urllib.parse import urlencode
 from sqlalchemy import Engine, Integer, String, case, cast, exists, func, or_, select, true
 from sqlalchemy.orm import Session, aliased
 
-from api.timefmt import date_range, date_window, md_hm
-from api.viewmodels.checks import ACTION_LABEL, TRIGGER_LABEL, Sev
-from api.viewmodels.shell import unknown_count
 from core.db import CheckResultStore
 from core.db.tables import CheckResultRow, CheckRunRow, IncidentCheckRow, InvestigationRow
 from core.guard.redact import redact_text
 from core.schedule import stalled_after
 from service.checks.detectors.catalog import CATALOG
+from web.timefmt import date_range, date_window, md_hm
+from web.viewmodels.checks import ACTION_LABEL, TRIGGER_LABEL
+from web.viewmodels.common import Sev
+from web.viewmodels.shell import unknown_count
 
 
 @dataclass(frozen=True)

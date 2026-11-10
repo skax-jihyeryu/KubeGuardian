@@ -2,9 +2,9 @@
 
 import pytest
 
-from api.deps import get_config
 from core.config import KubeGuardianConfig
 from core.db import CheckResultStore, RuleSelectionStore
+from deps import get_config
 from service.checks.detectors.catalog import CATALOG
 from service.model import Signal
 from tests.api.seed import at, make_run
@@ -138,7 +138,7 @@ def test_features_empty_and_yaml_escaped(setup_client):
 
 
 def test_active_rule_conditions_and_sources(setup_client):
-    from api.viewmodels.setup import RULE_DETAILS
+    from web.viewmodels.setup import RULE_DETAILS
 
     assert set(RULE_DETAILS) == set(CATALOG)
     for rule, (predicate, source, _) in RULE_DETAILS.items():

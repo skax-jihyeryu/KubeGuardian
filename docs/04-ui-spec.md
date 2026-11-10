@@ -692,12 +692,15 @@ diagnostic-agent의 FastAPI가 **서버 렌더링 HTML**(Jinja2 템플릿 + HTMX
 
 ## 7. 모듈 대응
 
-폴더 구조는 [실행 계획서 §1.2](02-execution-plan.md)를 따른다 (템플릿 backend-agent 규약 `app/api`·`app/service`·`app/core`).
+폴더 구조는 [실행 계획서 §1.2](02-execution-plan.md)를 따른다. JSON API와 웹 화면을 같은 FastAPI 앱에서 제공한다.
 
 | 모듈 | 역할 |
 |---|---|
-| `app/api/routes/` | 보고서 화면 라우트(§6.3), 점검할 규칙 선택 저장(§6.4), 점검 실행 (§6.5), 질의 채팅 (§6.7) |
-| `app/api/templates/` | Jinja2 템플릿, HTMX 조각 |
+| `app/api/routes/` | `/api/v1`의 JSON API 라우트 |
+| `app/web/routes/` | 보고서 화면 라우트(§6.3), 점검할 규칙 선택 저장(§6.4), 점검 실행 (§6.5), 질의 채팅 (§6.7) |
+| `app/web/viewmodels/` | 화면 표시용 데이터 조립 |
+| `app/web/templates/` | Jinja2 템플릿, HTMX 조각 |
+| `app/web/static/` | CSS, JavaScript, 이미지 |
 | `app/api/slack/` | (확장 후보) Socket Mode 명령 수신. 이번 범위에서는 비워 둔다 |
 | `app/service/pipeline/` | 점검 실행 흐름(점검 → 조사 판단 → 조사 → 저장 → 알림)과 동시 실행 제한(잠금). 주기 점검·화면·CLI가 같은 함수를 호출 |
 | `app/service/notify/messages.py` | 점검 결과·보고서 요약을 M1~M10 Slack 메시지로 변환 (심각도 표시, 링크, 마스킹 확인) |

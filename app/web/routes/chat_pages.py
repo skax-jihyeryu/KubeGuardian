@@ -13,16 +13,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from api.deps import get_llm_factory
-from api.timefmt import date_range, date_window, md_hm
-from api.web import ConfigDep, EngineDep, NowDep, ProjectDep, templates
 from core.db import ChatStore, CheckRunStore, EvidenceStore, IncidentStore
 from core.db.tables import ChatMessageRow
 from core.error.service_exception import ServiceException
 from core.guard.redact import redact_mapping, redact_text
+from deps import get_llm_factory
 from service.agent.base import LlmFactory
 from service.chat import answer_question, chat_context
 from service.model.chat import ChatAnswer, HistoryWindows
+from web.rendering import ConfigDep, EngineDep, NowDep, ProjectDep, templates
+from web.timefmt import date_range, date_window, md_hm
 
 router = APIRouter(include_in_schema=False)
 

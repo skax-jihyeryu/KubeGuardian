@@ -5,17 +5,17 @@ from urllib.parse import parse_qs
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from api.viewmodels.setup import (
+from core.db import RuleSelectionStore
+from service.checks.detectors.catalog import CATALOG
+from web.rendering import ConfigDep, EngineDep, NowDep, ProjectDep, render
+from web.viewmodels.setup import (
     recent_links,
     rule_groups,
     service_details,
     services,
     yaml_text,
 )
-from api.viewmodels.shell import build_shell
-from api.web import ConfigDep, EngineDep, NowDep, ProjectDep, render
-from core.db import RuleSelectionStore
-from service.checks.detectors.catalog import CATALOG
+from web.viewmodels.shell import build_shell
 
 router = APIRouter(include_in_schema=False)
 

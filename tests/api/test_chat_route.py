@@ -5,10 +5,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from api.deps import get_config, get_engine, get_llm_factory
 from core.config import KubeGuardianConfig
 from core.db import create_db_engine
 from core.db.tables import ChatMessageRow
+from deps import get_config, get_engine, get_llm_factory
 from main import create_app
 from tests.service.agent.history_qa.fakes import ScriptedLLM
 

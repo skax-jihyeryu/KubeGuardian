@@ -3,9 +3,9 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
-from api.viewmodels.check_list import CheckFilters, list_checks
 from core.db.tables import CheckRunRow
 from tests.api.seed import at, finish_check, make_run
+from web.viewmodels.check_list import CheckFilters, list_checks
 
 
 def test_list_filters_and_search_persist(client, engine):
@@ -265,8 +265,8 @@ def test_search_matches_decoded_korean_rule_reason(engine):
 
 
 def test_latest_report_top_issue_matches_detail_and_missing_report_falls_back(engine):
-    from api.viewmodels.checks import build_check_detail
     from tests.api.seed import finish_investigation, open_incident, report, start_investigation
+    from web.viewmodels.checks import build_check_detail
 
     run = make_run(engine)
     finish_check(engine, run, path="B", severity="critical")

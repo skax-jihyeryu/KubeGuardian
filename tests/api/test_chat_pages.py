@@ -17,7 +17,7 @@ def test_panel_examples_and_context(client, engine):
 
 
 def test_question_validation_does_not_call_agent(client):
-    with patch("api.routes.chat_pages.answer_question") as answer:
+    with patch("web.routes.chat_pages.answer_question") as answer:
         for question in ["", "a" * 501]:
             response = client.post("/dev/chat/messages", data={"question": question})
             assert "1~500자" in response.text
@@ -39,7 +39,7 @@ def test_reply_escapes_and_passes_project(client):
             ]
         ),
     )
-    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+    with patch("web.routes.chat_pages.answer_question", return_value=reply) as answer:
         response = client.post("/dev/chat/messages", data={"question": "password=secret"})
     assert response.status_code == 200
     assert "<script>" not in response.text
@@ -81,7 +81,7 @@ def test_evidence_must_have_been_cited_in_current_conversation(client, engine):
 
 
 def test_panel_shows_error_fragment_when_llm_fails(client):
-    from api.deps import get_llm_factory
+    from deps import get_llm_factory
     from tests.service.agent.history_qa.fakes import ScriptedLLM
 
     llm = ScriptedLLM(script=[RuntimeError("down")], calls=[], bound=[])
@@ -103,7 +103,7 @@ def test_interpretation_marks_estimate_once_and_empty_state_is_removed(client):
             ]
         ),
     )
-    with patch("api.routes.chat_pages.answer_question", return_value=reply):
+    with patch("web.routes.chat_pages.answer_question", return_value=reply):
         response = client.post("/dev/chat/messages", data={"question": "q"})
     assert response.text.count("(추정)") == 2
     assert 'id="chat-empty" hx-swap-oob="delete"' in response.text
@@ -114,7 +114,7 @@ def test_list_filter_context_is_preserved_in_question(client):
     assert "period=7d" in response.text
     assert 'name="filters"' in response.text
     reply = ChatReply(conversation_id="x", text="답변", answer=ChatAnswer(sentences=[]))
-    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+    with patch("web.routes.chat_pages.answer_question", return_value=reply) as answer:
         client.post(
             "/dev/chat/messages",
             data={"question": "이 기간에는 몇 건?", "filters": "period=7d&severity=critical&ev=1"},
@@ -127,7 +127,7 @@ def test_list_filter_context_is_preserved_in_question(client):
 def test_filter_values_drop_invalid_and_bound_length():
     from urllib.parse import urlencode
 
-    from api.routes.chat_pages import filter_values
+    from web.routes.chat_pages import filter_values
 
     bad = urlencode(
         {"period": "x\n]", "severity": "SYSTEM", "days": "7; drop", "relation": "?", "evil": "1"}
@@ -150,7 +150,7 @@ def test_filter_values_drop_invalid_and_bound_length():
 
 
 def test_filter_q_is_masked_before_truncation_and_flattened():
-    from api.routes.chat_pages import filter_values
+    from web.routes.chat_pages import filter_values
 
     q = "x" * 90 + " sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
     assert "sk-A" not in filter_values("q=" + q)["q"]
@@ -161,7 +161,7 @@ def test_filter_q_is_masked_before_truncation_and_flattened():
 def test_filter_q_masks_secrets_split_by_control_chars_and_drops_invisible():
     from urllib.parse import quote
 
-    from api.routes.chat_pages import filter_values
+    from web.routes.chat_pages import filter_values
 
     for sep in ("%0A", "%00"):
         q = filter_values(f"q=password{sep}=hunter2")["q"]
@@ -174,7 +174,7 @@ def test_filter_q_masks_secrets_split_by_control_chars_and_drops_invisible():
 def test_hostile_filters_cannot_break_the_llm_context_block(client, engine):
     from langchain_core.messages import AIMessage
 
-    from api.deps import get_llm_factory
+    from deps import get_llm_factory
     from tests.service.agent.history_qa.fakes import ScriptedLLM
 
     answer = '{"sentences": [{"text": "이력 없음", "kind": "guide"}]}'
@@ -216,7 +216,7 @@ def test_chat_displays_answer_timestamps_to_the_minute(client, engine):
     ChatStore(engine).add(cid, "assistant", text, at(1), answer.model_dump())
     reply = ChatReply(conversation_id=cid, text=text, answer=answer)
 
-    with patch("api.routes.chat_pages.answer_question", return_value=reply):
+    with patch("web.routes.chat_pages.answer_question", return_value=reply):
         sent = client.post("/dev/chat/messages", data={"question": question})
     restored = client.get("/dev/chat")
 
@@ -264,7 +264,7 @@ def test_post_divider_only_for_different_stored_context(client, engine):
     client.get("/dev/chat")
     cid = client.cookies.get("kg_chat")
     reply = ChatReply(conversation_id=cid, text="답변", answer=ChatAnswer(sentences=[]))
-    with patch("api.routes.chat_pages.answer_question", return_value=reply):
+    with patch("web.routes.chat_pages.answer_question", return_value=reply):
         first = client.post("/dev/chat/messages", data={"question": "질문", "issue": str(issue)})
         assert f"맥락: 이슈 #{issue}" in first.text
         ChatStore(engine).add(cid, "user", "질문", at(1), {"_context": f"이슈 #{issue}"})
@@ -298,7 +298,7 @@ def test_new_chat_rotates_id_preserves_records_and_uses_new_id(client, engine):
             == "이전 질문"
         )
     reply = ChatReply(conversation_id=new, text="답변", answer=ChatAnswer(sentences=[]))
-    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+    with patch("web.routes.chat_pages.answer_question", return_value=reply) as answer:
         client.post("/dev/chat/messages", data={"question": "새 질문"})
     assert answer.call_args.kwargs["conversation_id"] == new
 
@@ -331,7 +331,7 @@ def test_new_chat_rejects_invalid_context_without_rotating_cookie(client):
 
 
 def test_filter_values_validate_date_range():
-    from api.routes.chat_pages import filter_values
+    from web.routes.chat_pages import filter_values
 
     assert filter_values("from=2026-11-01&to=2026-11-06") == {
         "from": "2026-11-01",
@@ -351,7 +351,7 @@ def test_date_range_shows_in_chip_and_question_context(client):
     response = client.get("/dev/chat", params={"filters": query})
     assert "기간 2026-11-01~2026-11-06" in response.text
     reply = ChatReply(conversation_id="x", text="답변", answer=ChatAnswer(sentences=[]))
-    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+    with patch("web.routes.chat_pages.answer_question", return_value=reply) as answer:
         client.post("/dev/chat/messages", data={"question": "정리해줘", "filters": query})
     kwargs = answer.call_args.kwargs
     assert "기간 2026-11-01~2026-11-06" in kwargs["context"]
@@ -375,7 +375,7 @@ def test_chat_adds_history_range_without_replacing_current_issue(client, engine)
 
     reply = ChatReply(conversation_id="x", text="답변", answer=ChatAnswer(sentences=[]))
     data = {"question": "이 이슈와 다른 기록을 비교해줘", "issue": str(issue)}
-    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+    with patch("web.routes.chat_pages.answer_question", return_value=reply) as answer:
         client.post(
             "/dev/chat/messages",
             data={
@@ -408,7 +408,7 @@ def test_chat_adds_history_range_without_replacing_current_issue(client, engine)
 
 
 def test_chat_invalid_custom_period_does_not_search_all_history(client):
-    with patch("api.routes.chat_pages.answer_question") as answer:
+    with patch("web.routes.chat_pages.answer_question") as answer:
         response = client.post(
             "/dev/chat/messages",
             data={
@@ -432,7 +432,7 @@ def test_chat_uses_only_the_selected_issue_chips(client, engine):
     assert "data-chat-mention-toggle" in panel
 
     reply = ChatReply(conversation_id="x", text="답변", answer=ChatAnswer(sentences=[]))
-    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+    with patch("web.routes.chat_pages.answer_question", return_value=reply) as answer:
         response = client.post(
             "/dev/chat/messages",
             data={"question": "두 이슈 비교", "issue": [str(first), str(second), str(first)]},
@@ -465,7 +465,7 @@ def test_mention_finds_both_record_types_and_question_accepts_multiple_runs(clie
     html = client.get("/dev/chat/mentions", params={"q": f"@점검 {run}"}).text
     assert 'data-chat-pick="issue"' not in html
     reply = ChatReply(conversation_id="x", text="답변", answer=ChatAnswer(sentences=[]))
-    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+    with patch("web.routes.chat_pages.answer_question", return_value=reply) as answer:
         client.post(
             "/dev/chat/messages",
             data={"question": "비교해줘", "issue": str(issue), "run": [str(run), str(other)]},
@@ -502,8 +502,8 @@ def test_two_chat_periods_filter_real_tools_and_render_their_answer(client, engi
 
     from langchain_core.messages import AIMessage, ToolMessage
 
-    from api.deps import get_llm_factory
     from core.db import CheckRunStore, IncidentStore
+    from deps import get_llm_factory
     from tests.service.agent.history_qa.fakes import ScriptedLLM
 
     runs, issues = CheckRunStore(engine), IncidentStore(engine)
@@ -557,7 +557,7 @@ def test_two_chat_periods_filter_real_tools_and_render_their_answer(client, engi
 
 def test_issue_period_keeps_the_checks_page_filter(client):
     reply = ChatReply(conversation_id="x", text="답변", answer=ChatAnswer(sentences=[]))
-    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+    with patch("web.routes.chat_pages.answer_question", return_value=reply) as answer:
         client.post(
             "/dev/chat/messages",
             data={
@@ -579,7 +579,7 @@ def test_message_follows_displayed_conversation_after_switch_in_another_tab(clie
     assert f'name="cid" value="{first}"' in client.get("/dev/chat").text
     client.post("/dev/chat/new")
     reply = ChatReply(conversation_id=first, text="답변", answer=ChatAnswer(sentences=[]))
-    with patch("api.routes.chat_pages.answer_question", return_value=reply) as answer:
+    with patch("web.routes.chat_pages.answer_question", return_value=reply) as answer:
         client.post("/dev/chat/messages", data={"question": "후속 질문", "cid": first})
         assert answer.call_args.kwargs["conversation_id"] == first
         assert (

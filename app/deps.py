@@ -1,4 +1,4 @@
-"""API 의존성. 테스트는 app.dependency_overrides로 바꾼다."""
+"""API와 웹 화면이 함께 쓰는 FastAPI 의존성. 테스트는 app.dependency_overrides로 바꾼다."""
 
 from datetime import UTC, datetime
 from functools import lru_cache, partial
