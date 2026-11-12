@@ -1,0 +1,24 @@
+# C05 required_config에 gateway의 ADMIN_SERVICE_URL을 선언하지 않은 상태로 평가한다.
+id: A6
+level: L3
+k8s_visible: true
+gate_path: B
+must_signals: []
+allowed_signals: []
+forbidden_signals: ["*"]
+must_check:
+  config: "gateway Deployment의 ADMIN_SERVICE_URL env가 빠졌고 로그인 요청은 기본값 localhost:8001로 향한다"
+expected_cause:
+  - {kind: Deployment, name: gateway}
+key_evidence:
+  - id: gateway-login-localhost-fallback
+    desc: "gateway Pod 로그에 로그인 프록시 요청이 기본 주소 localhost:8001로 향한 기록이 있다"
+    obtainable: true
+    any_of:
+      - {kind: log_excerpt, subject: "*/Pod/gateway-*", contains: ["업스트림 요청 최종 실패", "auth/login", "localhost:8001"]}
+not_a_cause:
+  - text: "admin Deployment는 정상이다. gateway의 기본 주소는 admin Service로 연결되지 않는다."
+    resource: {kind: Deployment, name: admin}
+root_cause: "gateway Deployment의 ADMIN_SERVICE_URL이 빠져 로그인 프록시가 localhost:8001을 호출하고 5xx를 반환한다"
+affected_services: [gateway, front-chat]
+expected_top1: "gateway ADMIN_SERVICE_URL 누락으로 localhost:8001을 호출해 로그인 실패"
