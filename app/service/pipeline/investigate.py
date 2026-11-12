@@ -28,6 +28,7 @@ from service.agent import registry
 from service.agent.base import AgentResult, RunContext
 from service.model import InvestigationRequest, Topology, Trigger
 from service.pipeline.check import CheckOutcome, clean_symptom
+from service.pipeline.config_change import investigation_comparison
 from service.pipeline.flow_log import FlowLogSteps, log_end, log_start
 from service.sensors.topology import build_topology
 from service.tools import build_tools
@@ -242,7 +243,12 @@ def _run_agent(
             None if investigation_id is None else store.steps_sink(investigation_id),
         ),
     )
-    agent = agent_cls(llm_factory=llm_factory, tools=build_tools(config), ctx=ctx)
+    comparison = (
+        investigation_comparison(engine, config, check_run_id) if config.config_baselines else None
+    )
+    agent = agent_cls(
+        llm_factory=llm_factory, tools=build_tools(config, config_comparison=comparison), ctx=ctx
+    )
     result = agent.run(request)
     if (
         result.report is not None

@@ -48,6 +48,7 @@ from service.model import (
     Symptom,
     Trigger,
 )
+from service.pipeline.config_change import record_config_changes
 from service.sensors.collector import KubeReader, collect
 from service.tools.base import ToolContext
 
@@ -271,7 +272,7 @@ def _run_locked(
                 namespace=config.target.namespace,
                 evidence=evidence,
                 k8s=reader,
-                now=lambda: now,
+                now=rec.clock,
                 http=http,
             )
             symptoms = detect_symptoms(config, tool_ctx)
@@ -316,6 +317,7 @@ def _run_locked(
             raise ServiceException(ErrorCode.STORAGE_ERROR, type(e).__name__) from e
         raise
     rec.finish("done")
+    record_config_changes(engine, config, run_id, rec.clock())
     return outcome
 
 

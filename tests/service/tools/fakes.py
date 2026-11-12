@@ -140,7 +140,9 @@ class FakeK8s:
         self.calls.append("Node")
         return self.nodes
 
-    def read_log(self, pod, container, *, previous, tail_lines, since_seconds=None):
+    def read_log(
+        self, pod, container, *, previous, tail_lines, since_seconds=None, timestamps=False
+    ):
         self.log_calls.append((pod, container, previous, tail_lines))
         self.log_since.append(since_seconds)
         value = self.logs[(pod, container, previous)]

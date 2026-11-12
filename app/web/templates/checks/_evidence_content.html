@@ -1,7 +1,11 @@
+{% from "_icons.html" import evlink %}
 {% from "_terminal.html" import terminal %}
 {%- set summary_url = "/" ~ p ~ "/checks/" ~ run_id ~ "/evidence/" ~ drawer.n ~ "/summary" %}
 {%- set target = "#evidence-content-" ~ drawer.n %}
 {%- set summary = drawer.summary %}
+{%- if drawer.related_evidence and not summary_fragment %}
+<p class="s14">연결된 근거 {% for n in drawer.related_evidence %}{{ evlink(p, run_id, n) }}{% endfor %}</p>
+{%- endif %}
 {%- if drawer.log_lines is not none %}
 <h3 style="margin-top:16px">로그</h3>
 {%- if drawer.log_lines %}

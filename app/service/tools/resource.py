@@ -6,6 +6,7 @@
 시각(Pod 시작·컨테이너 시작·종료, 조건 변경)과 컨테이너 requests·limits는 있을 때만 넣는다.
 """
 
+from collections.abc import Callable
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -86,7 +87,8 @@ class GetResource(Tool):
         "마지막 종료 사유, Pod 시작 시각과 컨테이너 시작·종료 시각)를 본다. "
         "Service와 Pod 연결, 설정·이미지·재시작 정보와 언제 바뀌었는지 확인할 때 쓰세요. "
         "환경변수는 키 이름만, ConfigMap은 키 이름만, Secret은 메타데이터와 키 이름만 보인다. "
-        "Deployment를 이름으로 조회하면 설정된 ConfigMap과 로컬 Service 관계의 판정도 본다. "
+        "Deployment를 이름으로 조회하면 설정된 ConfigMap과 로컬 Service 관계의 판정 및 "
+        "기준 점검과의 설정 변경 근거도 본다. "
         "이름과 셀렉터를 모두 비우면 그 종류 전체."
     )
 
@@ -103,8 +105,13 @@ class GetResource(Tool):
                 raise ValueError("name과 label_selector 중 하나만 쓴다")
             return self
 
-    def __init__(self, config: KubeGuardianConfig | None = None):
+    def __init__(
+        self,
+        config: KubeGuardianConfig | None = None,
+        config_comparison: Callable[[str], dict[str, Any]] | None = None,
+    ):
         self._config = config
+        self._config_comparison = config_comparison
 
     def collect(self, args: Input, ctx: ToolContext) -> ToolObservation:
         kinds = ("Pod", "Node") if args.kind == "Node" else (args.kind,)
@@ -188,6 +195,10 @@ class GetResource(Tool):
                         diagnostic["observed_service"] = relation.observed_service
                     diagnostics.append(diagnostic)
                 data["config_diagnostics"] = diagnostics
+                if self._config_comparison is not None and snapshot.namespace == ctx.namespace:
+                    data["config_changes"] = [
+                        self._config_comparison(service) for service, _ in expectations[:MAX_ITEMS]
+                    ]
         return ToolObservation(
             kind="resource",
             subject=f"{prefix}/{args.kind}/{target}",

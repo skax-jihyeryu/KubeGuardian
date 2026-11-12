@@ -150,6 +150,14 @@ def test_read_log_passes_since_seconds_when_given():
     assert core.calls[0][2]["since_seconds"] == 1800
 
 
+def test_read_log_requests_kubernetes_timestamps_when_given():
+    client, core, _, _ = _client()
+
+    client.read_log("agent-1", "agent", previous=False, tail_lines=10, timestamps=True)
+
+    assert core.calls[0][2]["timestamps"] is True
+
+
 def test_client_has_no_write_methods():
     public = {m for m in dir(K8sClient) if not m.startswith("_")}
 

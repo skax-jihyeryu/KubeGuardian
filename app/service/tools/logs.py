@@ -9,13 +9,14 @@ import re
 from pydantic import BaseModel, Field, field_validator
 
 from core.error.service_exception import ErrorCode, ServiceException
+from service.config_change import observation_time
 from service.sensors.collector import (
     MAX_LOG_SCAN,
     MAX_LOG_TAIL,
     fetch_logs,
     parse_grep,
 )
-from service.tools._common import K8sName, read, require
+from service.tools._common import K8sName, by_name, read, require
 from service.tools.base import Tool, ToolContext, ToolObservation
 
 MAX_LINE = 500  # 줄 하나의 상한 (스택 트레이스 한 줄짜리 JSON 등)
@@ -54,8 +55,27 @@ class GetPodLogs(Tool):
                 parse_grep(value)  # 키워드가 없으면 ValueError
             return value
 
+    def __init__(self, *, verify_pod_identity: bool = False):
+        self._verify_pod_identity = verify_pod_identity
+
     def collect(self, args: Input, ctx: ToolContext) -> ToolObservation:
-        container = args.container or _first_container(ctx, args.pod)
+        if self._verify_pod_identity and ctx.k8s.namespace != ctx.namespace:
+            raise ServiceException(ErrorCode.TOOL_SCOPE_VIOLATION, detail=self.name)
+        pod = None
+        if self._verify_pod_identity or args.container is None:
+            snapshot = read(ctx, "Pod")
+            pods = (
+                require(snapshot, "Pod") if args.container is None else snapshot.items("Pod") or []
+            )
+            if snapshot.namespace == ctx.namespace:
+                pod = by_name(pods, args.pod)
+        container = args.container
+        if container is None:
+            if pod is None or not pod["spec"].get("containers"):
+                raise ServiceException(
+                    ErrorCode.NOT_FOUND, f"Pod {args.pod}이 대상 네임스페이스에 없음"
+                )
+            container = pod["spec"]["containers"][0]["name"]
         read_result = fetch_logs(
             ctx.k8s,
             args.pod,
@@ -64,11 +84,21 @@ class GetPodLogs(Tool):
             tail=args.tail,
             grep=args.grep,
             since_seconds=args.since_seconds,
+            timestamps=self._verify_pod_identity,
         )
         lines = read_result.lines
         clipped = [line[:MAX_LINE] + "…" if len(line) > MAX_LINE else line for line in lines]
-        times = [m.group(0) for line in lines if (m := _TIME.search(line[:64]))]
-        first, last = (times[0], times[-1]) if times else (None, None)
+        if self._verify_pod_identity:
+            timestamps = [observation_time(line.partition(" ")[0]) for line in lines]
+            valid = [timestamp for timestamp in timestamps if timestamp is not None]
+            first, last = (
+                (min(valid).isoformat(), max(valid).isoformat())
+                if valid and len(valid) == len(lines)
+                else (None, None)
+            )
+        else:
+            times = [m.group(0) for line in lines if (m := _TIME.search(line[:64]))]
+            first, last = (times[0], times[-1]) if times else (None, None)
 
         summary = f"{args.pod}/{container} " + ("이전 컨테이너 " if args.previous else "")
         summary += f"로그 {len(lines)}줄"
@@ -88,11 +118,20 @@ class GetPodLogs(Tool):
             "more_before": read_result.more_before,
             "lines": clipped,
         }
+        if self._verify_pod_identity and first and pod and (uid := pod["metadata"].get("uid")):
+            after = read(ctx, "Pod")
+            if (
+                after.namespace == ctx.namespace
+                and (same := by_name(after.items("Pod") or [], args.pod))
+                and same["metadata"].get("uid") == uid
+            ):
+                data["pod_uid"] = uid
         if args.grep:
             data["match_count"] = read_result.match_count
         query = f"container={container}&tailLines={read_result.requested_lines}"
         query += f"&sinceSeconds={args.since_seconds}" if args.since_seconds else ""
         query += "&previous=true" if args.previous else ""
+        query += "&timestamps=true" if self._verify_pod_identity else ""
         return ToolObservation(
             kind="log_excerpt",
             subject=f"{ctx.namespace}/Pod/{args.pod}",
@@ -101,11 +140,3 @@ class GetPodLogs(Tool):
             data=data,
             truncated=clipped != lines or read_result.more_before,
         )
-
-
-def _first_container(ctx: ToolContext, pod: str) -> str:
-    pods = require(read(ctx, "Pod"), "Pod")
-    found = next((p for p in pods if p["metadata"]["name"] == pod), None)
-    if found is None or not found["spec"].get("containers"):
-        raise ServiceException(ErrorCode.NOT_FOUND, f"Pod {pod}이 대상 네임스페이스에 없음")
-    return found["spec"]["containers"][0]["name"]

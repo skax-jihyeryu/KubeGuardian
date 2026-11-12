@@ -60,6 +60,7 @@ class KubeReader(Protocol):
         previous: bool,
         tail_lines: int,
         since_seconds: int | None = None,
+        timestamps: bool = False,
     ) -> str: ...
 
 
@@ -134,6 +135,7 @@ def fetch_logs(
     tail: int = MAX_LOG_TAIL,
     grep: str | None = None,
     since_seconds: int | None = None,
+    timestamps: bool = False,
 ) -> LogRead:
     """컨테이너 로그를 마스킹해 끝 `tail`줄을 돌려준다. previous=True면 직전 컨테이너의 로그.
 
@@ -149,7 +151,7 @@ def fetch_logs(
         raise ValueError(f"tail은 1~{MAX_LOG_TAIL} 사이여야 한다: {tail}")
     keywords = [k.lower() for k in parse_grep(grep)] if grep else None
     text, retried, requested = _read_within_limit(
-        reader, pod, container, previous, initial_read_lines(tail, grep), since_seconds
+        reader, pod, container, previous, initial_read_lines(tail, grep), since_seconds, timestamps
     )
     # 읽은 줄 수와 잘림은 마스킹 전 원문 기준이다 (PEM은 마스킹하면 한 줄로 줄어든다)
     raw_count = len(text.splitlines())
@@ -170,12 +172,19 @@ def _read_within_limit(
     previous: bool,
     lines: int,
     since_seconds: int | None,
+    timestamps: bool,
 ) -> tuple[str, bool, int]:
     """바이트 한도 밑이 될 때까지 줄 수를 1/4로 줄여 읽는다. (본문, 다시 읽었는지, 요청한 줄 수)."""
+    timestamp_option = {"timestamps": True} if timestamps else {}
     for attempt in range(_LOG_RETRIES + 1):
         try:
             text = reader.read_log(
-                pod, container, previous=previous, tail_lines=lines, since_seconds=since_seconds
+                pod,
+                container,
+                previous=previous,
+                tail_lines=lines,
+                since_seconds=since_seconds,
+                **timestamp_option,
             )
         except K8sCallError as e:
             raise ServiceException(ErrorCode.COLLECT_FAILED, redact_text(str(e))) from e

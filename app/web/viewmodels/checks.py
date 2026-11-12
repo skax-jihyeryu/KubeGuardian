@@ -34,6 +34,7 @@ from core.guard.redact import redact_mapping, redact_text
 from service.agent.base import AgentStep
 from service.agent.investigator.v1.config import SPEC
 from service.checks.detectors._common import container_statuses
+from service.config_change import CONFIG_CHANGE_SOURCE
 from service.model import JUDGEMENT_LABEL, ClusterSnapshot
 from web.timefmt import hms, md_hm, seconds_text
 from web.viewmodels.common import Sev, evidence_numbers, limited_names
@@ -196,6 +197,7 @@ class DrawerView:
     summary: EvidenceSummary | None = None
     log_lines: list[str] | None = None  # 로그 근거의 줄. 마스킹은 터미널 박스가 한다
     log_caption: str = ""
+    related_evidence: list[int] = field(default_factory=list)
 
 
 # ── 읽기 ────────────────────────────────────────────────────────
@@ -400,6 +402,17 @@ def build_drawer(
     lines = ev.data.get("lines")
     log_lines = [str(x) for x in lines] if is_log and isinstance(lines, list) else None
     raw = json.dumps(redact_mapping(ev.data), ensure_ascii=False, indent=2, default=str)
+    references = []
+    if ev.source == CONFIG_CHANGE_SOURCE:
+        references = [item.get("evidence_id") for item in ev.data.get("symptoms", [])]
+    for comparison in ev.data.get("config_changes", []):
+        references.append(comparison.get("evidence_id"))
+        references.extend(log.get("evidence_id") for log in comparison.get("logs", []))
+    related = [
+        number
+        for number in dict.fromkeys(evidence_numbers(references))
+        if number != n and store.check_run_of(format_evidence_id(number)) == run_id
+    ]
     return DrawerView(
         n=n,
         kind=EVIDENCE_KIND_LABEL[ev.kind],
@@ -411,6 +424,7 @@ def build_drawer(
         summary=EvidenceSummaryStore(engine).get(ev_id, now or datetime.now(UTC)),
         log_lines=log_lines,
         log_caption=_log_caption(ev.data) if log_lines is not None else "",
+        related_evidence=related,
     )
 
 
@@ -935,11 +949,20 @@ def _evidence_rows(engine: Engine, d: _Loaded) -> list[EvidenceRow]:
         for sym in d.result.symptoms:
             for n in evidence_numbers([sym.get("evidence_id")]):
                 stage_of.setdefault(n, "기능 점검")
+    store = EvidenceStore(engine)
+    comparisons = store.list_for_run(d.run_id, limit=EVIDENCE_LIMIT, source=CONFIG_CHANGE_SOURCE)
+    evidence = {ev.id: ev for ev in comparisons}
+    for ev in store.list_for_run(d.run_id, limit=EVIDENCE_LIMIT):
+        if len(evidence) >= EVIDENCE_LIMIT:
+            break
+        evidence.setdefault(ev.id, ev)
     rows = []
-    for ev in EvidenceStore(engine).list_for_run(d.run_id, limit=EVIDENCE_LIMIT):
+    for ev in sorted(evidence.values(), key=lambda entry: int((entry.id or "ev-0")[3:])):
         assert ev.id is not None
         n = int(ev.id[3:])
         stage = stage_of.get(n) or ("점검 규칙 점검" if ev.kind == "detector" else "—")
+        if ev.source == CONFIG_CHANGE_SOURCE:
+            stage = "설정 변경 비교"
         rows.append(
             EvidenceRow(
                 n,
@@ -974,7 +997,13 @@ def _evidence_summary(kind: str, data: dict[str, Any]) -> str:
             if data.get("latency_ms") is not None:
                 text += f" · {data['latency_ms']}ms"
     elif kind == "resource":
-        if "count" in data:
+        if "key_presence" in data and "baseline" in data:
+            text = {
+                "changed": "설정 또는 Pod 변경 관측",
+                "no_change": "비교 범위 내 변경 없음",
+                "unknown": "설정 변경 확인 불가",
+            }.get(data.get("status"), text)
+        elif "count" in data:
             text = f"{data.get('kind', '리소스')} {data['count']}개"
         elif "services" in data and "edges" in data:
             text = f"서비스 {len(data['services'])}개 · 호출 관계 {len(data['edges'])}개"

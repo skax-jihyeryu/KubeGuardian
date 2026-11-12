@@ -188,7 +188,8 @@ def test_missing_or_unsupported_setting(data, verdict):
 
 
 def test_check_persists_baseline_provenance_and_only_uses_explicit_run(tmp_path):
-    from core.db import CheckRunStore, create_db_engine
+    from core.db import CheckRunStore, EvidenceStore, create_db_engine
+    from service.config_change import CONFIG_CHANGE_SOURCE
     from service.pipeline.check import run_check
     from tests.service.checks.detectors.cases import FixtureReader
     from tests.service.tools.fakes import FakeHttp
@@ -201,8 +202,8 @@ def test_check_persists_baseline_provenance_and_only_uses_explicit_run(tmp_path)
             {"call": {"via": "llm-gateway", "path": "/health", "method": "GET"}}
         )
     ]
-    resources = snapshot().resources
-    reader = FixtureReader(resources, {})
+    previous, _ = _comparison_snapshots(cfg)
+    reader = FixtureReader(previous.resources, {})
     http = FakeHttp({("llm-gateway", "/health"): 200})
     first = run_check(reader, cfg, engine, trigger="check", now=NOW, http=http)
     assert first.config_baselines[0].baseline.limitations == ("not_pinned",)
@@ -212,6 +213,11 @@ def test_check_persists_baseline_provenance_and_only_uses_explicit_run(tmp_path)
     latest = run_check(reader, cfg, engine, trigger="check", now=NOW, http=http)
     assert latest.config_baselines[0].baseline.result == "approved"
     assert latest.config_baselines[0].baseline.run_id == first.run_id
+    stored = EvidenceStore(engine).list_for_run(latest.run_id, source=CONFIG_CHANGE_SOURCE)
+    assert len(stored) == 1
+    assert stored[0].data["status"] == "no_change"
+    assert stored[0].data["symptoms"][0]["status"] == "passed"
+    assert SENTINEL not in stored[0].model_dump_json()
 
     third = run_check(reader, cfg, engine, trigger="check", now=NOW, http=http)
     assert third.config_baselines[0].baseline.run_id == first.run_id
@@ -300,3 +306,293 @@ def test_absent_optional_env_key_does_not_shadow_env_from(kind):
     container["envFrom"] = [{"configMapRef": {"name": "shared"}}]
 
     assert report(cfg, current, None).expected.result == "matched"
+
+
+def _comparison_snapshots(cfg):
+    previous = snapshot()
+    deployment = previous.resources["Deployment"][0]["metadata"]
+    deployment["uid"] = "deployment-uid"
+    rs = previous.resources["ReplicaSet"][0]["metadata"]
+    rs.update(uid="replica-uid")
+    rs["ownerReferences"][0].update(uid=deployment["uid"], controller=True)
+    pod = previous.resources["Pod"][0]["metadata"]
+    pod.update(uid="pod-uid", creationTimestamp=(NOW - timedelta(hours=1)).isoformat())
+    pod["ownerReferences"][0].update(uid=rs["uid"], controller=True)
+    qualify(cfg, previous)
+    current = previous.model_copy(deep=True)
+    current.collected_at = NOW + timedelta(minutes=10)
+    return previous, current
+
+
+@pytest.mark.parametrize(
+    ("variant", "status", "key_presence", "key_value", "binding", "pods"),
+    [
+        ("same", "no_change", "no_change", "no_change", "no_change", "no_change"),
+        ("value", "changed", "no_change", "changed", "no_change", "no_change"),
+        ("deleted", "changed", "changed", "unknown", "no_change", "no_change"),
+        ("replaced", "changed", "no_change", "no_change", "no_change", "changed"),
+        ("binding", "changed", "no_change", "no_change", "changed", "no_change"),
+        ("masked", "unknown", "no_change", "unknown", "no_change", "no_change"),
+        ("failed", "unknown", "unknown", "unknown", "no_change", "no_change"),
+        ("unqualified", "unknown", "unknown", "unknown", "unknown", "unknown"),
+        ("unfinished", "unknown", "unknown", "unknown", "unknown", "unknown"),
+        ("other_intent", "unknown", "unknown", "unknown", "unknown", "unknown"),
+    ],
+)
+def test_compare_config_change(variant, status, key_presence, key_value, binding, pods):
+    from service.config_change import compare_config_change
+
+    cfg = config()
+    previous, current = _comparison_snapshots(cfg)
+    data = current.resources["ConfigMap"][0]["data"]
+    if variant == "value":
+        data["GATEWAY_URL"] += "-changed"
+    elif variant == "deleted":
+        data.pop("GATEWAY_URL")
+    elif variant == "replaced":
+        current.resources["Pod"][0]["metadata"].update(
+            uid="replacement-uid", creationTimestamp=(NOW + timedelta(minutes=1)).isoformat()
+        )
+    elif variant == "binding":
+        current.resources["Deployment"][0]["spec"]["template"]["spec"]["containers"][0]["env"][0][
+            "valueFrom"
+        ]["configMapKeyRef"]["key"] = "OTHER_URL"
+    elif variant == "masked":
+        data["GATEWAY_URL"] = "http://user:***@llm-gateway:8080"
+    elif variant == "failed":
+        current.failed["ConfigMap"] = SENTINEL
+    elif variant == "unqualified":
+        previous.config_baseline = None
+    elif variant == "other_intent":
+        qualify(config(pin=7).model_copy(update={"external_hosts": ["different.example"]}), current)
+    result = compare_config_change(
+        cfg,
+        "agent",
+        current_run_id=8,
+        load_check=lambda rid: (
+            previous if rid == 7 else current,
+            rid == 7 or variant != "unfinished",
+        ),
+    )
+    assert result["status"] == status
+    assert result["key_presence"]["status"] == key_presence
+    assert result["key_value"] == key_value
+    assert result["deployment_env"] == binding
+    assert result["owned_pods"]["status"] == pods
+    assert result["env_application"] == "unverified"
+    assert result["baseline"]["run_id"] == 7 and result["current"]["run_id"] == 8
+    assert ("interval" in result) == (variant not in {"unqualified", "unfinished", "other_intent"})
+    assert SENTINEL not in str(result)
+    assert "http://" not in str(result)
+    if variant == "replaced":
+        assert result["owned_pods"]["created"][0]["uid"] == "replacement-uid"
+        assert result["owned_pods"]["removed"][0]["uid"] == "pod-uid"
+
+
+def test_shared_key_deletion_preserves_consumer_references():
+    from service.config_change import compare_config_change
+
+    cfg = config()
+    baseline, current = _comparison_snapshots(cfg)
+    for snap in (baseline, current):
+        snap.resources["Deployment"].append(
+            obj(
+                "another-agent",
+                spec={
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {
+                                    "name": "worker",
+                                    "envFrom": [
+                                        {"prefix": "APP_", "configMapRef": {"name": "shared"}}
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                },
+            )
+        )
+    del current.resources["ConfigMap"][0]["data"]["GATEWAY_URL"]
+    result = compare_config_change(
+        cfg,
+        "agent",
+        current_run_id=8,
+        load_check=lambda rid: (baseline if rid == 7 else current, True),
+    )
+    assert result["declared_consumers"]["current"] == [
+        {"deployment": "agent", "container": "app", "env": "LLM_URL", "source": "env"},
+        {
+            "deployment": "another-agent",
+            "container": "worker",
+            "env": "APP_GATEWAY_URL",
+            "source": "envFrom",
+        },
+    ]
+
+
+def test_config_change_evidence_is_persisted_and_linkable(tmp_path):
+    from core.db import CheckResultStore, CheckRunStore, EvidenceStore, create_db_engine
+    from service.config_change import CONFIG_CHANGE_SOURCE
+    from service.model import Evidence
+    from service.pipeline.config_change import investigation_comparison, record_config_changes
+    from service.tools import build_tools
+    from service.tools.base import ToolContext
+    from tests.service.tools.fakes import FakeK8s
+    from web.viewmodels.checks import build_drawer
+
+    engine = create_db_engine(tmp_path / "comparison.db")
+    runs, results = CheckRunStore(engine), CheckResultStore(engine)
+    baseline_id, current_id = runs.create("check", NOW), runs.create("check", NOW)
+    cfg = config(baseline_id)
+    baseline, current = _comparison_snapshots(cfg)
+    del current.resources["ConfigMap"][0]["data"]["GATEWAY_URL"]
+    for rid, snap in [(baseline_id, baseline), (current_id, current)]:
+        results.start(rid, snap.collected_at)
+        runs.save_snapshot(rid, snap)
+    sink = EvidenceStore(engine, current_id)
+    fail_time = current.collected_at + timedelta(seconds=3)
+    failed = sink.add(
+        Evidence(
+            kind="app_api",
+            subject="demo/Scenario/chat",
+            source="scenario chat",
+            collected_at=fail_time,
+            data={"scenario": "chat", "failed_step": 1, "body": SENTINEL},
+        )
+    )
+    other = sink.add(
+        Evidence(
+            kind="app_api",
+            subject="other/Scenario/chat",
+            source="scenario chat",
+            collected_at=fail_time,
+            data={"scenario": "chat", "failed_step": 1, "body": SENTINEL},
+        )
+    )
+    finish_time = fail_time + timedelta(seconds=1)
+    results.finish(baseline_id, "done", NOW, None, [], [])
+    results.finish(
+        current_id,
+        "done",
+        finish_time,
+        None,
+        [],
+        [
+            Symptom(
+                scenario="chat",
+                status="failed",
+                summary="failed",
+                failed_step=1,
+                evidence_id=failed,
+            ),
+            Symptom(
+                scenario="chat", status="failed", summary="failed", failed_step=1, evidence_id=other
+            ),
+        ],
+    )
+
+    record_config_changes(engine, cfg, current_id, finish_time)
+    record_config_changes(engine, cfg, current_id, finish_time)
+    records = [ev for ev in sink.list_for_run(current_id) if ev.source == CONFIG_CHANGE_SOURCE]
+    assert len(records) == 1
+    record = records[0]
+    assert record.data["status"] == "changed"
+    assert record.data["symptoms"][0]["evidence_id"] == failed
+    assert len(record.data["symptoms"]) == 1
+    assert SENTINEL not in record.model_dump_json()
+    drawer = build_drawer(engine, current_id, int(record.id[3:]), finish_time)
+    assert drawer is not None
+    assert drawer.related_evidence == [int(failed[3:])]
+    assert build_drawer(engine, baseline_id, int(record.id[3:]), finish_time) is None
+
+    tool = next(
+        t
+        for t in build_tools(
+            cfg, config_comparison=investigation_comparison(engine, cfg, current_id)
+        )
+        if t.name == "get_resource"
+    )
+    first = (current.collected_at - timedelta(seconds=2)).isoformat()
+    observed_at = finish_time + timedelta(seconds=30)
+    k8s = FakeK8s(
+        current.resources,
+        logs={("agent-pod", "app", False): f"{first} ERROR {SENTINEL}"},
+    )
+    k8s.namespace = "demo"
+    log_tool = next(
+        t
+        for t in build_tools(
+            cfg, config_comparison=investigation_comparison(engine, cfg, current_id)
+        )
+        if t.name == "get_pod_logs"
+    )
+    log = log_tool.run(
+        {"pod": "agent-pod", "container": "app"},
+        ToolContext("demo", sink, k8s=k8s, now=lambda: observed_at),
+    )
+    assert log.ok
+    assert log.data["pod_uid"] == "pod-uid"
+    for lines in (
+        f"embedded application timestamp {first} ERROR {SENTINEL}",
+        f"{first} ERROR\n{(NOW - timedelta(minutes=1)).isoformat()} ERROR\n{first} ERROR",
+    ):
+        k8s.logs[("agent-pod", "app", False)] = lines
+        assert log_tool.run(
+            {"pod": "agent-pod", "container": "app"},
+            ToolContext("demo", sink, k8s=k8s, now=lambda: observed_at),
+        ).ok
+    sink.add(
+        Evidence(
+            kind="log_excerpt",
+            subject="demo/Pod/agent-pod",
+            source="GET log",
+            collected_at=observed_at,
+            data={**log.data, "pod_uid": "unrelated-uid"},
+        )
+    )
+    outcome = tool.run(
+        {"kind": "Deployment", "name": "agent"},
+        ToolContext("demo", sink, k8s=k8s, now=lambda: observed_at),
+    )
+    changes = outcome.data["config_changes"]
+    assert changes[0]["evidence_id"] == record.id
+    assert changes[0]["key_presence"]["current"] == "missing"
+    assert changes[0]["logs"] == [
+        {
+            "pod": "agent-pod",
+            "first_event_at": first,
+            "last_event_at": first,
+            "observed_at": observed_at.isoformat(),
+            "evidence_id": log.evidence_id,
+        }
+    ]
+    assert SENTINEL not in str(changes)
+    drawer = build_drawer(engine, current_id, int(outcome.evidence_id[3:]), observed_at)
+    assert drawer.related_evidence == [int(record.id[3:]), int(log.evidence_id[3:])]
+
+    for changed in (
+        cfg.model_copy(update={"external_hosts": ["different.example"]}),
+        config(pin=None),
+        cfg.model_copy(update={"project": cfg.project.model_copy(update={"id": "another"})}),
+    ):
+        comparison = investigation_comparison(engine, changed, current_id)("agent")
+        assert comparison["status"] == "unknown"
+        assert "evidence_id" not in comparison
+
+
+def test_scoped_config_change_logs_reject_a_foreign_namespace(tmp_path):
+    from core.db import EvidenceStore, create_db_engine
+    from core.error.service_exception import ErrorCode, ServiceException
+    from service.tools.base import ToolContext
+    from service.tools.logs import GetPodLogs
+    from tests.service.tools.fakes import FakeK8s
+
+    engine = create_db_engine(tmp_path / "logs.db")
+    k8s = FakeK8s(logs={("agent-pod", "app", False): "foreign log"})
+    ctx = ToolContext("demo", EvidenceStore(engine), k8s=k8s)
+    with pytest.raises(ServiceException) as rejected:
+        GetPodLogs(verify_pod_identity=True).run({"pod": "agent-pod", "container": "app"}, ctx)
+    assert rejected.value.error_code is ErrorCode.TOOL_SCOPE_VIOLATION
+    assert not k8s.log_calls

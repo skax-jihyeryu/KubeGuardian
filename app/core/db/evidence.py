@@ -6,7 +6,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from core.db.tables import EvidenceRow, require_aware
-from service.model import Evidence
+from service.model import Evidence, EvidenceKind
 
 _ID = re.compile(r"ev-(\d+)")
 
@@ -59,7 +59,14 @@ class EvidenceStore:
             data=row.data,
         )
 
-    def list_for_run(self, run_id: int, limit: int = 20) -> list[Evidence]:
+    def list_for_run(
+        self,
+        run_id: int,
+        limit: int = 20,
+        *,
+        source: str | None = None,
+        kind: EvidenceKind | None = None,
+    ) -> list[Evidence]:
         """한 점검에 묶인 근거를 id 오름차순으로."""
         stmt = (
             select(EvidenceRow)
@@ -67,6 +74,10 @@ class EvidenceStore:
             .order_by(EvidenceRow.id)
             .limit(limit)
         )
+        if source is not None:
+            stmt = stmt.where(EvidenceRow.source == source)
+        if kind is not None:
+            stmt = stmt.where(EvidenceRow.kind == kind)
         with Session(self._engine) as s:
             return [
                 Evidence(
