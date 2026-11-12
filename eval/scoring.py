@@ -21,10 +21,12 @@ F4(원인은 맞았으나 판정 불일치), F5(결론이 근거로 지지되지
 import copy
 import fnmatch
 import json
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from service.checks.detectors.catalog import CATALOG
 from service.model import GatePath, Signal
+from service.model.report import Impact
+from service.model.signal import Severity
 
 
 def _rules(signals: list[Signal], verdict: str, grade: str) -> set[str]:
@@ -35,9 +37,37 @@ def _rules(signals: list[Signal], verdict: str, grade: str) -> set[str]:
 
 def expected_record(expected: dict[str, Any]) -> dict[str, Any]:
     """채점하지 않고 result.json에 그대로 남기는 정답 항목."""
-    return {
+    record = {
         "must_check": expected.get("must_check") or {},
         "not_a_cause": expected.get("not_a_cause") or [],
+    }
+    metadata = ("stage", "related_stages", "expected_first_severity", "expected_ai_impact")
+    if not any(key in expected for key in metadata):
+        return record
+
+    stage = expected.get("stage")
+    related = expected.get("related_stages", [])
+    gate = expected.get("gate_path")
+    if not (type(stage) is int and 0 <= stage <= 9 or stage == "normal" and gate == "C"):
+        raise ValueError("stage must be 0–9 or normal (gate C)")
+    if (
+        not isinstance(related, list)
+        or any(type(value) is not int or not 0 <= value <= 9 or value == stage for value in related)
+        or len(set(related)) != len(related)
+    ):
+        raise ValueError("related_stages must list distinct stages 0–9 other than stage")
+    if type(expected.get("k8s_visible")) is not bool or gate not in get_args(GatePath):
+        raise ValueError("stage metadata requires k8s_visible (boolean) and gate_path (A/B/C)")
+    if "expected_first_severity" in expected:
+        valid = (None,) if gate == "C" else get_args(Severity)
+        if expected["expected_first_severity"] not in valid:
+            raise ValueError("expected_first_severity must be critical/warning/info, or null for C")
+    if "expected_ai_impact" in expected and (
+        gate == "C" or expected["expected_ai_impact"] not in get_args(Impact)
+    ):
+        raise ValueError("expected_ai_impact must be a report impact for gate A/B")
+    return record | {
+        key: expected[key] for key in (*metadata, "k8s_visible", "gate_path") if key in expected
     }
 
 

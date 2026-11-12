@@ -253,6 +253,7 @@ def _run_in_cluster(
     condition="rules",
     ai_repeats=1,
     ai_on_rules=False,
+    legacy_expected=False,
 ):
     import run as run_mod
 
@@ -260,6 +261,11 @@ def _run_in_cluster(
     cfg.write_text("target: {namespace: dev}\ncore_paths: {chat: [gateway, agent]}\n")
     monkeypatch.setattr(run_mod, "ROOT", tmp_path)
     monkeypatch.setattr(run_mod, "HISTORY", tmp_path / "history")
+    if legacy_expected:
+        target = tmp_path / "scenarios" / scenario / "expected.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text("id: H0\nlevel: L1\nk8s_visible: true\ngate_path: C\n")
+        monkeypatch.setattr(run_mod, "SCENARIOS", tmp_path / "scenarios")
     monkeypatch.setattr(run_mod, "until_ok", lambda sc, *a, **k: (symptom_ok or sc == "H0", "ok"))
     events: list[str] = []
 
@@ -612,3 +618,37 @@ def test_remote_transports_dry_run_alert_metadata():
     assert runner.investigation_alert_supported and runner.investigation_alert == cause
     runner.investigate(1, "eval-y")
     assert runner.investigation_alert_supported and runner.investigation_alert is None
+
+
+@pytest.mark.parametrize(
+    ("legacy_expected", "gate_severity_supported", "status"),
+    [(False, True, "match"), (False, False, "unmeasured"), (True, True, None)],
+)
+def test_runner_preserves_legacy_expected_and_freezes_new_stage_metadata(
+    tmp_path, monkeypatch, legacy_expected, gate_severity_supported, status
+):
+    def stub_runner(stub):
+        stub.investigate = lambda *args: (None, None)
+        if gate_severity_supported:
+            outcome = _stub_outcome(detected=False)
+            outcome.gate = outcome.gate.model_copy(update={"severity": None})
+            stub.outcomes = lambda _: outcome
+
+    code, result, _ = _run_in_cluster(
+        tmp_path,
+        monkeypatch,
+        "H0",
+        condition="ai",
+        legacy_expected=legacy_expected,
+        stub_hook=stub_runner,
+    )
+    assert code == 0
+    if legacy_expected:
+        assert "stage" not in result["expected"]
+        assert "first_severity" not in result
+        assert "impact" not in result["ai_runs"][0]
+    else:
+        assert result["expected"]["stage"] == "normal"
+        assert result["expected"]["expected_first_severity"] is None
+        assert result["first_severity"]["status"] == status
+        assert result["ai_runs"][0]["impact"]["status"] == "skipped"

@@ -529,3 +529,50 @@ def test_baseline_comparison_excludes_scenarios_split_into_rule_diagnosis(tmp_pa
     [row] = [x for x in text.splitlines() if x.startswith("| A1 | -")]
     assert "규칙 진단으로 분리(비교 제외)" in row and "회귀" not in row
     assert "L1 통과 합계: 3 → 2 (-1)" in text  # 양쪽에 AI로 있는 B1만
+
+
+def test_stage_table_uses_result_snapshot_and_counts_only_comparable_measurements(tmp_path):
+    write_scenario(tmp_path, "A1", visible=False)
+    expected = {"stage": 6, "k8s_visible": True, "gate_path": "A"}
+    rules = {
+        "scenario": "A1",
+        "condition": "rules-only",
+        "expected": expected,
+        "score": {"passed": True},
+        "first_severity": {"status": "match"},
+    }
+    ai = {
+        "scenario": "A1",
+        "condition": "ai",
+        "expected": expected,
+        "score": {"passed": True},
+        "first_severity": {"status": "mismatch"},
+        "ai_runs": [
+            make_run(impact={"status": "match"}),
+            make_run("error", impact={"status": "unmeasured"}),
+            make_run("F0", invalid="judge", impact={"status": "match"}),
+        ],
+    }
+    summary = summarize([("r", rules), ("a", ai)], {}, tmp_path)
+    report = render(summary, None)
+    assert "| 6 | true | rules-only | 1/1 | 1/1 | 0/0 |" in report
+    assert "| 6 | true | ai | 1/2 | 0/1 | 1/1 |" in report
+    assert "레벨별 통과율" not in report
+
+
+def test_mixed_batch_attributes_path_and_coverage_per_result(tmp_path):
+    write_scenario(tmp_path, "A1", visible=True, gate="A")
+    legacy = {"scenario": "A1", "condition": "ai", "ai_runs": [make_run("F3", cause=False)]}
+    frozen = {
+        "scenario": "A1",
+        "condition": "ai",
+        "expected": {"stage": 7, "k8s_visible": False, "gate_path": "B"},
+        "ai_runs": [make_run()],
+    }
+
+    summary = summarize([("legacy", legacy), ("frozen", frozen)], {}, tmp_path)
+
+    assert summary["by_path"] == {"A": [0, 1], "B": [1, 1]}
+    assert summary["kpi"]["coverage"] == 1.0
+    assert summary["kpi"]["accuracy"] == 0.5
+    assert summary["by_stage"] == {(7, False, "ai"): [1, 1, 0, 0, 0, 0]}

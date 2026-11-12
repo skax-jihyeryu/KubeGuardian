@@ -148,3 +148,30 @@ def test_coverage_record_ignores_areas_not_in_must_check():
     assert coverage_record({"config": "x"}, coverage) == {
         "config": {"expected": "x", "status": "not_checked", "has_evidence": False}
     }
+
+
+def test_stage_metadata_is_validated_and_snapshotted():
+    import pytest
+
+    expected = {
+        "stage": 1,
+        "related_stages": [3, 5],
+        "k8s_visible": True,
+        "gate_path": "A",
+        "expected_first_severity": "warning",
+        "expected_ai_impact": "partial_users",
+    }
+    record = expected_record(expected)
+    assert {key: record[key] for key in expected} == expected
+    for wrong in (
+        {"stage": True},
+        {"stage": 10},
+        {"related_stages": [1]},
+        {"related_stages": "3"},
+        {"k8s_visible": "true"},
+        {"expected_first_severity": "partial_users"},
+        {"expected_ai_impact": "warning"},
+        {"stage": "normal"},
+    ):
+        with pytest.raises(ValueError):
+            expected_record(expected | wrong)

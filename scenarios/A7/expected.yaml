@@ -1,5 +1,9 @@
 # A7 정답 파일: gateway의 AGENT_SERVICE_URL 호스트 끝에 점(.) 또는 대시(-) 한 글자 (KG_TYPO=dot|dash)
 id: A7
+stage: 2
+related_stages: [7, 8]
+expected_first_severity: critical
+expected_ai_impact: core_path_broken
 level: L1                 # 신호 하나로 원인 확정
 k8s_visible: true         # gateway env 값은 토폴로지의 unresolved 엣지(target agent. / agent-)로 드러난다
 gate_path: A

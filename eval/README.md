@@ -124,11 +124,51 @@ make eval S=A1 ARGS="--in-cluster --condition ai"   # AI 조건
 | `checks` | 점검이 끝날 때마다 바로 쌓는다 (반복 중 예외가 나도 남는다). 점검별 `n`, `elapsed_s`(주입 시각 기준 초, 점검이 끝난 시각), `gate_path`, `detected`(장애 신호), `observing`, `collect_failed` |
 | `first_detected_s` | 기대 신호별 첫 적발 경과 초. 적발하지 못했으면 `null` |
 | `score` | 마지막 점검의 채점 결과 |
+| `expected` | 단계 메타데이터가 있는 정답 파일의 주 단계, 연관 단계, K8s 가시성, 기대 게이트 및 심각도·영향 기대값을 실행 시점에 기록 |
+| `first_severity` | 첫 장애 게이트의 심각도 대조 (`expected`, `observed`, `status`) |
+| `ai_runs[].impact` | 조사 회차의 1순위 문제 영향 대조 (`expected`, `observed`, `status`) |
 | `check_run_id` | 마지막 점검의 run id (점검 DB `kg.db`) |
 | `batch` | `--batch`로 준 묶음 이름. 없으면 키가 없다 |
 | `ai_runs` | AI 조건의 조사 회차별 `ai` 블록 배열 (`--ai-repeats` 횟수만큼) |
 
 전제는 진단 대상이 정상 기준선(H0)인 상태다 (환경 설치 가이드 10단계). 주입이 실패해도 원복을 실행하므로, `.state/`에 남은 이전 주입 기록이 있으면 그 기록으로 되돌린다.
+
+## 시나리오 분류와 심각도
+
+`stage`는 [서비스 점검 지도](../docs/learning/k8s-check-flow.html#investigation-order)의 주 단계다.
+장애 원인이 속한 단계를 고른다. 다른 단계에 나타난 증상이나 연관 범위는 선택 항목인
+`related_stages`에 적는다. H0·H1은 정상 대조군(`stage: normal`)이며 H1의 설정 범위는
+`related_stages: [2]`로 기록한다. `k8s_visible`은 K8s 상태로 원인이 드러나는지,
+`gate_path`는 기대 진단 경로(A/B/C)다. 기존 시나리오 ID와 디렉터리를 그대로 사용한다.
+
+| 단계 | 이름 |
+|---|---|
+| 0 | 환경 |
+| 1 | 빌드 |
+| 2 | 설정 |
+| 3 | 배포 |
+| 4 | 스케줄 |
+| 5 | 구동 |
+| 6 | 연결 |
+| 7 | 의존 |
+| 8 | 요청 |
+| 9 | 점검 |
+
+다음 후보는 점검 지도와 [기획서 §8](../docs/01-project-proposal.md#8-장애-시나리오)의
+분류를 참고한다. 재현 시나리오와 채점 기대값은 구현·검증 후 기록한다.
+
+| 후보 ID | 주 단계 | 연관 범위 | 사례 |
+|---|---|---|---|
+| A2 | 6 연결 | | targetPort 불일치 |
+| B2 | 3 배포 | 2 설정 | 신규 ReplicaSet의 env 오류 |
+| C3 | 7 의존 | 0 환경, 8 요청 | 시계 오차로 토큰 만료 판정 |
+| C4 | 7 의존 | 8 요청 | 프록시 제한 시간과 긴 스트리밍 응답 |
+| C5 | 7 의존 | 3 배포 | DB 스키마 드리프트 |
+| E1 | 7 의존 | 5 구동 | C2와 과거 재시작 미끼 |
+
+- `expected_first_severity`는 `critical`·`warning`·`info` 중 하나다. 반복 점검에서 처음 경로 A/B가 열린 점검의 `gate_severity`와 대조한다. 경로 C만 관찰된 실행에서는 유효한 점검 기록으로 심각도 없음(`null`)을 대조한다. 경로 C의 정상 대조군은 `null`을 선언한다. B1은 간헐적 API 실패 여부에 따라 달라질 수 있어 기대값을 생략한다.
+- `expected_ai_impact`는 `core_path_broken`·`partial_users`·`latent_risk`·`improvement` 중 하나다. 완료된 유효한 조사 보고서의 1순위 문제와 대조한다. 예전 버전 Pod가 계속 요청을 처리하는 A3에는 영향 기대값을 선언하지 않는다.
+- 대조 상태는 일치(`match`), 불일치(`mismatch`), 미선언(`undeclared`), 미측정(`unmeasured`), 조사 생략(`skipped`)이다. 규칙 전용 실행과 AI를 호출하지 않은 규칙 진단은 조사 회차가 없다. 대조 결과는 기존 통과 판정과 독립이며 1차 심각도는 알림 발송 시각과 별도로 측정한다.
 
 ## 채점 (`scoring.py`, 기준 조건)
 
@@ -154,10 +194,11 @@ make eval-report B=w4-new BASE=w4-base     # baseline 대비 회귀 표 포함
 
 - `eval-batch`는 시나리오를 차례로 실행하고(한 시나리오가 실패·무효여도 다음으로 간다) 끝에 `eval-report`를 부른다. `eval-report`는 `uv run python eval/report.py <묶음> [--baseline <묶음>]`이며 `eval/report.md`를 만든다
 - 리포트 통과 = 규칙 채점 통과(`score.passed`) + 회차 분류 pass/skip이다. 분류 분포는 에이전트 분류 그대로 두고, 시나리오 표의 "규칙 실패" 열이 규칙 채점이 실패한 회차 수를 따로 보여 준다. KPI·비율·시간·토큰의 분모는 조사가 돈 유효 회차(skip·not_run 제외, gate_fail 포함)다. `--ai-repeats`가 2 이상이면 `--condition ai`가 필요하다
-- 리포트 내용: 시나리오별 표(통과 k/N, 실패 분류 분포, `cause_match`·`judge_match`·`key_all_found` 비율, `support_rate` 평균, 시간·토큰 중앙값), 레벨별(L1~L3)·경로별(A·B) 통과율과 Wilson 95% 신뢰구간, 일관성(N회가 모두 같은 분류인 시나리오 비율), KPI(원인 정확도, 원인 규명 커버리지, 근거 일치율, 조사 시간·토큰 중앙값)
+- 리포트 내용: 시나리오별 표(통과 k/N, 실패 분류 분포, `cause_match`·`judge_match`·`key_all_found` 비율, `support_rate` 평균, 시간·토큰 중앙값), 주 단계 × K8s 가시성 × 실행 조건별 통과 및 1차 심각도·AI 영향 일치 수, 경로별 통과율과 Wilson 95% 신뢰구간, 일관성(N회가 모두 같은 분류인 시나리오 비율), KPI(원인 정확도, 원인 규명 커버리지, 근거 일치율, 조사 시간·토큰 중앙값)
   - 오확정률(회차 `judgement`가 confirmed인데 분류가 pass가 아닌 비율)과 과소 확정 수(pass인데 confirmed가 아닌 회차, `judgement`가 없는 옛 결과는 제외)도 KPI 표에 함께 낸다. 규칙 실패는 반영하지 않고 회차 분류만 본다
   - 묶음 도중 결과의 `in_cluster`·`in_cluster_end`에서 `image_id`·`config_resource_version`이 바뀌면 리포트 맨 위에 어느 시작·종료 관측 사이에 바뀌었는지(`A3 시작~A3 종료 사이`, `A3 종료~A5 시작 사이`) 경고한다. baseline 묶음도 같은 방식으로 검사해 경고한다 (묶음을 멈추거나 종료 코드를 바꾸지는 않는다)
   - 종료 메타데이터가 있는 결과는 마지막 시나리오와 시나리오 1개짜리 묶음의 실행 중 변경도 검사한다. 예전 결과처럼 종료 메타데이터가 없으면 기존처럼 시작 관측끼리 비교한다. 관측 사이에 바뀌었다 원래 값으로 돌아온 변경은 잡히지 않는다
+- 단계 표는 실행 결과의 `expected` 메타데이터를 사용한다. 연관 단계는 중복 집계하지 않는다. 경로별 통과율과 원인 규명 커버리지도 실행 당시 기대 경로와 K8s 가시성을 사용하며, 메타데이터가 없는 이전 실행은 시나리오 정의를 참조한다. 단계 기록이 없는 기존 결과만 모인 묶음에는 기존 레벨별 표를 표시하며, 레벨 값은 기존 비교용으로 유지한다.
 - `--baseline`: 시나리오별 통과 수 변화와 실패 분류 분포 변화를 회귀 표로 낸다. 통과 수가 2 이상 줄면 회귀로 표시한다
 - 상한에 닿아 끝난(`limited`) 실패 회차 수를 시나리오별 표에 따로 센다
 

@@ -6,6 +6,7 @@ from typing import get_args
 import pytest
 import yaml
 
+from scoring import expected_record
 from service.checks.detectors.catalog import CATALOG
 from service.model import EvidenceKind
 
@@ -14,6 +15,10 @@ FILES = sorted((ROOT / "scenarios").glob("*/expected.yaml"))
 ALLOWED_KEYS = {
     "id",
     "level",
+    "stage",
+    "related_stages",
+    "expected_first_severity",
+    "expected_ai_impact",
     "k8s_visible",
     "gate_path",
     "user_symptom",
@@ -49,6 +54,7 @@ def test_expected_file_uses_known_keys_and_signals(path):
     expected = yaml.safe_load(path.read_text(encoding="utf-8"))
 
     assert set(expected) <= ALLOWED_KEYS
+    assert expected_record(expected)["stage"] == expected["stage"]
     assert len(expected.get("user_symptom") or "") <= 500  # InvestigationRequest.user_symptom 상한
     assert expected["id"] == path.parent.name or path.parent.name == "_template"
     for key in ("must_signals", "allowed_signals", "forbidden_signals"):

@@ -1,5 +1,8 @@
 # A3 정답 파일 (기획서 §8.2). 기능보다 먼저 쓴다.
 id: A3
+stage: 1
+related_stages: [3, 5]
+expected_first_severity: warning
 level: L1                 # 신호 하나로 원인 확정
 k8s_visible: true         # 새 Pod의 대기 사유(이미지 받기 실패)와 Deployment Progressing 조건만 보면 원인이 드러난다
 gate_path: A

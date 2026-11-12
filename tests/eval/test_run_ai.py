@@ -221,3 +221,40 @@ def test_ai_block_records_must_check_and_cause_resource():
     assert ai["must_check"]["config"]["status"] == "checked"
     assert ai["must_check"]["config"]["has_evidence"] is True
     assert ai["must_check"]["logs"]["status"] == "not_checked"
+
+
+def test_severity_assessments_distinguish_skips_and_unmeasured():
+    from run import record_severity_assessments
+
+    result = {
+        "checks": [
+            {"gate_path": "C", "gate_severity": None},
+            {"gate_path": "B", "gate_severity": "critical"},
+            {"gate_path": "A", "gate_severity": "warning"},
+        ],
+        "ai_runs": [
+            {"status": "done", "report_impact": "partial_users"},
+            {"status": "done", "report_impact": "core_path_broken", "invalid": "judge"},
+            {"status": "skipped"},
+            {"status": "done", "report_impact": None},
+        ],
+    }
+    expected = {"expected_first_severity": "critical", "expected_ai_impact": "core_path_broken"}
+    record_severity_assessments(result, expected)
+    assert result["first_severity"] == {
+        "expected": "critical",
+        "observed": "critical",
+        "status": "match",
+    }
+    assert [r["impact"]["status"] for r in result["ai_runs"]] == [
+        "mismatch",
+        "unmeasured",
+        "skipped",
+        "unmeasured",
+    ]
+    normal = {"checks": [{"gate_path": "C", "gate_severity": None}]}
+    record_severity_assessments(normal, {"expected_first_severity": None})
+    assert normal["first_severity"]["status"] == "match"
+    legacy = {"checks": [{"gate_path": "A"}]}
+    record_severity_assessments(legacy, expected)
+    assert legacy["first_severity"]["status"] == "unmeasured"

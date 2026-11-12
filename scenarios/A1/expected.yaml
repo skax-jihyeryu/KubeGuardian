@@ -1,5 +1,8 @@
 # A1 정답 파일 (기획서 §8.2). 기능보다 먼저 쓴다.
 id: A1
+stage: 6
+expected_first_severity: critical
+expected_ai_impact: core_path_broken
 level: L1                 # 신호 하나로 원인 확정
 k8s_visible: true         # Service selector와 Pod 라벨만 비교하면 원인이 드러난다
 gate_path: A

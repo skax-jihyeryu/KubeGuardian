@@ -1,4 +1,8 @@
 id: C8
+stage: 7
+related_stages: [8]
+expected_first_severity: critical
+expected_ai_impact: core_path_broken
 level: L3
 k8s_visible: false
 gate_path: B
