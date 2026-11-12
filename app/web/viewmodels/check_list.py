@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
-from sqlalchemy import Engine, Integer, String, case, cast, exists, func, or_, select, true
+from sqlalchemy import Engine, String, cast, exists, func, or_, select, true
 from sqlalchemy.orm import Session, aliased
 
 from core.db import CheckResultStore
@@ -12,6 +12,7 @@ from core.db.tables import CheckResultRow, CheckRunRow, IncidentCheckRow, Invest
 from core.guard.redact import redact_text
 from core.schedule import stalled_after
 from service.checks.detectors.catalog import CATALOG
+from service.checks.severity import CHECK_SEVERITIES, check_severity_rank
 from web.timefmt import date_range, date_window, md_hm
 from web.viewmodels.checks import ACTION_LABEL, TRIGGER_LABEL
 from web.viewmodels.common import Sev
@@ -95,65 +96,7 @@ def list_checks(
         .correlate(CheckRunRow)
         .scalar_subquery()
     )
-    first_rank = {"critical": 4, "warning": 3, "info": 2}
-    impact_rank = {"core_path_broken": 4, "partial_users": 3, "latent_risk": 2, "improvement": 1}
-    latest_investigation = (
-        select(InvestigationRow.id)
-        .where(InvestigationRow.check_run_id == CheckRunRow.id)
-        .order_by(InvestigationRow.id.desc())
-        .limit(1)
-        .correlate(CheckRunRow)
-        .scalar_subquery()
-    )
-    reported_issues = func.json_each(InvestigationRow.report, "$.issues").table_valued("value")
-    resolved = exists(
-        select(1)
-        .where(
-            IncidentCheckRow.check_run_id == CheckRunRow.id,
-            IncidentCheckRow.incident_id == InvestigationRow.incident_id,
-            IncidentCheckRow.action == "resolved",
-        )
-        .correlate(CheckRunRow, InvestigationRow)
-    )
-    # 점검 상세처럼 이 점검의 최신 조사·1순위 문제만 사용한다.
-    # 이슈 행의 최종 심각도는 나중 재조사 때 바뀌므로 과거 점검에 사용하지 않는다.
-    report_rank = (
-        select(case(impact_rank, value=func.json_extract(reported_issues.c.value, "$.impact")))
-        .select_from(InvestigationRow)
-        .join(reported_issues, true())
-        .where(
-            InvestigationRow.id == latest_investigation,
-            ~resolved,
-            func.json_type(InvestigationRow.report, "$.conclusion") == "text",
-            func.json_type(InvestigationRow.report, "$.impact_scope") == "text",
-            func.json_extract(InvestigationRow.report, "$.confidence").in_(
-                ["high", "medium", "low"]
-            ),
-        )
-        .order_by(cast(func.json_extract(reported_issues.c.value, "$.rank"), Integer))
-        .limit(1)
-        .correlate(CheckRunRow)
-        .scalar_subquery()
-    )
-    rules = func.json_each(CheckResultRow.verdicts).table_valued("value").alias("rules")
-    items = func.json_each(func.json_extract(rules.c.value, "$.items")).table_valued("value")
-    advice_exists = exists(
-        select(1)
-        .select_from(rules.join(items, true()))
-        .where(
-            func.json_extract(rules.c.value, "$.rule_id").in_(
-                [rid for rid, spec in CATALOG.items() if spec.grade == "advice"]
-            ),
-            func.json_extract(items.c.value, "$.verdict") == "detected",
-        )
-        .correlate(CheckResultRow)
-    )
-    rank = func.coalesce(
-        report_rank,
-        case(
-            first_rank, value=CheckResultRow.first_severity, else_=case((advice_exists, 1), else_=0)
-        ),
-    )
+    rank = check_severity_rank()
     stmt = select(
         CheckRunRow.id, CheckRunRow.started_at, CheckRunRow.trigger, previous_time, rank
     ).outerjoin(CheckResultRow, CheckResultRow.run_id == CheckRunRow.id)
@@ -289,16 +232,10 @@ def list_checks(
     if cursor:
         query["cursor"] = cursor
     row_query = "?" + urlencode(query) if query else ""
-    severities = {
-        4: ("crit", "긴급"),
-        3: ("warn", "주의"),
-        2: ("risk", "잠재 위험"),
-        1: ("tip", "개선 권고"),
-    }
     for run_id, started, trigger, prior_time, severity_rank in runs[:50]:
         result = results.get(run_id)
         state = CheckResultStore.display_status(result, now) if result else "missing"
-        severity = severities.get(severity_rank)
+        severity = CHECK_SEVERITIES.get(severity_rank)
         relation = " · ".join(f"{ACTION_LABEL.get(a, a)} #{i}" for r, i, a in links if r == run_id)
         advice = (
             sum(

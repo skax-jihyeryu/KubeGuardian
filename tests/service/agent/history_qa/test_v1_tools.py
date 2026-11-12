@@ -2,10 +2,17 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
-from core.db import AlertStore, CheckRunStore, EvidenceStore, IncidentStore, create_db_engine
-from core.db.tables import EvidenceRow
+from core.db import (
+    AlertStore,
+    CheckResultStore,
+    CheckRunStore,
+    EvidenceStore,
+    IncidentStore,
+    create_db_engine,
+)
+from core.db.tables import CheckResultRow, EvidenceRow
 from core.guard.budget import Budget, BudgetTracker
 from service.agent.history_qa.v1.tools import KNOWLEDGE_DIR, build_history_tools
 from service.model import ClusterSnapshot, Evidence
@@ -42,7 +49,9 @@ def _pod(name):
 
 
 def test_list_runs_empty_db(tools):
-    assert tools["list_runs"].run({}, _budget()) == {"ok": True, "runs": []}
+    out = tools["list_runs"].run({}, _budget())
+    assert out["runs"] == []
+    assert out["total"] == 0
 
 
 def test_list_runs_shows_incident_actions(tools, engine):
@@ -284,3 +293,49 @@ def test_list_alerts_until_bounds_sent_at(tools, engine):
 def test_until_is_documented_in_tool_schema(tools):
     for name in ("list_issues", "list_alerts"):
         assert "until" in tools[name].Input.model_fields
+
+
+def test_list_runs_reports_total_before_limit(tools, engine):
+    store = CheckRunStore(engine)
+    store.create("schedule", NOW)
+    latest = store.create("schedule", NOW + timedelta(hours=1))
+    out = tools["list_runs"].run({"limit": 1}, _budget())
+    assert out["total"] == 2
+    assert out["truncated"] is True
+    assert out["runs"][0]["id"] == latest
+    assert out["runs"][0]["severity"] is None
+
+
+def test_list_issues_opened_window_excludes_ongoing_and_end_boundary(tools, engine):
+    runs = CheckRunStore(engine)
+    incidents = IncidentStore(engine)
+    end = NOW + timedelta(hours=1)
+    for key, at in [("prior", NOW - timedelta(hours=1)), ("new", NOW), ("boundary", end)]:
+        incidents.open(key, {}, "critical", runs.create("schedule", at), at)
+    out = tools["list_issues"].run(
+        {"since": NOW, "until": end, "until_exclusive": True, "date_basis": "opened"}, _budget()
+    )
+    assert out["ok"] is True
+    assert out["total"] == 1
+    assert [i["id"] for i in out["issues"]] == [2]
+    ongoing = tools["list_issues"].run(
+        {"since": NOW, "until": end, "date_basis": "ongoing"}, _budget()
+    )
+    assert ongoing["total"] == 1
+    assert [i["id"] for i in ongoing["issues"]] == [1]
+
+
+def test_list_runs_filters_trigger_and_returns_stored_severity(tools, engine):
+    runs = CheckRunStore(engine)
+    scheduled = runs.create("schedule", NOW)
+    runs.create("ui", NOW + timedelta(minutes=1))
+    CheckResultStore(engine).start(scheduled, NOW)
+    with engine.begin() as connection:
+        connection.execute(
+            update(CheckResultRow)
+            .where(CheckResultRow.run_id == scheduled)
+            .values(status="done", first_severity="critical")
+        )
+    out = tools["list_runs"].run({"trigger": "schedule"}, _budget())
+    assert out["total"] == 1
+    assert out["runs"][0]["severity"] == "긴급"

@@ -41,6 +41,7 @@ class Seen:
             return
         match name:
             case "list_runs":
+                self._add_as_of(result)
                 for r in result.get("runs", []):
                     self.runs.add(r["id"])
                     self.issues.update(i["id"] for i in r.get("incidents", []))
@@ -125,7 +126,10 @@ class HistoryQaV1(BaseAgent):
                     for key, bound, clamp in (("since", since, max), ("until", until, min)):
                         if args.get(key) is not None:
                             with suppress(ValidationError):
-                                bound = clamp(bound, DATETIME_ARG.validate_python(args[key]))
+                                requested = DATETIME_ARG.validate_python(args[key])
+                                if key == "until" and bound < requested:
+                                    args["until_exclusive"] = False
+                                bound = clamp(bound, requested)
                         args[key] = bound.isoformat()
                 result = self._call_tool(by_name.get(name), args, name)
                 text = wrap_tool_output(json.dumps(result, ensure_ascii=False, default=str))
