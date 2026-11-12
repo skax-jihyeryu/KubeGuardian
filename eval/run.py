@@ -51,6 +51,11 @@ from judge import (  # noqa: E402
     support_summary,
 )
 from remote import RemoteError, RemoteRunner  # noqa: E402
+from runner_step import (  # noqa: E402
+    investigation_incident_id,
+    record_cause_alert,
+    record_detection_alert,
+)
 from scoring import (  # noqa: E402
     cause_record,
     classify,
@@ -330,6 +335,83 @@ def read_target(scenario: str) -> str | None:
     return lines[0].strip() or None if lines else None
 
 
+def _alert_time(alert: object, kinds: tuple[str, ...]) -> datetime | None:
+    if (
+        not isinstance(alert, dict)
+        or alert.get("kind") not in kinds
+        or type(alert.get("id")) is not int
+        or type(alert.get("incident_id")) is not int
+    ):
+        return None
+    try:
+        sent_at = datetime.fromisoformat(alert["sent_at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return sent_at if sent_at.tzinfo is not None else None
+
+
+def _recorded_timing(injected: datetime, sent_at: datetime, alert: dict) -> dict:
+    return {
+        "status": "recorded",
+        "elapsed_s": round((sent_at - injected).total_seconds(), 3),
+        "alert": alert,
+    }
+
+
+def alert_timing(injected: datetime, checks: list[dict], ai_runs: list[dict]) -> dict:
+    """Only persisted initial alerts and accepted cause updates contribute timing."""
+    missing = {"status": "missing", "elapsed_s": None}
+    unsupported = {"status": "unsupported", "elapsed_s": None}
+    detection_timing = (
+        missing if checks and all("detection_alert" in c for c in checks) else unsupported
+    )
+    cause_timing = missing if all("cause_alert" in ai for ai in ai_runs) else unsupported
+    detection = None
+    for check in checks:
+        alert = check.get("detection_alert")
+        if alert is None:
+            continue
+        sent_at = _alert_time(alert, ("M1",))
+        if sent_at is None or sent_at < injected:
+            detection_timing = unsupported
+            continue
+        detection = alert
+        detection_at = sent_at
+        detection_timing = _recorded_timing(injected, sent_at, alert)
+        break
+    if detection is None:
+        if detection_timing == unsupported and any(
+            ai.get("cause_alert") is not None for ai in ai_runs
+        ):
+            cause_timing = unsupported
+        return {"detection": detection_timing, "cause": cause_timing}
+
+    causes = []
+    for ai in ai_runs:
+        alert = ai.get("cause_alert")
+        if (
+            alert is None
+            or ai.get("status") != "done"
+            or ai.get("judgement") != "confirmed"
+            or ai.get("conclusion_supported") is not True
+            or ai.get("passed") is not True
+            or ai.get("invalid")
+        ):
+            continue
+        sent_at = _alert_time(alert, ("M1u", "M1"))
+        if sent_at is None:
+            cause_timing = unsupported
+        elif alert["incident_id"] == detection["incident_id"]:
+            if sent_at < detection_at or alert["id"] <= detection["id"]:
+                cause_timing = unsupported
+            else:
+                causes.append((sent_at, alert))
+    if causes:
+        sent_at, cause = min(causes, key=lambda event: event[0])
+        cause_timing = _recorded_timing(injected, sent_at, cause)
+    return {"detection": detection_timing, "cause": cause_timing}
+
+
 def run(
     scenario: str,
     config_path: str,
@@ -383,6 +465,8 @@ def run(
     resolved = expected  # 자리표시자를 주입 대상으로 바꾼 정답 (AI 조건에서만 바뀐다)
     pending: list[tuple[dict, dict | None, list[dict]]] = []  # 2단계 채점을 기다리는 회차
     try:
+        injection_wall_time = datetime.now(UTC)
+        result["injection_started_at"] = injection_wall_time.isoformat()
         injected_at = time.monotonic()
         r = sh(scenario, "inject.sh")
         log("inject", (r.stdout + r.stderr).strip())
@@ -410,7 +494,28 @@ def run(
         if user_symptom:
             result["user_symptom"] = user_symptom
 
+        check_metadata: dict = {}
+
+        def check_once() -> Any:
+            check_metadata.clear()
+            if remote:
+                out = remote.check(user_symptom)
+                if hasattr(out, "detection_alert"):
+                    check_metadata["detection_alert"] = out.detection_alert
+                return out
+            out = run_check(
+                reader,
+                config,
+                engine,
+                trigger="check",
+                http=target_http(config),
+                user_symptom=user_symptom,
+            )
+            check_metadata["detection_alert"] = record_detection_alert(engine, config, out)
+            return out
+
         def on_check(c: dict) -> None:
+            c.update(check_metadata)
             # 바로 쌓아 둔다. 반복 중 예외가 나도 그때까지의 점검이 result.json에 남는다
             result["checks"].append(c)
             log(
@@ -420,16 +525,7 @@ def run(
             )
 
         outcome, checks, first = check_repeatedly(
-            (lambda: remote.check(user_symptom))
-            if remote
-            else lambda: run_check(
-                reader,
-                config,
-                engine,
-                trigger="check",
-                http=target_http(config),
-                user_symptom=user_symptom,
-            ),
+            check_once,
             expected,
             interval_s=interval_s,
             max_s=max_s,
@@ -482,34 +578,38 @@ def run(
 
             def investigate_round(i: int) -> tuple[dict, dict | None, list[dict]]:
                 run_id = f"eval-{scenario}-{started:%Y%m%dT%H%M%S}-{i}"
-                remote_trace: dict = {}
+                metadata: dict = {}
 
-                def investigate_remote() -> AgentResult | None:
-                    res, remote_trace["id"] = remote.investigate(
-                        outcome.run_id, run_id, user_symptom
-                    )
-                    return res
-
-                ai, report, steps = investigate_and_judge(
-                    resolved,
-                    investigate=investigate_remote
-                    if remote
-                    else lambda: run_investigation(
+                def investigate_once() -> AgentResult | None:
+                    if remote:
+                        res, metadata["trace_id"] = remote.investigate(
+                            outcome.run_id, run_id, user_symptom
+                        )
+                        if getattr(remote, "investigation_alert_supported", False):
+                            metadata["cause_alert"] = remote.investigation_alert
+                        return res
+                    res = run_investigation(
                         outcome,
                         config,
                         engine,
                         run_id=run_id,
+                        incident_id=investigation_incident_id(outcome),
                         k8s=reader,
                         http=target_http(config),
                         symptom=user_symptom,
                         ai_on_rules=ai_on_rules,
-                    ),
+                    )
+                    metadata["cause_alert"] = record_cause_alert(engine, config, outcome, res)
+                    return res
+
+                ai, report, steps = investigate_and_judge(
+                    resolved,
+                    investigate=investigate_once,
                     judge=lambda conclusion: judge_top1(
                         conclusion, resolved, build_chat_model(JUDGE_MODEL)
                     ),
                 )
-                if remote:
-                    ai["trace_id"] = remote_trace.get("id")  # Pod 안 추적의 id (Mac의 span 아님)
+                ai.update(metadata)
                 return ai, report, steps
 
             for i in range(ai_repeats):
@@ -553,6 +653,10 @@ def run(
             invalid_runs = [i for i, r in enumerate(result["ai_runs"]) if r.get("invalid")]
             if invalid_runs:
                 result["invalid_runs"] = invalid_runs
+        if check_started:
+            result["alert_timing"] = alert_timing(
+                injection_wall_time, result["checks"], result.get("ai_runs", [])
+            )
         if not recovered:
             result["invalid"] = result.get("invalid") or "원복 확인 실패"
             exit_code = EXIT_INVALID

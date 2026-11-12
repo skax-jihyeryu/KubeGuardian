@@ -27,6 +27,7 @@ def _outcome(symptoms):
         gate=SimpleNamespace(path="C", reason="test"),
         snapshot=SimpleNamespace(failed=[]),
         symptoms=symptoms,
+        incidents=[],
     )
 
 
@@ -102,6 +103,7 @@ def _rule_outcome():
         gate=SimpleNamespace(path="A", reason="적발: S01", signals=[signal], symptoms=[]),
         snapshot=SimpleNamespace(failed=[]),
         symptoms=[],
+        incidents=[],
     )
 
 

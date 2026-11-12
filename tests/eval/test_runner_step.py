@@ -2,6 +2,7 @@
 
 import json
 
+import pytest
 from langchain_core.messages import AIMessage
 
 import runner_step
@@ -78,6 +79,7 @@ def test_check_prints_one_json_line_with_outcome(tmp_path, capsys):
     assert data["run_id"] == 1
     assert any(s["rule_id"] == "S01" and s["verdict"] == "detected" for s in data["signals"])
     assert data["snapshot_failed"] == {}
+    assert data["detection_alert"]["kind"] == "M1"
 
 
 def test_check_reports_collection_failure_in_same_shape(tmp_path, capsys):
@@ -103,7 +105,12 @@ def test_repeated_checks_continue_in_the_same_db(tmp_path, capsys):
     assert json.loads(second)["run_id"] == 2
 
 
-def test_investigate_rebuilds_outcome_from_the_check_and_prints_result(tmp_path, capsys):
+@pytest.mark.parametrize("has_top_issue", [True, False])
+def test_investigate_rebuilds_outcome_from_the_check_and_prints_result(
+    tmp_path, capsys, has_top_issue
+):
+    from core.db import AlertStore, InvestigationStore, create_db_engine
+
     _, out, db = _check(tmp_path, capsys, "s04/localhost")
     check = json.loads(out)
     s04 = next(s for s in check["signals"] if s["rule_id"] == "S04" and s["evidence_id"])
@@ -125,6 +132,7 @@ def test_investigate_rebuilds_outcome_from_the_check_and_prints_result(tmp_path,
             "conclusion": "gateway 주소 env가 localhost",
             "confidence": "high",
             "impact_scope": "전체",
+            "issues": json.loads(triage)["issues"] if has_top_issue else [],
             "coverage": {
                 a: {"status": "not_applicable", "summary": "테스트"}
                 for a in ("run", "config", "wiring", "logs")
@@ -158,6 +166,19 @@ def test_investigate_rebuilds_outcome_from_the_check_and_prints_result(tmp_path,
     assert data["report"]["conclusion"] == "gateway 주소 env가 localhost"
     assert data["usage"]["llm_calls"] >= 1
     assert {"steps", "trace_id"} <= data.keys()
+    initial = check["detection_alert"]
+    engine = create_db_engine(db)
+    [investigation] = InvestigationStore(engine).for_check(check["run_id"])
+    assert investigation.incident_id == initial["incident_id"]
+    store = AlertStore(engine)
+    update = next(a for a in store.for_incident(initial["incident_id"]) if a.kind == "M1u")
+    assert update.dry_run and update.id != initial["id"]
+    if has_top_issue:
+        assert data["cause_alert"]["id"] == update.id
+        assert "gateway 주소 env가 localhost" in update.text
+    else:
+        assert data["cause_alert"] is None
+        assert "원인을 확정하지 못했습니다" in update.text
 
 
 def test_investigate_skips_rule_detection_unless_ai_on_rules(tmp_path, capsys):
@@ -337,7 +358,91 @@ def test_check_output_keeps_its_fields_and_runs_every_rule(tmp_path, capsys):
         "signals",
         "snapshot_failed",
         "symptoms",
+        "detection_alert",
     }
     assert {"S01", "W02", "H01"} <= {s["rule_id"] for s in payload["signals"]}
     assert CheckResultStore(create_db_engine(db)).get(payload["run_id"]).excluded_rules == []
     assert payload["gate_path"] == "A"
+
+
+def test_h0_has_no_detection_alert_or_persisted_incident_message(tmp_path, capsys):
+    from core.db import AlertStore, create_db_engine
+
+    _, out, db = _check(tmp_path, capsys, None)
+    assert json.loads(out)["detection_alert"] is None
+    assert AlertStore(create_db_engine(db)).list_alerts() == []
+
+
+def test_check_uses_dry_run_even_with_a_slack_target(tmp_path, capsys, monkeypatch):
+    from core.db import AlertStore, create_db_engine
+
+    config = tmp_path / "slack.yaml"
+    config.write_text(CONFIG_YAML + 'slack: {alert_target: "C12345678"}\n', encoding="utf-8")
+    db = tmp_path / "kg.db"
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "unused-fixture-token")
+
+    def no_slack(*args, **kwargs):
+        raise AssertionError("evaluation must never construct a Slack client")
+
+    monkeypatch.setattr("service.notify.sender.WebClient", no_slack)
+    assert (
+        runner_step.main(
+            ["check", "--config", str(config), "--db", str(db), "--json"],
+            make_reader=_reader("s01/detected"),
+        )
+        == 0
+    )
+
+    alert = json.loads(capsys.readouterr().out)["detection_alert"]
+    stored = AlertStore(create_db_engine(db)).for_incident(alert["incident_id"])
+    assert [(a.id, a.dry_run, a.channel) for a in stored] == [(alert["id"], True, "C12345678")]
+
+
+def test_repeated_investigations_with_equal_timestamps_return_their_own_alert(
+    tmp_path, capsys, monkeypatch
+):
+    from datetime import UTC, datetime
+
+    from core.db import AlertStore, create_db_engine
+    from service.agent.base import AgentResult
+    from service.model.report import Report
+
+    _, stdout, db = _check(tmp_path, capsys, "s04/localhost")
+    check = json.loads(stdout)
+    engine = create_db_engine(db)
+    out = runner_step.load_outcome(db, check["run_id"])
+    config = runner_step.load_kubeguardian_config(_config(tmp_path))
+    fixed = datetime(2026, 11, 12, tzinfo=UTC)
+
+    class FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed
+
+    monkeypatch.setattr(runner_step, "datetime", FixedClock)
+    report = Report.model_validate(
+        {
+            "conclusion": "gateway address is localhost",
+            "confidence": "high",
+            "impact_scope": "gateway",
+            "issues": [
+                {
+                    "rank": 1,
+                    "title": "Address error",
+                    "impact": "core_path_broken",
+                    "confidence": "high",
+                }
+            ],
+        }
+    )
+    first = runner_step.record_cause_alert(
+        engine, config, out, AgentResult(status="done", report=report)
+    )
+    second = runner_step.record_cause_alert(
+        engine, config, out, AgentResult(status="done", report=report)
+    )
+
+    updates = [
+        a.id for a in AlertStore(engine).for_incident(first["incident_id"]) if a.kind == "M1u"
+    ]
+    assert [first["id"], second["id"]] == updates

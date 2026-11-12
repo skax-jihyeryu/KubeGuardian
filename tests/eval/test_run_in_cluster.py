@@ -314,6 +314,7 @@ def test_run_in_cluster_h0_passes_and_fetches_db(tmp_path, monkeypatch):
         "config_resource_version": "4242",
     }
     assert result["checks"][0]["n"] == 1
+    assert result["alert_timing"]["detection"]["status"] == "unsupported"
     assert stub.fetched is not None and stub.fetched.name.endswith("-H0")
 
 
@@ -588,3 +589,26 @@ def test_ai_on_rules_option_investigates_rule_detection_and_marks_result(tmp_pat
     assert len(calls) == 1 and stub.ai_on_rules is True
     assert result["ai_on_rules"] is True and len(result["ai_runs"]) == 1
     assert "rule_diagnosis" not in result
+
+
+def test_remote_transports_dry_run_alert_metadata():
+    alert = {"id": 1, "incident_id": 1, "kind": "M1", "sent_at": "2026-01-01T00:00:01+00:00"}
+    cause = alert | {"id": 2, "kind": "M1u"}
+    payload = {
+        "status": "done",
+        "report": {"conclusion": "c", "confidence": "high", "impact_scope": "x"},
+        "steps": [],
+        "usage": {"llm_calls": 2},
+        "cause_alert": cause,
+    }
+    runner = _runner(
+        FakeKubectl(
+            execs=[_check_payload() | {"detection_alert": alert}, payload, {"skipped": True}]
+        )
+    )
+
+    assert runner.check().detection_alert == alert
+    runner.investigate(1, "eval-x")
+    assert runner.investigation_alert_supported and runner.investigation_alert == cause
+    runner.investigate(1, "eval-y")
+    assert runner.investigation_alert_supported and runner.investigation_alert is None
