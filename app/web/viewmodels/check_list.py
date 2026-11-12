@@ -12,11 +12,10 @@ from core.db.tables import CheckResultRow, CheckRunRow, IncidentCheckRow, Invest
 from core.guard.redact import redact_text
 from core.schedule import stalled_after
 from service.checks.detectors.catalog import CATALOG
-from service.checks.severity import CHECK_SEVERITIES, check_severity_rank
+from service.checks.severity import CHECK_SEVERITIES, check_severity_rank, unknown_count
 from web.timefmt import date_range, date_window, md_hm
 from web.viewmodels.checks import ACTION_LABEL, TRIGGER_LABEL
 from web.viewmodels.common import Sev
-from web.viewmodels.shell import unknown_count
 
 
 @dataclass(frozen=True)

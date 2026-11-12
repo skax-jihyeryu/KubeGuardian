@@ -73,3 +73,8 @@ def check_severity_rank():
             first_rank, value=CheckResultRow.first_severity, else_=case((advice_exists, 1), else_=0)
         ),
     )
+
+
+def unknown_count(verdicts: list[dict], symptoms: list[dict]) -> int:
+    n = sum(1 for rule in verdicts for i in rule.get("items", []) if i.get("verdict") == "unknown")
+    return n + sum(1 for s in symptoms if s.get("status") == "unknown")

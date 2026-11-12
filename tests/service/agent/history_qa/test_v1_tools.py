@@ -339,3 +339,28 @@ def test_list_runs_filters_trigger_and_returns_stored_severity(tools, engine):
     out = tools["list_runs"].run({"trigger": "schedule"}, _budget())
     assert out["total"] == 1
     assert out["runs"][0]["severity"] == "긴급"
+
+
+def test_list_runs_does_not_label_partial_check_normal(tools, engine):
+    run = CheckRunStore(engine).create("schedule", NOW)
+    CheckResultStore(engine).start(run, NOW)
+    with engine.begin() as connection:
+        connection.execute(
+            update(CheckResultRow)
+            .where(CheckResultRow.run_id == run)
+            .values(status="done", symptoms=[{"status": "unknown"}])
+        )
+    out = tools["list_runs"].run({}, _budget())
+    assert out["runs"][0]["severity"] is None
+
+
+@pytest.mark.parametrize("basis", ["overlap", "ongoing"])
+def test_list_issues_empty_exclusive_window(tools, engine, basis):
+    prior = NOW - timedelta(hours=1)
+    run = CheckRunStore(engine).create("schedule", prior)
+    IncidentStore(engine).open("prior", {}, "critical", run, prior)
+    out = tools["list_issues"].run(
+        {"since": NOW, "until": NOW, "until_exclusive": True, "date_basis": basis}, _budget()
+    )
+    assert out["total"] == 0
+    assert out["issues"] == []

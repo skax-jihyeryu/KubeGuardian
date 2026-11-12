@@ -10,6 +10,7 @@ from core.config import KubeGuardianConfig
 from core.db import CheckLockStore, CheckResultStore, CheckRunStore, IncidentStore
 from core.db.tables import CheckRunRow
 from core.schedule import next_check, stalled_after
+from service.checks.severity import unknown_count
 from web.timefmt import hm
 
 CLUSTER_LABEL = "minikube"  # 프로젝트 표시는 지금 고정 값이다
@@ -79,11 +80,6 @@ def build_shell(engine: Engine, config: KubeGuardianConfig, now: datetime) -> Sh
         cooldown=last_ui is not None and now - last_ui < timedelta(minutes=1),
         cooldown_seconds=max(0, int(60 - (now - last_ui).total_seconds()) + 1) if last_ui else 0,
     )
-
-
-def unknown_count(verdicts: list[dict], symptoms: list[dict]) -> int:
-    n = sum(1 for rule in verdicts for i in rule.get("items", []) if i.get("verdict") == "unknown")
-    return n + sum(1 for s in symptoms if s.get("status") == "unknown")
 
 
 def _open_counts(engine: Engine) -> dict[str, int]:

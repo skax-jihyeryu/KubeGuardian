@@ -14,11 +14,11 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationErro
 from sqlalchemy import Engine, String, cast, exists, func, select
 from sqlalchemy.orm import Session
 
-from core.db import AlertStore, CheckRunStore, EvidenceStore, IncidentStore
+from core.db import AlertStore, CheckResultStore, CheckRunStore, EvidenceStore, IncidentStore
 from core.db.tables import CheckResultRow, CheckRunRow, InvestigationRow, require_aware
 from core.guard.budget import BudgetTracker
 from core.guard.redact import redact_mapping
-from service.checks.severity import CHECK_SEVERITIES, check_severity_rank
+from service.checks.severity import CHECK_SEVERITIES, check_severity_rank, unknown_count
 from service.notify.messages import DISPLAY_TZ
 
 KNOWLEDGE_DIR = Path(__file__).parents[3] / "knowledge"
@@ -140,7 +140,6 @@ class ListRuns(HistoryTool):
             CheckRunRow.trigger,
             CheckRunRow.snapshot.is_not(None),
             check_severity_rank(),
-            CheckResultRow.status,
             func.count().over(),
         ).outerjoin(CheckResultRow, CheckResultRow.run_id == CheckRunRow.id)
         if inp.since is not None:
@@ -156,25 +155,35 @@ class ListRuns(HistoryTool):
             stmt = stmt.where(CheckRunRow.trigger == inp.trigger)
         with Session(self._engine) as session:
             runs = session.execute(stmt.order_by(CheckRunRow.id.desc()).limit(inp.limit)).all()
-        actions = IncidentStore(self._engine).actions_for_runs([r[0] for r in runs])
-        return {
-            "ok": True,
-            **inp.metadata(runs[0][-1] if runs else 0),
-            "as_of_run": _latest_run_id(self._engine),
-            "runs": [
+        ids = [r[0] for r in runs]
+        actions = IncidentStore(self._engine).actions_for_runs(ids)
+        results = CheckResultStore(self._engine).for_runs(ids)
+        records = []
+        for run_id, started_at, trigger, collected, rank, _ in runs:
+            result = results.get(run_id)
+            status = result.status if result else None
+            severity = CHECK_SEVERITIES[rank][1] if rank else None
+            if result and status == "done":
+                if unknown_count(result.verdicts, result.symptoms):
+                    status = "partial"
+                elif severity is None:
+                    severity = "정상"
+            records.append(
                 {
                     "id": run_id,
                     "started_at": _at(started_at),
                     "trigger": trigger,
                     "collected": collected,
                     "result_status": status,
-                    "severity": CHECK_SEVERITIES.get(rank, ("calm", "정상"))[1]
-                    if rank or status == "done"
-                    else None,
+                    "severity": severity,
                     "incidents": [{"id": i, "action": a} for i, a in actions.get(run_id, [])],
                 }
-                for run_id, started_at, trigger, collected, rank, status, _ in runs
-            ],
+            )
+        return {
+            "ok": True,
+            **inp.metadata(runs[0][-1] if runs else 0),
+            "as_of_run": _latest_run_id(self._engine),
+            "runs": records,
         }
 
 
@@ -281,7 +290,12 @@ class ListIssues(HistoryTool):
         found = []
         total = 0
         needle = inp.keyword.lower() if inp.keyword else ""
-        if inp.since is None or inp.until is None or inp.since <= inp.until:
+        if (
+            inp.since is None
+            or inp.until is None
+            or inp.since < inp.until
+            or (inp.since == inp.until and not inp.until_exclusive)
+        ):
             for incident in store.iter_incidents(
                 inp.since,
                 inp.status,
