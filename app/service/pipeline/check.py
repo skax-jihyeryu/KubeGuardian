@@ -12,7 +12,7 @@ from collections import Counter
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import Engine
@@ -318,6 +318,19 @@ def _run_locked(
         raise
     rec.finish("done")
     record_config_changes(engine, config, run_id, rec.clock())
+    started_at = now.astimezone(UTC)
+    if config.snapshot_retention_days < started_at.toordinal():
+        try:
+            runs.expire_snapshots(
+                started_at - timedelta(days=config.snapshot_retention_days),
+                pinned_run_ids={
+                    spec.run_id
+                    for spec in config.config_baselines.values()
+                    if spec.run_id is not None
+                },
+            )
+        except SQLAlchemyError as e:
+            logger.warning(f"점검 스냅샷 정리 실패: {type(e).__name__}")
     return outcome
 
 

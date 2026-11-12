@@ -1,11 +1,18 @@
 """점검 이력: 실행 기록과 그때의 스냅샷. 감지기의 `previous`(직전 스냅샷)를 여기서 읽는다."""
 
+from collections.abc import Collection
 from datetime import datetime
 
-from sqlalchemy import Engine, select
+from sqlalchemy import JSON, Engine, func, null, or_, select, update
 from sqlalchemy.orm import Session
 
-from core.db.tables import CheckResultRow, CheckRunRow, require_aware
+from core.db.tables import (
+    CheckResultRow,
+    CheckRunRow,
+    InvestigationQueueRow,
+    InvestigationRow,
+    require_aware,
+)
 from service.model import ClusterSnapshot, Trigger
 
 
@@ -24,6 +31,36 @@ class CheckRunStore:
         with Session(self._engine) as s, s.begin():
             row = s.get_one(CheckRunRow, run_id)
             row.snapshot = snapshot.model_dump(mode="json")
+
+    def expire_snapshots(self, cutoff: datetime, *, pinned_run_ids: Collection[int] = ()) -> int:
+        """기준 시각보다 오래된 스냅샷만 비우고 점검 이력은 보존한다."""
+        namespace = CheckRunRow.snapshot["namespace"].as_string()
+        latest_by_namespace = (
+            select(func.max(CheckRunRow.id)).where(namespace.is_not(None)).group_by(namespace)
+        )
+        investigations = select(InvestigationRow.check_run_id).where(
+            or_(
+                InvestigationRow.status == "running",
+                InvestigationRow.report != JSON.NULL,
+            )
+        )
+        active_checks = select(CheckResultRow.run_id).where(CheckResultRow.status == "running")
+        queued = select(InvestigationQueueRow.check_run_id)
+        stmt = (
+            update(CheckRunRow)
+            .where(
+                CheckRunRow.started_at < require_aware(cutoff),
+                CheckRunRow.snapshot != JSON.NULL,
+                CheckRunRow.id.not_in(latest_by_namespace),
+                CheckRunRow.id.not_in(investigations),
+                CheckRunRow.id.not_in(active_checks),
+                CheckRunRow.id.not_in(queued),
+                CheckRunRow.id.not_in(pinned_run_ids),
+            )
+            .values(snapshot=null())
+        )
+        with self._engine.begin() as connection:
+            return connection.execute(stmt).rowcount
 
     def get_snapshot(self, run_id: int) -> ClusterSnapshot | None:
         with Session(self._engine) as s:
@@ -57,7 +94,7 @@ class CheckRunStore:
             CheckRunRow.id,
             CheckRunRow.started_at,
             CheckRunRow.trigger,
-            CheckRunRow.snapshot.is_not(None),
+            CheckRunRow.snapshot != JSON.NULL,
         )
         if since is not None:
             stmt = stmt.where(CheckRunRow.started_at >= require_aware(since))

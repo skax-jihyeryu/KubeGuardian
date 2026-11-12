@@ -1,9 +1,18 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import text
 
-from core.config import ApiScenario
-from core.db import CheckRunStore, EvidenceStore, SqliteObservationStore, create_db_engine
+from core.config import ApiScenario, ServiceConfigBaseline
+from core.db import (
+    CheckLockStore,
+    CheckResultStore,
+    CheckRunStore,
+    EvidenceStore,
+    SqliteObservationStore,
+    create_db_engine,
+)
 from core.db.investigations import INTERRUPTED
 from service.pipeline.check import run_check
 from tests.service.checks.detectors.cases import CONFIG, NOW, FixtureReader, raw_cluster
@@ -24,6 +33,76 @@ def test_healthy_cluster_is_path_c_and_stores_snapshot(engine):
     assert out.gate.path == "C"
     assert CheckRunStore(engine).get_snapshot(out.run_id).namespace == "dev"
     assert out.board.by_service == {}
+
+
+def test_successful_check_applies_snapshot_retention_config(engine):
+    assert CONFIG.snapshot_retention_days == 14
+    runs = CheckRunStore(engine)
+    earlier = run_check(_reader(), CONFIG, engine, trigger="schedule", now=NOW)
+    pinned = run_check(
+        _reader(), CONFIG, engine, trigger="schedule", now=NOW + timedelta(minutes=5)
+    )
+    config = CONFIG.model_copy(
+        update={
+            "snapshot_retention_days": 2,
+            "config_baselines": {
+                "agent": ServiceConfigBaseline(
+                    deployment="agent",
+                    container="agent",
+                    env="AGENT_SERVICE_URL",
+                    config_map="agent",
+                    key="AGENT_SERVICE_URL",
+                    expected_service="agent",
+                    run_id=pinned.run_id,
+                )
+            },
+        }
+    )
+
+    current = run_check(_reader(), config, engine, trigger="schedule", now=NOW + timedelta(days=3))
+
+    assert runs.get_snapshot(earlier.run_id) is None
+    assert CheckResultStore(engine).get(earlier.run_id).status == "done"
+    assert runs.get_snapshot(pinned.run_id) == pinned.snapshot
+    assert runs.get_snapshot(current.run_id) == current.snapshot
+
+
+def test_snapshot_retention_uses_elapsed_days_across_dst(engine):
+    tz = ZoneInfo("America/New_York")
+    now = datetime(2026, 3, 8, 3, 30, tzinfo=tz)
+    earlier = run_check(
+        _reader(), CONFIG, engine, trigger="schedule", now=datetime(2026, 3, 6, 3, tzinfo=tz)
+    )
+    config = CONFIG.model_copy(update={"snapshot_retention_days": 2})
+
+    run_check(_reader(), config, engine, trigger="schedule", now=now)
+
+    assert CheckRunStore(engine).get_snapshot(earlier.run_id) == earlier.snapshot
+
+
+def test_snapshot_retention_write_failure_rolls_back_and_releases_check_lock(engine):
+    first = run_check(_reader(), CONFIG, engine, trigger="schedule", now=NOW)
+    second = run_check(
+        _reader(), CONFIG, engine, trigger="schedule", now=NOW + timedelta(minutes=5)
+    )
+    # RAISE(FAIL) leaves earlier row updates in place until the transaction rolls back.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                f"""CREATE TRIGGER reject_expiry BEFORE UPDATE OF snapshot ON check_run
+                WHEN OLD.id = {second.run_id} AND NEW.snapshot IS NULL
+                BEGIN SELECT RAISE(FAIL, 'snapshot cleanup test'); END"""
+            )
+        )
+    now = NOW + timedelta(days=15)
+
+    current = run_check(_reader(), CONFIG, engine, trigger="schedule", now=now)
+
+    runs = CheckRunStore(engine)
+    assert runs.get_snapshot(first.run_id) == first.snapshot
+    assert runs.get_snapshot(second.run_id) == second.snapshot
+    assert CheckResultStore(engine).get(current.run_id).status == "done"
+    assert CheckLockStore(engine).current(now) is None
 
 
 def test_a1_selector_typo_opens_path_a_and_stores_evidence(engine):
