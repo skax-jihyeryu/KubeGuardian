@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from core.db.tables import CheckRunRow, require_aware
+from core.db.tables import CheckResultRow, CheckRunRow, require_aware
 from service.model import ClusterSnapshot, Trigger
 
 
@@ -29,6 +29,19 @@ class CheckRunStore:
         with Session(self._engine) as s:
             row = s.get(CheckRunRow, run_id)
             return _to_snapshot(row.snapshot if row else None)
+
+    def get_pinned_snapshot(self, run_id: int) -> tuple[ClusterSnapshot | None, bool]:
+        """명시적으로 지정한 점검의 스냅샷과 점검 완료 여부."""
+        stmt = (
+            select(CheckRunRow.snapshot, CheckResultRow.status, CheckResultRow.finished_at)
+            .outerjoin(CheckResultRow, CheckResultRow.run_id == CheckRunRow.id)
+            .where(CheckRunRow.id == run_id)
+        )
+        with Session(self._engine) as s:
+            row = s.execute(stmt).first()
+            if row is None:
+                return None, False
+            return _to_snapshot(row.snapshot), row.status == "done" and row.finished_at is not None
 
     def latest_started_at(self) -> datetime | None:
         """가장 최근 점검의 시작 시각 (점검 중단 감시, M7)."""

@@ -193,6 +193,21 @@ class WebConfig(_Strict):
     base_url: str = "http://localhost:8080"
 
 
+_RESOURCE_NAME = r"^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
+_RESOURCE_LABEL = r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+
+
+class ServiceConfigBaseline(_Strict):
+    deployment: str = Field(pattern=_RESOURCE_NAME, max_length=253)
+    container: str = Field(pattern=_RESOURCE_LABEL, max_length=63)
+    env: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$", max_length=253)
+    config_map: str = Field(pattern=_RESOURCE_NAME, max_length=253)
+    key: str = Field(pattern=r"^[-._A-Za-z0-9]+$", max_length=253)
+    expected_service: str = Field(pattern=_RESOURCE_LABEL, max_length=63)
+    run_id: int | None = Field(default=None, gt=0)
+    max_age_hours: int = Field(default=168, gt=0)
+
+
 class KubeGuardianConfig(_Strict):
     project: ProjectConfig = ProjectConfig()
     target: TargetConfig
@@ -200,6 +215,7 @@ class KubeGuardianConfig(_Strict):
     core_paths: dict[str, list[str]] = {}  # 사용자 기능 → 서비스 목록 (1차 심각도, 05-rules §3)
     external_hosts: list[str] = []  # S04 제외: 외부 호스트 허용 목록
     required_config: dict[str, list[str]] = {}  # C05: 서비스 → 반드시 있어야 할 env 이름
+    config_baselines: dict[str, ServiceConfigBaseline] = {}
     topology: TopologyConfig = TopologyConfig()
     api_scenarios: list[ApiScenario] = []
     app_apis: dict[str, list[str]] = {}  # query_app_api 허용 목록 (GET만)
@@ -210,6 +226,15 @@ class KubeGuardianConfig(_Strict):
     web: WebConfig = WebConfig()
     slack: SlackConfig | None = None
     knowledge: KnowledgeConfig = KnowledgeConfig()
+
+    @field_validator("config_baselines")
+    @classmethod
+    def _baseline_service_names(
+        cls, value: dict[str, ServiceConfigBaseline]
+    ) -> dict[str, ServiceConfigBaseline]:
+        if any(len(name) > 253 or not re.fullmatch(_RESOURCE_NAME, name) for name in value):
+            raise ValueError("config_baselines 키는 Service 또는 Deployment 이름이어야 함")
+        return value
 
     @model_validator(mode="after")
     def _app_api_auth_is_consistent(self) -> "KubeGuardianConfig":
