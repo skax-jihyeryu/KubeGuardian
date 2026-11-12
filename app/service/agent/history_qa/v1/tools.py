@@ -14,10 +14,11 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationErro
 from sqlalchemy import Engine, String, cast, exists, func, select
 from sqlalchemy.orm import Session
 
-from core.db import AlertStore, CheckRunStore, EvidenceStore, IncidentStore
-from core.db.tables import InvestigationRow
+from core.db import AlertStore, CheckResultStore, CheckRunStore, EvidenceStore, IncidentStore
+from core.db.tables import CheckResultRow, CheckRunRow, InvestigationRow, require_aware
 from core.guard.budget import BudgetTracker
 from core.guard.redact import redact_mapping
+from service.checks.severity import CHECK_SEVERITIES, check_severity_rank, unknown_count
 from service.notify.messages import DISPLAY_TZ
 
 KNOWLEDGE_DIR = Path(__file__).parents[3] / "knowledge"
@@ -110,29 +111,79 @@ class HistoryTool(ABC):
     def _query(self, inp: Any) -> dict: ...
 
 
+class _HistoryWindow(_Window):
+    until_exclusive: bool = False
+
+    def metadata(self, total: int) -> dict:
+        return {
+            "since": _at(self.since),
+            "until": _at(self.until),
+            "until_exclusive": self.until_exclusive,
+            "total": total,
+            "truncated": total > self.limit,
+        }
+
+
 class ListRuns(HistoryTool):
     name = "list_runs"
     description = (
-        "점검 목록(최신순). 시작 시각·트리거·스냅샷 유무·그 점검에서 열리거나 해결된 이슈."
+        "점검 목록(최신순). 시작 시각·실행 방식·심각도·관련 이슈. 주기 점검은 trigger=schedule."
     )
 
-    Input = _Window
+    class Input(_HistoryWindow):
+        trigger: Literal["schedule", "ui", "check", "investigate"] | None = None
 
     def _query(self, inp: Any) -> dict:
-        runs = CheckRunStore(self._engine).list_runs(inp.since, inp.until, inp.limit)
-        actions = IncidentStore(self._engine).actions_for_runs([r[0] for r in runs])
-        return {
-            "ok": True,
-            "runs": [
+        stmt = select(
+            CheckRunRow.id,
+            CheckRunRow.started_at,
+            CheckRunRow.trigger,
+            CheckRunRow.snapshot.is_not(None),
+            check_severity_rank(),
+            func.count().over(),
+        ).outerjoin(CheckResultRow, CheckResultRow.run_id == CheckRunRow.id)
+        if inp.since is not None:
+            stmt = stmt.where(CheckRunRow.started_at >= require_aware(inp.since))
+        if inp.until is not None:
+            end = require_aware(inp.until)
+            stmt = stmt.where(
+                CheckRunRow.started_at < end
+                if inp.until_exclusive
+                else CheckRunRow.started_at <= end
+            )
+        if inp.trigger is not None:
+            stmt = stmt.where(CheckRunRow.trigger == inp.trigger)
+        with Session(self._engine) as session:
+            runs = session.execute(stmt.order_by(CheckRunRow.id.desc()).limit(inp.limit)).all()
+        ids = [r[0] for r in runs]
+        actions = IncidentStore(self._engine).actions_for_runs(ids)
+        results = CheckResultStore(self._engine).for_runs(ids)
+        records = []
+        for run_id, started_at, trigger, collected, rank, _ in runs:
+            result = results.get(run_id)
+            status = result.status if result else None
+            severity = CHECK_SEVERITIES[rank][1] if rank else None
+            if result and status == "done":
+                if unknown_count(result.verdicts, result.symptoms):
+                    status = "partial"
+                elif severity is None:
+                    severity = "정상"
+            records.append(
                 {
                     "id": run_id,
                     "started_at": _at(started_at),
                     "trigger": trigger,
                     "collected": collected,
+                    "result_status": status,
+                    "severity": severity,
                     "incidents": [{"id": i, "action": a} for i, a in actions.get(run_id, [])],
                 }
-                for run_id, started_at, trigger, collected in runs
-            ],
+            )
+        return {
+            "ok": True,
+            **inp.metadata(runs[0][-1] if runs else 0),
+            "as_of_run": _latest_run_id(self._engine),
+            "runs": records,
         }
 
 
@@ -221,31 +272,47 @@ class GetEvidence(HistoryTool):
 class ListIssues(HistoryTool):
     name = "list_issues"
     description = (
-        "이슈 목록(최신순). status·keyword(서비스·기능·규칙·대상 부분 일치)로 거르고, "
-        "until을 주면 since~until 기간 중 열려 있던 이슈(기간 전에 열려 계속 열렸거나 "
-        "기간 중 해결된 이슈 포함), until 없이 since만 주면 그 이후에 열린 이슈만."
+        "이슈 목록. date_basis=opened는 발생 시각 기준, overlap은 기간 중 열린 모든 이슈. "
+        "ongoing은 since 전에 열려 기간까지 이어진 이슈. "
+        "생략하면 종료 시각이 있을 때 overlap, 없을 때 opened. keyword와 status로 좁힐 수 있다."
     )
 
-    class Input(_Window):
+    class Input(_HistoryWindow):
         status: Literal["open", "resolved"] | None = None
         keyword: str | None = None
+        date_basis: Literal["opened", "overlap", "ongoing"] | None = None
 
     def _query(self, inp: Any) -> dict:
         store = IncidentStore(self._engine)
-        if inp.since is not None and inp.until is not None and inp.since > inp.until:
-            found = []
-        elif inp.keyword is None:
-            found = store.list_incidents(inp.since, inp.status, inp.limit, inp.until)
-        else:
-            needle = inp.keyword.lower()
-            # 저장소는 keyword를 모르므로 넉넉히 읽어 거른 뒤 자른다
-            found = [
-                i
-                for i in store.list_incidents(inp.since, inp.status, 500, inp.until)
-                if needle in _haystack(i).lower()
-            ][: inp.limit]
+        basis = inp.date_basis or ("overlap" if inp.until is not None else "opened")
+        if basis == "ongoing" and inp.since is None:
+            return {"ok": False, "error": "VALIDATION_ERROR", "fields": ["since"]}
+        found = []
+        total = 0
+        needle = inp.keyword.lower() if inp.keyword else ""
+        if (
+            inp.since is None
+            or inp.until is None
+            or inp.since < inp.until
+            or (inp.since == inp.until and not inp.until_exclusive)
+        ):
+            for incident in store.iter_incidents(
+                inp.since,
+                inp.status,
+                None,
+                inp.until,
+                date_basis=basis,
+                until_exclusive=inp.until_exclusive,
+            ):
+                if needle and needle not in _haystack(incident).lower():
+                    continue
+                total += 1
+                if len(found) < inp.limit:
+                    found.append(incident)
         return {
             "ok": True,
+            **inp.metadata(total),
+            "date_basis": basis,
             "as_of_run": _latest_run_id(self._engine),
             "issues": [
                 {
@@ -254,6 +321,7 @@ class ListIssues(HistoryTool):
                     "first_severity": i.first_severity,
                     "final_severity": i.final_severity,
                     "opened_at": _at(i.opened_at),
+                    "last_seen_at": _at(i.last_seen_at),
                     "resolved_at": _at(i.resolved_at),
                     "minutes": int(
                         ((i.resolved_at or i.last_seen_at) - i.opened_at).total_seconds() // 60

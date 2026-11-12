@@ -4,9 +4,10 @@
 조사 상태(investigation)는 조사 대기열(`investigation_queue.py`)이 바꾼다. 여기는 해결 때 비운다.
 """
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import Engine, delete, or_, select
 from sqlalchemy.orm import Session
@@ -125,24 +126,44 @@ class IncidentStore:
     ) -> list[Incident]:
         """최신순 이슈 목록. until이 없으면 since 이후에 열린 이슈, 있으면 [since, until] 기간 중
         열려 있던 이슈(겹침 기준). 이력 질의용."""
+        return list(
+            self.iter_incidents(
+                since, status, limit, until, date_basis="opened" if until is None else "overlap"
+            )
+        )
+
+    def iter_incidents(
+        self,
+        since: datetime | None,
+        status: str | None,
+        limit: int | None,
+        until: datetime | None,
+        *,
+        date_basis: Literal["opened", "overlap", "ongoing"] = "overlap",
+        until_exclusive: bool = False,
+    ) -> Iterator[Incident]:
         stmt = select(IncidentRow)
-        if until is None:
-            if since is not None:
-                stmt = stmt.where(IncidentRow.opened_at >= require_aware(since))
-        else:
-            stmt = stmt.where(IncidentRow.opened_at <= require_aware(until))
-            if since is not None:
+        if until is not None:
+            end = require_aware(until)
+            stmt = stmt.where(
+                IncidentRow.opened_at < end if until_exclusive else IncidentRow.opened_at <= end
+            )
+        if since is not None:
+            start = require_aware(since)
+            if date_basis == "opened":
+                stmt = stmt.where(IncidentRow.opened_at >= start)
+            else:
                 stmt = stmt.where(
-                    or_(
-                        IncidentRow.resolved_at.is_(None),
-                        IncidentRow.resolved_at >= require_aware(since),
-                    )
+                    or_(IncidentRow.resolved_at.is_(None), IncidentRow.resolved_at >= start)
                 )
+        if date_basis == "ongoing" and since is not None:
+            stmt = stmt.where(IncidentRow.opened_at < require_aware(since))
         if status is not None:
             stmt = stmt.where(IncidentRow.status == status)
         with Session(self._engine) as s:
             rows = s.scalars(stmt.order_by(IncidentRow.id.desc()).limit(limit))
-            return [_to_incident(r) for r in rows]
+            for row in rows.yield_per(100):
+                yield _to_incident(row)
 
     def actions_for_runs(self, run_ids: list[int]) -> dict[int, list[tuple[int, str]]]:
         """점검 id → [(이슈 id, 그 점검에서 한 일)]."""
