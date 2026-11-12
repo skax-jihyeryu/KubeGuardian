@@ -11,6 +11,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from core.config import KubeGuardianConfig
+from core.error.service_exception import ErrorCode, ServiceException
+from core.guard.redact import MASK, is_sensitive_name
+from service.config_baseline import evaluate_relation
 from service.sensors.topology import build_topology, is_ready, service_hierarchy
 from service.tools._common import (
     MAX_ITEMS,
@@ -83,6 +86,7 @@ class GetResource(Tool):
         "마지막 종료 사유, Pod 시작 시각과 컨테이너 시작·종료 시각)를 본다. "
         "Service와 Pod 연결, 설정·이미지·재시작 정보와 언제 바뀌었는지 확인할 때 쓰세요. "
         "환경변수는 키 이름만, ConfigMap은 키 이름만, Secret은 메타데이터와 키 이름만 보인다. "
+        "Deployment를 이름으로 조회하면 설정된 ConfigMap과 로컬 Service 관계의 판정도 본다. "
         "이름과 셀렉터를 모두 비우면 그 종류 전체."
     )
 
@@ -99,9 +103,25 @@ class GetResource(Tool):
                 raise ValueError("name과 label_selector 중 하나만 쓴다")
             return self
 
+    def __init__(self, config: KubeGuardianConfig | None = None):
+        self._config = config
+
     def collect(self, args: Input, ctx: ToolContext) -> ToolObservation:
         kinds = ("Pod", "Node") if args.kind == "Node" else (args.kind,)
-        objs = require(read(ctx, *kinds), args.kind)
+        config = self._config if args.kind == "Deployment" and args.name else None
+        expectations = []
+        if config is not None and ctx.k8s.namespace != ctx.namespace:
+            raise ServiceException(ErrorCode.TOOL_SCOPE_VIOLATION, detail=self.name)
+        if config is not None and config.target.namespace == ctx.namespace:
+            expectations = [
+                (service, spec)
+                for service, spec in sorted(config.config_baselines.items())
+                if spec.deployment == args.name
+            ]
+        if expectations:
+            kinds += ("Service", "ConfigMap")
+        snapshot = read(ctx, *kinds)
+        objs = require(snapshot, args.kind)
         if args.name:
             objs = [o for o in objs if o["metadata"]["name"] == args.name]
             label = f"name={args.name}"
@@ -111,46 +131,105 @@ class GetResource(Tool):
             label = args.label_selector
         else:
             label = "전체"
-        items = [_FIELDS[args.kind](o) for o in objs[:MAX_ITEMS]]
+        items = (
+            [_deployment(o, mask_keys=True) for o in objs[:MAX_ITEMS]]
+            if expectations
+            else [_FIELDS[args.kind](o) for o in objs[:MAX_ITEMS]]
+        )
         names = ", ".join(i["name"] for i in items[:5]) + (" …" if len(objs) > 5 else "")
         prefix = "cluster" if args.kind == "Node" else ctx.namespace
         # 라벨 키의 `/`(app.kubernetes.io/name)가 subject 구분자와 섞이지 않게 바꾼다
         target = (args.name or args.label_selector or "*").replace("/", "%2F")
+        data = {"kind": args.kind, "count": len(objs), "items": items}
+        if config is not None:
+            check = {"check": "config_map_service_binding", "deployment": args.name}
+            if not expectations:
+                reason = (
+                    "target_mismatch"
+                    if config.target.namespace != ctx.namespace
+                    or snapshot.namespace != ctx.namespace
+                    else "no_expectation"
+                )
+                data["config_diagnostics"] = [{**check, "status": "unknown", "reason": reason}]
+            else:
+                local_services = {
+                    obj["metadata"]["name"]
+                    for obj in snapshot.items("Service") or []
+                    if obj["spec"].get("type") != "ExternalName"
+                }
+                unavailable = [kind for kind in kinds if snapshot.items(kind) is None]
+                diagnostics = []
+                for service, spec in expectations[:MAX_ITEMS]:
+                    relation = evaluate_relation(
+                        config, snapshot, service, spec, require_secret_inventory=False
+                    )
+                    reason = next(iter(relation.limitations), None)
+                    status = relation.result
+                    if status == "missing" or reason == "source_service_selector":
+                        status = "unknown"
+                    diagnostic = {
+                        **check,
+                        "service": service,
+                        "container": spec.container,
+                        "config_map": spec.config_map,
+                        "status": status,
+                    }
+                    if spec.expected_service in local_services:
+                        diagnostic["expected_service"] = spec.expected_service
+                    for field, name in (("env", spec.env), ("key", spec.key)):
+                        if not is_sensitive_name(name):
+                            diagnostic[field] = name
+                    if unavailable:
+                        diagnostic["reason"] = "collection_incomplete"
+                        diagnostic["unavailable_kinds"] = unavailable
+                    elif reason:
+                        diagnostic["reason"] = reason
+                    if relation.observed_service is not None:
+                        diagnostic["observed_service"] = relation.observed_service
+                    diagnostics.append(diagnostic)
+                data["config_diagnostics"] = diagnostics
         return ToolObservation(
             kind="resource",
             subject=f"{prefix}/{args.kind}/{target}",
             source=f"GET {args.kind} {label}",
             summary=f"{args.kind} {len(objs)}개 ({label})" + (f": {names}" if items else ""),
-            data={"kind": args.kind, "count": len(objs), "items": items},
-            truncated=len(objs) > MAX_ITEMS,
+            data=data,
+            truncated=max(len(objs), len(expectations)) > MAX_ITEMS,
         )
 
 
 # ── 핵심 필드 선별 (정규화된 객체에서) ──
 
 
-def _env(container: Obj) -> list[str]:
+def _env(container: Obj, *, mask_keys: bool) -> list[str]:
     """환경변수는 키만 남긴다. valueFrom 참조는 어디서 오는지 붙인다 (값은 넣지 않는다)."""
     out = []
     for env in container.get("env") or []:
+        name = env["name"]
+        if mask_keys and is_sensitive_name(name):
+            name = MASK
         ref = env.get("valueFrom") or {}
         source = next(iter(ref), None)
         if source and isinstance(ref[source], dict):
             r = ref[source]
-            where = "/".join(str(r[k]) for k in ("name", "key", "fieldPath") if k in r)
-            out.append(f"{env['name']} ({source} {where})")
+            where = "/".join(
+                MASK if k == "key" and mask_keys and is_sensitive_name(r[k]) else str(r[k])
+                for k in ("name", "key", "fieldPath")
+                if k in r
+            )
+            out.append(f"{name} ({source} {where})")
         else:
-            out.append(env["name"])
+            out.append(name)
     return out
 
 
-def _containers(spec: Obj) -> list[Obj]:
+def _containers(spec: Obj, *, mask_keys: bool = False) -> list[Obj]:
     out = []
     for c in spec.get("containers") or []:
         item = {"name": c["name"], "image": c.get("image")}
         if c.get("ports"):
             item["ports"] = c["ports"]
-        item["env"] = _env(c)
+        item["env"] = _env(c, mask_keys=mask_keys)
         if c.get("envFrom"):
             item["envFrom"] = c["envFrom"]
         if c.get("resources"):
@@ -218,14 +297,16 @@ def _service(o: Obj) -> Obj:
     return {"name": o["metadata"]["name"], **{k: spec[k] for k in spec}}
 
 
-def _deployment(o: Obj) -> Obj:
+def _deployment(o: Obj, *, mask_keys: bool = False) -> Obj:
     spec, status = o["spec"], dict(o.get("status") or {})
     conditions = _conditions(status.pop("conditions", None))
     out = {
         "name": o["metadata"]["name"],
         "replicas": spec.get("replicas"),
         "selector": spec.get("selector"),
-        "containers": _containers((spec.get("template") or {}).get("spec") or {}),
+        "containers": _containers(
+            (spec.get("template") or {}).get("spec") or {}, mask_keys=mask_keys
+        ),
         "status": status,
     }
     if conditions:
