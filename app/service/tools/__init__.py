@@ -19,7 +19,7 @@ def build_tools(config: KubeGuardianConfig) -> list[Tool]:
     """
     tools: list[Tool] = [
         GetTopology(config),
-        GetResource(),
+        GetResource(config),
         GetPodLogs(),
         GetEvents(),
         Probe(),

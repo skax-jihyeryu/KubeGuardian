@@ -2,8 +2,10 @@
 
 import hashlib
 import json
+import re
 from collections.abc import Callable
 from datetime import datetime
+from fnmatch import fnmatchcase
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -13,10 +15,11 @@ from core.config import ApiScenario, KubeGuardianConfig, ServiceConfigBaseline
 from service.checks.detectors._common import Workloads, name_of
 from service.model import ClusterSnapshot, Signal, Symptom
 from service.model.snapshot import ConfigBaselineObservation, ConfigBaselineProvenance
-from service.sensors.topology import _edge, _service_ports
+from service.sensors.topology import _DEFAULT_PORTS, LOOPBACK, _service_name, _service_ports
 
 _KINDS = ("Deployment", "Service", "ConfigMap", "Secret", "Pod", "ReplicaSet")
-_RELATION_KINDS = ("Deployment", "Service", "ConfigMap", "Secret")
+_RELATION_KINDS = ("Deployment", "Service", "ConfigMap")
+_SERVICE_LABEL = re.compile(r"[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?")
 Obj = dict[str, Any]
 PinnedLoader = Callable[[int], tuple[ClusterSnapshot | None, bool]]
 
@@ -132,7 +135,7 @@ def report_baselines(
             ServiceBaselineReport(
                 service=service,
                 **spec.model_dump(exclude={"run_id", "max_age_hours"}),
-                expected=_relation(config, snapshot, service, spec),
+                expected=evaluate_relation(config, snapshot, service, spec),
                 baseline=_pinned(config, service, spec, historical, done, now, run_id),
             )
         )
@@ -173,7 +176,7 @@ def _pinned(
         reason = "collection_incomplete"
     elif not observation.observations_passed:
         reason = "observations_not_passed"
-    elif _relation(config, snapshot, service, spec).result != "matched":
+    elif evaluate_relation(config, snapshot, service, spec).result != "matched":
         reason = "expected_relation_not_met"
     return PinnedBaseline(
         result="unavailable" if reason else "approved",
@@ -194,17 +197,22 @@ def _container(pod_or_template: Obj, name: str) -> Obj | None:
     )
 
 
-def _relation(
-    config: KubeGuardianConfig, snapshot: ClusterSnapshot, service: str, spec: ServiceConfigBaseline
+def evaluate_relation(
+    config: KubeGuardianConfig,
+    snapshot: ClusterSnapshot,
+    service: str,
+    spec: ServiceConfigBaseline,
+    *,
+    require_secret_inventory: bool = True,
 ) -> ExpectedRelation:
+    """Evaluate the declared local ConfigMap binding in a normalized snapshot."""
     if snapshot.namespace != config.target.namespace:
         return ExpectedRelation(result="unknown", limitations=("target_mismatch",))
-    missing_kinds = tuple(kind for kind in _RELATION_KINDS if snapshot.items(kind) is None)
+    kinds = (*_RELATION_KINDS, "Secret") if require_secret_inventory else _RELATION_KINDS
+    missing_kinds = tuple(kind for kind in kinds if snapshot.items(kind) is None)
     if missing_kinds:
         return ExpectedRelation(result="unknown", limitations=missing_kinds)
-    deployments, services, maps, secrets = (
-        _objects_by_name(snapshot, kind) for kind in _RELATION_KINDS
-    )
+    deployments, services, maps = (_objects_by_name(snapshot, kind) for kind in _RELATION_KINDS)
     deployment = deployments.get(spec.deployment)
     if deployment is None:
         return ExpectedRelation(result="missing", limitations=("deployment_missing",))
@@ -221,16 +229,25 @@ def _relation(
         if spec.key in (cm.get("binaryDataKeys") or ()):
             return ExpectedRelation(result="unsupported", limitations=("binary_key",))
         return ExpectedRelation(result="missing", limitations=("config_map_key_missing",))
+    secrets = _objects_by_name(snapshot, "Secret") if snapshot.items("Secret") is not None else None
     binding = _binding(container, spec, maps, secrets)
     if binding != "matched":
         return ExpectedRelation(result=binding, limitations=("env_binding",))
-    if spec.expected_service not in services:
+    expected = services.get(spec.expected_service)
+    if expected is None:
         return ExpectedRelation(result="missing", limitations=("expected_service_missing",))
+    if expected["spec"].get("type") == "ExternalName":
+        return ExpectedRelation(
+            result="unsupported", limitations=("service_endpoint_out_of_scope",)
+        )
     return _destination(config, spec, snapshot.namespace, data[spec.key], services)
 
 
 def _binding(
-    container: Obj, spec: ServiceConfigBaseline, maps: dict[str, Obj], secrets: dict[str, Obj]
+    container: Obj,
+    spec: ServiceConfigBaseline,
+    maps: dict[str, Obj],
+    secrets: dict[str, Obj] | None,
 ) -> Literal["matched", "mismatch", "missing", "unsupported"]:
     for env in reversed(container.get("env") or []):
         if env["name"] != spec.env:
@@ -244,7 +261,8 @@ def _binding(
                 return "missing"
             return "matched" if (name, key) == (spec.config_map, spec.key) else "mismatch"
         if (
-            (ref := value_from.get("secretKeyRef"))
+            secrets is not None
+            and (ref := value_from.get("secretKeyRef"))
             and ref.get("optional")
             and ref.get("key") not in (secrets.get(ref.get("name"), {}).get("keys") or [])
         ):
@@ -257,6 +275,8 @@ def _binding(
             continue
         key = spec.env[len(prefix) :]
         if ref := source.get("secretRef"):
+            if secrets is None:
+                return "unsupported"
             obj = secrets.get(ref.get("name"))
             if obj is None and not ref.get("optional") or key in (obj or {}).get("keys", []):
                 return "unsupported"
@@ -276,26 +296,46 @@ def _destination(
     value: str,
     services: dict[str, Obj],
 ) -> ExpectedRelation:
+    unreadable = ExpectedRelation(
+        result="unsupported", limitations=("service_endpoint_unreadable",)
+    )
+    out_of_scope = ExpectedRelation(
+        result="unsupported", limitations=("service_endpoint_out_of_scope",)
+    )
+    if (
+        any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
+        or "$(" in value
+        or "${" in value
+    ):
+        return unreadable
     try:
-        netloc = urlsplit(value if "://" in value else f"//{value}").netloc
-        if netloc.rpartition("@")[2].endswith(":***"):
+        url = urlsplit(value if "://" in value else f"//{value}")
+        host = url.hostname
+        if not host or "\\" in url.netloc or url.netloc.count("@") > 1:
+            return unreadable
+        local_service = _service_name(host, namespace)
+        if (
+            local_service is None
+            or host in LOOPBACK
+            or any(fnmatchcase(host, pattern) for pattern in config.external_hosts)
+            or services.get(local_service, {}).get("spec", {}).get("type") == "ExternalName"
+        ):
+            return out_of_scope
+        authority = url.netloc.rpartition("@")[2]
+        if not _SERVICE_LABEL.fullmatch(local_service) or authority.startswith("["):
+            return unreadable
+        if authority.endswith(":***"):
             return ExpectedRelation(result="unsupported", limitations=("service_port_masked",))
-        edge = _edge(
-            "",
-            spec.env,
-            value,
-            namespace,
-            {n: _service_ports(o) for n, o in services.items()},
-            config.external_hosts,
-            set(),
-        )
+        port = url.port if ":" in authority else _DEFAULT_PORTS.get(url.scheme)
     except ValueError:
-        edge = None
-    if edge is None or edge.port is None:
-        return ExpectedRelation(result="unsupported", limitations=("service_endpoint_unreadable",))
-    if edge.status != "declared":
+        return unreadable
+    if not port:
+        return unreadable
+    if local_service not in services:
+        return ExpectedRelation(result="unknown", limitations=("observed_service_missing",))
+    if port not in _service_ports(services[local_service]):
         return ExpectedRelation(result="mismatch", limitations=("service_endpoint_unresolved",))
     return ExpectedRelation(
-        result="matched" if edge.target == spec.expected_service else "mismatch",
-        observed_service=edge.target,
+        result="matched" if local_service == spec.expected_service else "mismatch",
+        observed_service=local_service,
     )
