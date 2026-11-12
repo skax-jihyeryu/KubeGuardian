@@ -42,6 +42,7 @@ def test_target_namespace_is_required(tmp_path):
         "slack: {alert_target: C0123456789, bot_token_secret: b, app_token_secret: c,"
         " reminders: {critical: {first_after: 30m, max: 0}}}",
         "schedule: nope",
+        "snapshot_retention_days: 0",
     ],
 )
 def test_invalid_values_are_rejected(tmp_path, snippet):

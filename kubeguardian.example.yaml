@@ -6,6 +6,7 @@ project:
 target:
   namespace: dev
 schedule: "0 * * * *"
+snapshot_retention_days: 14  # 보존 기간(일). 최신·보고서 연결·명시적 기준선 스냅샷은 보존
 core_paths:                 # 사용자 기능 → 서비스 (1차 심각도 판정, docs/05-rules.md §3)
   login: [front-chat, gateway, admin]
   chat: [front-chat, gateway, agent, llm-gateway]

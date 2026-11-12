@@ -2,8 +2,16 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
-from core.db import CheckRunStore, EvidenceStore, SqliteObservationStore, create_db_engine
+from core.db import (
+    CheckResultStore,
+    CheckRunStore,
+    EvidenceStore,
+    SqliteObservationStore,
+    create_db_engine,
+)
+from core.db.tables import IncidentCheckRow, IncidentRow, InvestigationQueueRow, InvestigationRow
 from service.checks.detectors.base import Observation, ObservationStore
 from service.model import ClusterSnapshot, Evidence
 
@@ -91,6 +99,104 @@ def test_previous_snapshot_ignores_other_namespaces(engine):
 
     assert runs.previous_snapshot(current, "dev").namespace == "dev"
     assert runs.previous_snapshot(current, "prod") is None
+
+
+def test_expire_snapshots_preserves_references_and_namespace_predecessors(engine):
+    runs = CheckRunStore(engine)
+    cutoff = NOW - timedelta(days=14)
+    old = cutoff - timedelta(microseconds=1)
+
+    def save(started_at=old, namespace="dev"):
+        run_id = runs.create("schedule", started_at)
+        runs.save_snapshot(run_id, _snapshot([]).model_copy(update={"namespace": namespace}))
+        return run_id
+
+    expired = save()
+    evidence = EvidenceStore(engine, expired)
+    evidence_id = evidence.add(_evidence())
+    pinned = save()
+    reported = save()
+    investigating = save()
+    queued = save()
+    checking = save()
+    results = CheckResultStore(engine)
+    results.start(checking, old)
+    failed_check = save()
+    results.start(failed_check, old)
+    results.finish(failed_check, "failed", old, None, [], [], error="RuntimeError")
+    failed_investigation = save()
+    boundary = save(cutoff)
+    latest_dev = save(NOW)
+    expired_staging = save(namespace="staging")
+    latest_staging = save(old - timedelta(minutes=1), namespace="staging")
+    missing = runs.create("schedule", old)
+    with Session(engine) as session, session.begin():
+        session.execute(
+            text("UPDATE check_run SET snapshot = 'null' WHERE id = :id"), {"id": missing}
+        )
+        incident = IncidentRow(
+            fingerprint="test",
+            status="open",
+            opened_at=old,
+            last_seen_at=old,
+            detail={},
+            first_severity="critical",
+        )
+        session.add(incident)
+        session.flush()
+        incident_id = incident.id
+        session.add(
+            IncidentCheckRow(incident_id=incident_id, check_run_id=expired, action="opened")
+        )
+        session.add(
+            InvestigationQueueRow(
+                incident_id=incident_id,
+                check_run_id=queued,
+                request={},
+                queued_at=old,
+            )
+        )
+        for run_id, status, report in (
+            (reported, "done", {"conclusion": "report"}),
+            (investigating, "running", None),
+            (failed_investigation, "failed", None),
+        ):
+            session.add(
+                InvestigationRow(
+                    check_run_id=run_id,
+                    run_key=str(run_id),
+                    agent="investigator:v1",
+                    trigger="schedule",
+                    status=status,
+                    started_at=old,
+                    report=report,
+                )
+            )
+
+    assert runs.expire_snapshots(cutoff, pinned_run_ids={pinned}) == 4
+    assert runs.expire_snapshots(cutoff, pinned_run_ids={pinned}) == 0
+    for run_id in (expired, expired_staging, failed_check, failed_investigation, missing):
+        assert runs.get_run(run_id) is not None
+        assert runs.get_snapshot(run_id) is None
+    assert results.get(failed_check).error == "RuntimeError"
+    for run_id in (
+        pinned,
+        reported,
+        investigating,
+        queued,
+        checking,
+        boundary,
+        latest_dev,
+        latest_staging,
+    ):
+        assert runs.get_snapshot(run_id) is not None
+    assert evidence.check_run_of(evidence_id) == expired
+    with Session(engine) as session:
+        assert session.get(IncidentCheckRow, (incident_id, expired)).action == "opened"
+    collected = {run_id: has_snapshot for run_id, _, _, has_snapshot in runs.list_runs()}
+    assert not collected[expired]
+    assert not collected[missing]
+    assert runs.previous_snapshot(missing, "staging") == runs.get_snapshot(latest_staging)
 
 
 def test_check_run_rejects_naive_time(engine):
