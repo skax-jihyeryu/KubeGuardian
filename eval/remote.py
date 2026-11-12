@@ -43,6 +43,8 @@ class RemoteRunner:
         self.pod: str | None = None
         # exec이 시간 초과로 끊기면 Pod 안 점검이 DB를 쓰다 말았을 수 있다
         self.db_incomplete = False
+        self.investigation_alert: dict | None = None
+        self.investigation_alert_supported = False
         self.ai_on_rules = False  # 평가 전용: 규칙 감지(경로 A)도 Pod 안에서 AI로 조사
 
     @property
@@ -81,6 +83,7 @@ class RemoteRunner:
             gate=GateResult.model_validate(data["gate"]),
             snapshot=SimpleNamespace(failed=data["snapshot_failed"]),
             symptoms=[Symptom.model_validate(x) for x in data["symptoms"]],
+            **({"detection_alert": data["detection_alert"]} if "detection_alert" in data else {}),
         )
 
     def investigate(
@@ -98,6 +101,8 @@ class RemoteRunner:
             *_symptom_args(symptom),
             *(["--ai-on-rules"] if self.ai_on_rules else []),
         )
+        self.investigation_alert_supported = "cause_alert" in data or data.get("skipped") is True
+        self.investigation_alert = data.pop("cause_alert", None)
         if data.get("skipped"):
             return None, None
         trace_id = data.pop("trace_id", None)

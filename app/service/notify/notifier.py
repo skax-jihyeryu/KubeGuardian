@@ -63,6 +63,8 @@ class Notifier:
         config: KubeGuardianConfig,
         sender: Sender,
         ack_enabled: bool = False,
+        *,
+        recorded_alert_ids: list[int] | None = None,
     ):
         self._engine = engine
         self._incidents = IncidentStore(engine)
@@ -78,6 +80,7 @@ class Notifier:
         self._ns = config.target.namespace
         self.dry_run = sender.dry_run
         self.sent: list[str] = []  # 이번에 보낸(또는 기록한) 메시지 종류, 출력용
+        self._recorded_alert_ids = recorded_alert_ids
         self._last_error: str | None = None
 
     def after_check(
@@ -396,7 +399,7 @@ class Notifier:
             else f"[알림] {kind} 발송 실패 {target} ({where}): {error}"
         )
         self.sent.append(kind if error is None else f"{kind} 실패({error})")
-        self._alerts.add(
+        alert_id = self._alerts.add(
             kind=kind,
             channel=self._channel,
             text=text,
@@ -407,6 +410,8 @@ class Notifier:
             dry_run=self._sender.dry_run,
             error=error,
         )
+        if self._recorded_alert_ids is not None:
+            self._recorded_alert_ids.append(alert_id)
 
 
 def _severity_start(alerts: list[Alert], severity: str | None) -> Alert | None:

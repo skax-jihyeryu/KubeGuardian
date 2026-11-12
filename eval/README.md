@@ -38,6 +38,24 @@
 
 예: `uv run python eval/run.py A3 --config kubeguardian.yaml --check-interval 300 --check-max 2700`
 
+### 알림 시간
+
+로컬과 runner Pod 모두 평가 알림을 `DryRunSender`로만 처리한다. 운영과 같은 알림 본문과
+시각을 실행별 SQLite DB에 남긴다. `result.json`의 `alert_timing`은 `inject.sh`를
+호출하기 직전(`injection_started_at`)부터 다음 이벤트까지 경과한 초를 기록한다.
+
+- `detection`은 점검 중 처음 기록된 이슈의 M1 알림이다.
+- `cause`는 같은 이슈에서 조사 완료(`done`), 근거가 있는 확정 판단(`confirmed`), 평가
+  통과를 모두 만족한 첫 원인 갱신(M1u 또는 새 M1)이다. 규칙 진단에는 원인 확인이 없다.
+- `recorded`는 알림 ID, 이슈 ID, 종류, DB 시각과 경과 초를 포함한다. `missing`은
+  해당 이벤트가 없고, `unsupported`는 이전 runner의 응답에 알림 필드가 없거나
+  알림 시각이 주입보다 앞서는 등 시각의 순서가 맞지 않는 경우다.
+- `--in-cluster`는 실행 호스트와 Pod의 UTC 시각을 빼므로 시계 오차가 경과 시간에
+  반영될 수 있다. 기존 `first_detected_s`는 실행 호스트의 단조 시계로 잰 규칙 적발
+  시각이다.
+
+H0 4시간 연속 점검과 E1 미끼 신호 시나리오는 별도 평가다.
+
 ### AI 조건 (`--condition ai`)
 
 반복 점검이 끝난 뒤 게이트가 A·B면 `run_investigation`으로 조사하고, 조사가 낸 보고서를 네 층으로 채점해 실패를 분류한다. judge는 `judge.py`(gpt-4.1, 조사 모델과 다름)다.

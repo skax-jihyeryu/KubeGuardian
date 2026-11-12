@@ -16,6 +16,8 @@ import argparse
 import json
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,12 +25,16 @@ from sqlalchemy import Engine
 
 from core.accounts import load_accounts
 from core.config import KubeGuardianConfig, get_setting, load_kubeguardian_config
-from core.db import create_db_engine
+from core.db import AlertStore, create_db_engine
 from core.error.service_exception import ErrorCode, ServiceException
 from core.guard.redact import redact_text
 from core.http import NamespacedHttp
+from service.agent.base import AgentResult
+from service.alerts.incidents import IncidentChange
 from service.checks.signal_board import build_signal_board
 from service.model import ClusterSnapshot, GateResult, Signal, Symptom
+from service.notify.notifier import Notifier
+from service.notify.sender import DryRunSender
 from service.pipeline.check import CheckOutcome, run_check
 from service.sensors.collector import KubeReader
 
@@ -74,6 +80,62 @@ def check_payload(out: CheckOutcome) -> dict:
     }
 
 
+def _alert_event(
+    engine: Engine, incident_id: int, alert_ids: list[int], *kinds: str
+) -> dict | None:
+    if not alert_ids:
+        return None
+    for alert in AlertStore(engine).for_incident(incident_id):
+        if alert.id in alert_ids and alert.kind in kinds and alert.dry_run and alert.error is None:
+            return {
+                "id": alert.id,
+                "incident_id": alert.incident_id,
+                "kind": alert.kind,
+                "sent_at": alert.sent_at.isoformat(),
+            }
+    return None
+
+
+def record_detection_alert(
+    engine: Engine, config: KubeGuardianConfig, out: CheckOutcome
+) -> dict | None:
+    alert_ids: list[int] = []
+    notifier = Notifier(engine, config, DryRunSender(), recorded_alert_ids=alert_ids)
+    notifier.after_check(out.run_id, out.gate, out.incidents, datetime.now(UTC))
+    for change in out.incidents:
+        if change.action in ("opened", "changed", "continued") and (
+            event := _alert_event(engine, change.incident_id, alert_ids, "M1")
+        ):
+            return event
+    return None
+
+
+def investigation_incident_id(out: CheckOutcome) -> int | None:
+    # 직접 점검에서는 게이트와 일치한 이슈가 활성 변경 중 첫 번째다.
+    return next(
+        (
+            change.incident_id
+            for change in out.incidents
+            if change.action in ("opened", "changed", "continued")
+        ),
+        None,
+    )
+
+
+def record_cause_alert(
+    engine: Engine, config: KubeGuardianConfig, out: CheckOutcome, result: AgentResult | None
+) -> dict | None:
+    incident_id = investigation_incident_id(out)
+    if result is None or incident_id is None:
+        return None
+    alert_ids: list[int] = []
+    notifier = Notifier(engine, config, DryRunSender(), recorded_alert_ids=alert_ids)
+    notifier.after_investigation(incident_id, out.run_id, result, datetime.now(UTC))
+    if result.report and result.report.top_issue and result.report.conclusion.strip():
+        return _alert_event(engine, incident_id, alert_ids, "M1u", "M1")
+    return None
+
+
 def load_outcome(db: Path, run_id: int) -> CheckOutcome:
     path = outcome_file(db, run_id)
     if not path.is_file():
@@ -87,6 +149,7 @@ def load_outcome(db: Path, run_id: int) -> CheckOutcome:
         gate=GateResult.model_validate(data["gate"]),
         board=build_signal_board(signals),
         symptoms=[Symptom.model_validate(x) for x in data["symptoms"]],
+        incidents=[IncidentChange(**change) for change in data.get("incidents", [])],
     )
 
 
@@ -99,19 +162,24 @@ def _account_http(config: KubeGuardianConfig) -> NamespacedHttp:
 
 def do_check(args: argparse.Namespace, make_reader: ReaderFactory) -> dict:
     config = load_kubeguardian_config(args.config)
+    engine = _engine(Path(args.db))
     out = run_check(
         make_reader(config),
         config,
-        _engine(Path(args.db)),
+        engine,
         trigger="check",
         http=_account_http(config),
         user_symptom=args.symptom,
     )
-    full = check_payload(out) | {"snapshot": out.snapshot.model_dump(mode="json")}
+    payload = check_payload(out) | {"detection_alert": record_detection_alert(engine, config, out)}
+    full = payload | {
+        "snapshot": out.snapshot.model_dump(mode="json"),
+        "incidents": [asdict(change) for change in out.incidents],
+    }
     outcome_file(Path(args.db), out.run_id).write_text(
         json.dumps(scrub(full), ensure_ascii=False), encoding="utf-8"
     )
-    return check_payload(out)
+    return payload
 
 
 def do_investigate(
@@ -126,13 +194,15 @@ def do_investigate(
     config = load_kubeguardian_config(args.config)
     db = Path(args.db)
     out = load_outcome(db, args.check_run_id)
+    engine = _engine(db)
     setup_tracing()  # span을 열기 전에 켜야 span이 기록된다
     with trace.get_tracer("eval").start_as_current_span("eval.investigation") as span:
         result = run_investigation(
             out,
             config,
-            _engine(db),
+            engine,
             run_id=args.run_id,
+            incident_id=investigation_incident_id(out),
             llm_factory=llm_factory or build_chat_model,
             k8s=make_reader(config),
             http=_account_http(config),
@@ -143,7 +213,10 @@ def do_investigate(
         trace_id = format(ctx.trace_id, "032x") if ctx.is_valid else None
     if result is None:
         return {"skipped": True}
-    return result.model_dump(mode="json") | {"trace_id": trace_id}
+    return result.model_dump(mode="json") | {
+        "trace_id": trace_id,
+        "cause_alert": record_cause_alert(engine, config, out, result),
+    }
 
 
 def main(
