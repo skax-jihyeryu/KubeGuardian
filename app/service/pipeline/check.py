@@ -38,6 +38,7 @@ from service.checks.gate import decide_gate
 from service.checks.runner import run_detectors
 from service.checks.signal_board import build_signal_board
 from service.checks.symptoms import detect_symptoms
+from service.config_baseline import ServiceBaselineReport, observe_baselines, report_baselines
 from service.model import (
     ClusterSnapshot,
     Evidence,
@@ -171,6 +172,7 @@ class CheckOutcome:
     board: SignalBoard
     symptoms: list[Symptom]  # 실행한 시나리오 전부 (실패한 것이 증상). http가 없으면 빈 목록
     incidents: list[IncidentChange] = field(default_factory=list)  # 이번 점검이 바꾼 이슈 상태
+    config_baselines: list[ServiceBaselineReport] = field(default_factory=list)
 
 
 def run_check(
@@ -278,6 +280,12 @@ def _run_locked(
         gate = decide_gate(signals, symptoms, clean_symptom(user_symptom))
         rec.gate = gate
         rec.phase("gate", lambda: gate.reason)
+        observe_baselines(config, snapshot, signals, symptoms)
+        if snapshot.config_baseline is not None:
+            runs.save_snapshot(run_id, snapshot)
+        config_baselines = report_baselines(
+            config, snapshot, now=now, run_id=run_id, load_pinned=runs.get_pinned_snapshot
+        )
         # 이슈 상태도 잠금 안에서 정한다 (두 점검이 같은 이슈를 동시에 열지 않게)
         incidents = track(
             engine,
@@ -298,6 +306,7 @@ def _run_locked(
             board=build_signal_board(signals),
             symptoms=symptoms,
             incidents=incidents,
+            config_baselines=config_baselines,
         )
     except BaseException as e:  # SIGTERM(SystemExit)도 행을 running으로 남기지 않는다
         # 끝을 기록하지 못한 조사와 같은 값 (investigate.py)
