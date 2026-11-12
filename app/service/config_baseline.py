@@ -58,7 +58,8 @@ def _scenarios(config: KubeGuardianConfig, service: str) -> list[ApiScenario]:
 
 def _intent(config: KubeGuardianConfig, service: str, spec: ServiceConfigBaseline) -> str:
     data = {
-        "version": 1,
+        # Service-wide C05 evidence cannot qualify an individual Deployment.
+        "version": 2 if service in config.required_config else 1,
         "reference": spec.model_dump(exclude={"run_id", "max_age_hours"}),
         "required": sorted(config.required_config.get(service, ())),
         "scenarios": [s.model_dump(mode="json") for s in _scenarios(config, service)],
@@ -100,7 +101,12 @@ def observe_baselines(
                 _binding(_container(pod, spec.container) or {}, spec, maps, secrets) == "matched"
                 for pod in target_pods
             )
-            and (service not in config.required_config or _passed_required(signals, service)),
+            and (
+                service not in config.required_config
+                or _passed_required(
+                    signals, service, f"{snapshot.namespace}/Deployment/{spec.deployment}"
+                )
+            ),
         )
     snapshot.config_baseline = ConfigBaselineProvenance(
         project_id=config.project.id, observations=observations
@@ -111,8 +117,13 @@ def _passed(signal: Signal) -> bool:
     return signal.verdict == "passed" and "failed_kinds" not in signal.values
 
 
-def _passed_required(signals: list[Signal], service: str) -> bool:
-    relevant = [s for s in signals if s.rule_id == "C05" and s.service in {None, service}]
+def _passed_required(signals: list[Signal], service: str, subject: str) -> bool:
+    relevant = [
+        s
+        for s in signals
+        if s.rule_id == "C05"
+        and (s.service is None or (s.service == service and s.subject == subject))
+    ]
     return any(s.service == service for s in relevant) and all(_passed(s) for s in relevant)
 
 

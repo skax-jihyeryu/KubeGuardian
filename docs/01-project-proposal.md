@@ -433,7 +433,7 @@ AI의 일반 지식으로는 **그 환경의 사정**을 모른다. 운영자의
 | **S03** | targetPort ↔ containerPort 불일치 | Service `targetPort` ↔ 컨테이너 `ports` | 선언 | 즉시 | 기본 |
 | **S04** | env URL이 없는 Service·`localhost`를 가리킴 | `*_SERVICE_URL`·`*_URL` ↔ Service 목록 | 선언 | 즉시 | A5 |
 | **C01** | 참조한 ConfigMap·Secret 또는 키가 없음 | `envFrom`·`valueFrom`·volume 참조 ↔ 실제 객체·키 (`optional` 제외) | 선언 | 즉시 | 기본 |
-| C05 | 운영자가 `required_config`로 선언한 env가 없음 (기본값 비움) | 선언한 서비스의 env·envFrom ↔ 선언 목록 | 선언 | 즉시 | 운영자 선언 |
+| C05 | 운영자가 `required_config`로 선언한 env가 없음 (기본값 비움) | 선언한 서비스에 귀속된 각 Deployment의 env·envFrom ↔ 선언 목록 | 선언 | 즉시 | 운영자 선언 |
 | H01 | readinessProbe 없음·tcpSocket만 | 컨테이너 probe 설정 | 선언 | 즉시 | 개선 권고 (H0) |
 | H02 | requests·limits 미설정 | 컨테이너 `resources` | 선언 | 즉시 | 개선 권고 (H0) |
 

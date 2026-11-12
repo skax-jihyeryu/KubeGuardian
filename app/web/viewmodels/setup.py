@@ -119,8 +119,9 @@ RULE_DETAILS = {
         "https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/",
     ),
     "C05": (
-        "required_config에 선언한 env 이름이 서비스 컨테이너의 env·envFrom 어디에도 없습니다. "
-        "빈 값도 존재로 보며, 선언한 서비스 자체가 없어도 설정 오류로 적발합니다.",
+        "required_config에 선언한 env 이름이 서비스에 귀속된 Deployment의 "
+        "일반 컨테이너 env·envFrom 어디에도 없습니다. "
+        "빈 값도 존재로 보며, 선언한 서비스에 귀속된 Deployment가 없어도 설정 오류로 적발합니다.",
         "운영자 선언 required_config · C01 확장 (설계 결정 #60)",
         "https://github.com/skax-jihyeryu/KubeGuardian/issues/60",
     ),

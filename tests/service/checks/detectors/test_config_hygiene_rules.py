@@ -1,11 +1,13 @@
 """C01·H01·H02, 그리고 모든 규칙의 수집 실패 → 확인하지 못함 (05-rules §4, §7)."""
 
+from copy import deepcopy
 from datetime import timedelta
 
 import pytest
 
 from core.config import KubeGuardianConfig
 from service.checks.detectors.catalog import CATALOG
+from service.checks.gate import decide_gate
 from service.sensors.collector import collect
 from tests.service.checks.detectors.cases import (
     CONFIG,
@@ -256,7 +258,7 @@ def test_required_config_empty_judges_nothing():
 
 def test_missing_required_env_is_detected():
     s = _verdict(_c05({"gateway": ["ADMIN_SERVICE_URL"]}))
-    assert (s.verdict, s.rule_id, s.subject) == ("detected", "C05", "dev/Service/gateway")
+    assert (s.verdict, s.rule_id, s.subject) == ("detected", "C05", "dev/Deployment/gateway")
     assert s.values["missing"] == ["ADMIN_SERVICE_URL"]
     assert s.values["required"] == ["ADMIN_SERVICE_URL"]
 
@@ -272,6 +274,15 @@ def test_present_via_configmap_envfrom_passes():
     s = _verdict(_c05({"agent": ["LOG_LEVEL"]}), "agent")
     assert s.verdict == "passed"
     assert s.values["found"] == {"LOG_LEVEL": "configmap:agent-config"}
+
+
+def test_explicit_env_evidence_takes_precedence_over_envfrom():
+    def mutate(o):
+        _containers(o, "agent")[0].setdefault("env", []).append({"name": "LOG_LEVEL", "value": ""})
+
+    s = _verdict(_c05({"agent": ["LOG_LEVEL"]}, mutate), "agent")
+
+    assert (s.verdict, s.values["found"]) == ("passed", {"LOG_LEVEL": "env"})
 
 
 def test_present_via_secret_envfrom_key_name_passes():
@@ -307,7 +318,36 @@ def test_multi_container_any_container_satisfies():
     def mutate(o):
         _containers(o, "gateway").append({"name": "side", "env": [{"name": "X", "value": "1"}]})
 
-    assert _verdict(_c05({"gateway": ["X"]}, mutate)).verdict == "passed"
+    assert _verdict(_c05({"gateway": ["AGENT_SERVICE_URL", "X"]}, mutate)).verdict == "passed"
+
+
+@pytest.mark.parametrize(
+    ("env_from", "verdict", "missing", "unchecked"),
+    [
+        ([], "detected", ["AGENT_SERVICE_URL"], []),
+        ([{"configMapRef": {"name": "unavailable"}}], "unknown", [], ["AGENT_SERVICE_URL"]),
+    ],
+)
+def test_each_deployment_requires_its_own_env(env_from, verdict, missing, unchecked):
+    def mutate(o):
+        stable = next(d for d in o["Deployment"] if d["metadata"]["name"] == "gateway")
+        canary = deepcopy(stable)
+        canary["metadata"]["name"] = "gateway-canary"
+        o["Deployment"].append(canary)
+        _containers(o, "gateway-canary")[0].update(env=[], envFrom=env_from)
+
+    stable, canary = _c05({"gateway": ["AGENT_SERVICE_URL"]}, mutate)
+
+    assert (stable.subject, stable.verdict) == ("dev/Deployment/gateway", "passed")
+    assert (canary.subject, canary.verdict) == ("dev/Deployment/gateway-canary", verdict)
+    assert stable.service == canary.service == "gateway"
+    assert canary.values["missing"] == missing
+    assert canary.values["unchecked"] == unchecked
+    gate = decide_gate([stable, canary])
+    if missing:
+        assert (gate.path, gate.severity, gate.signals) == ("A", "critical", [canary])
+    else:
+        assert (gate.path, gate.signals) == ("C", [])
 
 
 def test_declared_service_missing_is_detected():
@@ -355,7 +395,7 @@ def test_missing_ref_with_other_prefix_does_not_hide_missing_name():
     assert (s.verdict, s.values["missing"]) == ("detected", ["LOG_LEVEL"])
 
 
-def test_detected_wins_over_unchecked_in_same_service():
+def test_detected_wins_over_unchecked_in_same_deployment():
     def mutate(o):
         o["ConfigMap"] = []
         _containers(o, "agent")[0]["envFrom"][0]["prefix"] = "APP_"

@@ -2,7 +2,7 @@
 
 선언하지 않은 부재는 판정하지 않는다 (§0.1.1 의도일 수 있음). 선언 비교라 즉시 판정한다.
 - env(valueFrom·빈 값 포함)와 envFrom(ConfigMap 키, Secret은 키 이름만, prefix 적용)을 본다.
-  컨테이너가 여럿이면 어느 하나에 있으면 충족이다.
+  Deployment마다 판정하며, 같은 Deployment의 일반 컨테이너 중 하나에 있으면 충족이다.
 - 선언한 서비스가 없으면 설정 오류로 적발한다 (오타가 조용히 통과하지 않게).
 - 없는 ConfigMap·Secret을 참조하는 envFrom이 그 이름을 낼 수 있으면(prefix 일치) 확인하지 못함.
   없는 참조 자체는 C01이 적발한다.
@@ -48,38 +48,39 @@ def detect(ctx: DetectorContext) -> list[Signal]:
     service_names = {name_of(s) for s in data["Service"]}
     signals = []
     for service in sorted(required):
-        kind = "Service" if service in service_names else "Deployment"
-        subj = subject(ctx, kind, service)
         severity = primary_severity(ctx, service, fully_down=True)
         deployments = by_service.get(service)
         if not deployments:
+            kind = "Service" if service in service_names else "Deployment"
+            subj = subject(ctx, kind, service)
             values: dict[str, Any] = {"service": service, "error": "선언한 서비스 없음"}
             signals.append(make_signal(RULE, "detected", subj, service, values, severity))
             continue
-        containers = [
-            c
-            for dep in deployments
-            for c in ((dep["spec"].get("template") or {}).get("spec") or {}).get("containers") or []
-        ]
-        found: dict[str, str] = {}
-        missing, unchecked = [], []
-        for name in required[service]:
-            where = _find(name, containers, config_maps, secrets)
-            if where is not None:
-                found[name] = where
-            elif _may_come_from_missing_ref(name, containers, config_maps, secrets):
-                unchecked.append(name)
-            else:
-                missing.append(name)
-        verdict: Verdict = "detected" if missing else "unknown" if unchecked else "passed"
-        values = {
-            "service": service,
-            "required": list(required[service]),
-            "found": found,
-            "missing": missing,
-            "unchecked": unchecked,
-        }
-        signals.append(make_signal(RULE, verdict, subj, service, values, severity))
+        for dep in deployments:
+            deployment = name_of(dep)
+            subj = subject(ctx, "Deployment", deployment)
+            template = dep["spec"].get("template") or {}
+            containers = (template.get("spec") or {}).get("containers") or []
+            found: dict[str, str] = {}
+            missing, unchecked = [], []
+            for name in required[service]:
+                where = _find(name, containers, config_maps, secrets)
+                if where is not None:
+                    found[name] = where
+                elif _may_come_from_missing_ref(name, containers, config_maps, secrets):
+                    unchecked.append(name)
+                else:
+                    missing.append(name)
+            verdict: Verdict = "detected" if missing else "unknown" if unchecked else "passed"
+            values = {
+                "service": service,
+                "deployment": deployment,
+                "required": list(required[service]),
+                "found": found,
+                "missing": missing,
+                "unchecked": unchecked,
+            }
+            signals.append(make_signal(RULE, verdict, subj, service, values, severity))
     return signals
 
 
