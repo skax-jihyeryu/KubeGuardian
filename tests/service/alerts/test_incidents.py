@@ -353,3 +353,95 @@ def test_features_of_the_off_rule_are_kept_so_re_enabling_does_not_open_a_second
 
     assert back.incident_id == opened.incident_id
     assert len(store.open_incidents()) == 1
+
+
+def test_re_enabled_rule_keeps_incident_fingerprint_during_hold(engine):
+    checks = Checks(engine)
+    active = _sig("S01", "agent")
+    held = _sig("S02", "agent")
+    [opened] = checks.run([active, held])
+    assert _actions(checks.run([active], excluded={"S02"})) == ["continued"]
+
+    [observing] = checks.run([active, _sig("S02", "agent", verdict="observing")])
+    [detected] = checks.run([active, held])
+
+    assert (observing.action, detected.action) == ("continued", "continued")
+    assert not observing.needs_investigation and not detected.needs_investigation
+    assert IncidentStore(engine).get(opened.incident_id).status == "open"
+
+
+def test_re_enabled_rule_drops_its_target_when_confirmed_healthy(engine):
+    checks = Checks(engine)
+    active = _sig("S01", "agent")
+    [opened] = checks.run([active, _sig("S02", "agent")])
+    checks.run([active], excluded={"S02"})
+    assert _actions(checks.run([active, _sig("S02", "agent", verdict="observing")])) == [
+        "continued"
+    ]
+
+    [cleared] = checks.run([active, _sig("S02", "agent", verdict="passed")])
+
+    assert (cleared.action, cleared.incident_id) == ("changed", opened.incident_id)
+    assert IncidentStore(engine).get(opened.incident_id).targets == (("S01", "dev/Service/agent"),)
+    assert _actions(checks.run([active, _sig("S02", "agent", verdict="passed")])) == ["continued"]
+
+
+def test_observing_different_subject_does_not_keep_confirmed_target(engine):
+    checks = Checks(engine)
+    active = _sig("S01", "agent")
+    [opened] = checks.run([active, _sig("S02", "agent")])
+
+    [cleared] = checks.run(
+        [
+            active,
+            _sig("S02", "agent", verdict="passed"),
+            _sig("S02", "agent", verdict="observing", subject="dev/Service/other"),
+        ]
+    )
+
+    assert (cleared.action, cleared.incident_id) == ("changed", opened.incident_id)
+    assert IncidentStore(engine).get(opened.incident_id).targets == (("S01", "dev/Service/agent"),)
+    assert len(IncidentStore(engine).open_incidents()) == 1
+
+
+def test_confirmed_service_recovery_during_another_rules_hold_is_reported_once(engine):
+    checks = Checks(engine)
+    active = _sig("S01", "agent")
+    held = _sig("S02", "agent")
+    [opened] = checks.run([active, held, _sig("S01", "admin")])
+    checks.run([active, _sig("S01", "admin")], excluded={"S02"})
+
+    [recovered] = checks.run(
+        [active, _sig("S02", "agent", verdict="observing"), _sig("S01", "admin", verdict="passed")]
+    )
+
+    assert (recovered.action, recovered.incident_id) == ("changed", opened.incident_id)
+    incident = IncidentStore(engine).get(opened.incident_id)
+    assert incident.services == ("agent",)
+    assert incident.features == ("chat",)
+    assert _actions(checks.run([active, held])) == ["continued"]
+
+
+def test_w01_waiting_for_stability_preserves_its_incident_target(engine):
+    checks = Checks(engine)
+    active = _sig("S01", "agent")
+    deployment = "dev/Deployment/agent"
+    w01 = _sig("W01", "agent", subject=deployment)
+    [opened] = checks.run([active, w01])
+    checks.run([active], excluded={"W01"})
+    stabilizing = Signal(
+        rule_id="W01",
+        verdict="passed",
+        subject=deployment,
+        service="agent",
+        values={"replicas": 2, "availableReplicas": 0, "updatedReplicas_stable": False},
+    )
+
+    assert _actions(checks.run([active, stabilizing])) == ["continued"]
+    assert _actions(checks.run([stabilizing])) == []
+    assert _actions(checks.run([active, _sig("W01", "agent", "observing", deployment)])) == [
+        "continued"
+    ]
+    assert _actions(checks.run([active, w01])) == ["continued"]
+    [resolved] = checks.run([_sig(verdict="passed"), _sig("W01", "agent", "passed", deployment)])
+    assert (resolved.action, resolved.incident_id) == ("resolved", opened.incident_id)

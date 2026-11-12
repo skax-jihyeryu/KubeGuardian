@@ -71,8 +71,16 @@ def track(
         matched = (
             overlapping[-1] if overlapping else None
         )  # 겹치는 것이 여럿이면 가장 최근을 따른다
-        if matched is not None and excluded_rules:
-            fp = _with_excluded(fp, matched, excluded_rules)
+        if matched is not None:
+            targets = set(matched.targets)
+            holding = [s for s in signals if (s.rule_id, s.subject) in targets and _holding(s)]
+            if holding:
+                fp = compute_fingerprint(
+                    gate.model_copy(update={"path": "A", "signals": [*gate.signals, *holding]}),
+                    config,
+                )
+            if excluded_rules:
+                fp = _with_excluded(fp, matched, excluded_rules)
         change = _follow(store, matched, fp, gate, trigger, run_id, now)
         if change:
             changes.append(change)
@@ -87,6 +95,15 @@ def track(
             store.resolve(incident.id, run_id, now)
             changes.append(IncidentChange(incident.id, "resolved", incident.first_severity))
     return changes
+
+
+def _holding(signal: Signal) -> bool:
+    # W01은 가용 replicas가 부족해도 updatedReplicas가 안정되기 전에는 passed를 낸다.
+    return signal.verdict == "observing" or (
+        signal.rule_id == "W01"
+        and signal.verdict == "passed"
+        and signal.values.get("updatedReplicas_stable") is False
+    )
 
 
 def _with_excluded(
@@ -159,7 +176,7 @@ def _gone(
     if rules & excluded_rules:
         return False
     for s in signals:
-        if s.rule_id not in rules or s.verdict == "passed":
+        if s.rule_id not in rules or (s.verdict == "passed" and not _holding(s)):
             continue
         if (s.rule_id, s.subject) in incident.targets:
             return False  # 그 대상이 아직 적발·관찰 중·확인하지 못함
