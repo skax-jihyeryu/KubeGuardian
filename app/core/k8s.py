@@ -105,9 +105,14 @@ class K8sClient:
         previous: bool,
         tail_lines: int,
         since_seconds: int | None = None,
+        timestamps: bool = False,
     ) -> str:
         """since_seconds가 None이면 API에 기간을 넘기지 않는다."""
-        extra = {} if since_seconds is None else {"since_seconds": since_seconds}
+        extra: dict[str, Any] = {}
+        if since_seconds is not None:
+            extra["since_seconds"] = since_seconds
+        if timestamps:
+            extra["timestamps"] = True
         body = self._call(
             "core",
             "read_namespaced_pod_log",

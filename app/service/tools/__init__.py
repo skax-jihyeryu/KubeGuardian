@@ -3,6 +3,9 @@
 query_app_api는 설정 `app_apis`에 허용 목록이 있을 때만 등록한다.
 """
 
+from collections.abc import Callable
+from typing import Any
+
 from core.config import KubeGuardianConfig
 from service.tools.app_api import QueryAppApi, RunApiScenario
 from service.tools.base import Tool
@@ -12,15 +15,19 @@ from service.tools.probe import Probe
 from service.tools.resource import GetResource, GetTopology
 
 
-def build_tools(config: KubeGuardianConfig) -> list[Tool]:
+def build_tools(
+    config: KubeGuardianConfig,
+    *,
+    config_comparison: Callable[[str], dict[str, Any]] | None = None,
+) -> list[Tool]:
     """에이전트에 등록하는 도구 목록. 설정(허용 목록·시나리오)은 생성자로 받는다.
 
     `app_apis`가 비어 있으면 query_app_api는 부를 수 있는 곳이 없으므로 등록하지 않는다.
     """
     tools: list[Tool] = [
         GetTopology(config),
-        GetResource(config),
-        GetPodLogs(),
+        GetResource(config, config_comparison),
+        GetPodLogs(verify_pod_identity=config_comparison is not None),
         GetEvents(),
         Probe(),
         RunApiScenario(config.api_scenarios),

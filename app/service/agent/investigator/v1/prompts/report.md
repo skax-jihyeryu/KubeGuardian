@@ -14,6 +14,7 @@ $facts
 - cause_chain: 증상이 보인 호출자에서 오류 출처 쪽으로 거슬러 올라간 순서로 씁니다. 문제를 보고했다면 빈 목록으로 생략하지 않습니다. 각 지점은 service({"kind", "name"}, 실제 관찰한 Pod/Deployment/Service 등 리소스), observation(관찰 내용), evidence_ids(그 관찰의 실제 근거), error_from_downstream(하위 호출에서 받은 오류를 전달했는지)입니다. 마지막 service는 1순위 cause_resource와 같아야 합니다. 호출자 로그에 하위 호출의 오류가 있으면 호출자 내부 오류 생성·변환으로 단정하지 않습니다. 서버의 주변 성공 로그만으로도 변환을 증명할 수 없습니다. 오류 출처가 불명확하면 확인한 전달 지점을 남기고 error_from_downstream=true와 미해결 가설로 표시합니다. quota 오류 본문만으로 실제 quota 소진을 확정하지 않습니다.
 - hypotheses: 배제(refuted)한 가설은 reason에 배제한 이유와 그 근거를 씁니다.
 - coverage: 구동(run)·설정(config)·연결(wiring)·로그(logs) 네 영역 모두에 status(checked|not_checked|not_applicable), summary, evidence_ids를 씁니다. checked는 본 것과 근거 번호를 씁니다. 확인할 필요가 없거나 확인할 수 없는 영역(예: 새 Pod가 한 번도 뜨지 않아 볼 로그가 없음)은 not_applicable으로 두고 그 사유를 summary에 씁니다. not_checked는 확인했어야 하는데 하지 못한 영역이며 그 이유를 summary에 씁니다.
+- 설정 비교의 변경 구간은 두 스냅샷 관측 사이입니다. 수정 시각·주체·장애 원인으로 단정하지 않습니다. Pod 생성은 컨테이너가 읽은 env 값이나 앱 재로딩을 입증하지 않습니다. 기능 점검 시각, 로그 이벤트 시각, 로그 수집 시각을 구분합니다.
 - 원인 리소스의 설정은 get_resource로 직접 본 근거가 있어야 결론으로 올립니다. 없으면 hypotheses에 inconclusive로 둡니다.
 
 아래 형식의 JSON 하나로만 답합니다.

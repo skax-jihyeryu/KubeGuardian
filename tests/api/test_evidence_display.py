@@ -57,3 +57,31 @@ def test_incomplete_scenario_evidence_does_not_imply_success(engine, data):
     add_evidence(engine, run, kind="app_api", data=data)
     row = build_check_detail(engine, "dev", run, at(60)).evidence[0]
     assert row.content == "요약할 결과 필드 없음"
+
+
+def test_config_comparison_drawer_links_only_same_check_evidence(client, engine):
+    from service.config_change import CONFIG_CHANGE_SOURCE
+
+    run, other = make_run(engine), make_run(engine)
+    finish_check(engine, run, path="A")
+    finish_check(engine, other, path="C")
+    symptom = add_evidence(engine, run, kind="app_api")
+    foreign = add_evidence(engine, other, kind="app_api")
+    comparison = add_evidence(
+        engine,
+        run,
+        kind="resource",
+        subject="dev/Deployment/agent",
+        source=CONFIG_CHANGE_SOURCE,
+        data={
+            "baseline": {"run_id": other},
+            "status": "changed",
+            "key_presence": {"status": "changed"},
+            "symptoms": [{"evidence_id": symptom}, {"evidence_id": foreign}],
+        },
+    )
+    html = client.get(f"/dev/checks/{run}?ev={int(comparison[3:])}").text
+    assert "설정 또는 Pod 변경 관측" in html
+    assert "연결된 근거" in html
+    assert f'href="/dev/checks/{run}?ev={int(symptom[3:])}"' in html
+    assert f'href="/dev/checks/{run}?ev={int(foreign[3:])}"' not in html
