@@ -155,8 +155,26 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
     rule_diag_invalid: dict[str, int] = defaultdict(int)
     ai_on_rules: set[str] = set()
     agree_conc, agree_claims = [], []
+    by_stage: dict[tuple[int | str, bool, str], list[int]] = defaultdict(lambda: [0] * 6)
+    by_path: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    invisible: list[dict] = []
+
+    def tally(row: list[int], offset: int, assessment: dict | None) -> None:
+        status = (assessment or {}).get("status")
+        row[offset] += status == "match"
+        row[offset + 1] += status in ("match", "mismatch")
+
     for name, result in results:
         sid = result["scenario"]
+        expected = result.get("expected") or {}
+        row = None
+        if "stage" in expected:
+            row = by_stage[expected["stage"], expected["k8s_visible"], result["condition"]]
+            if not result.get("invalid"):
+                tally(row, 2, result.get("first_severity"))
+                if result.get("condition") == "rules-only" or result.get("rule_diagnosis"):
+                    row[0] += bool((result.get("score") or {}).get("passed"))
+                    row[1] += 1
         if result.get("condition") == "rules-only":
             if result.get("invalid"):
                 rules_invalid[sid] += 1
@@ -172,10 +190,14 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
             continue
         if result.get("ai_on_rules"):
             ai_on_rules.add(sid)
+        info = _scenario_info(scenarios_dir, sid)
+        if row is not None:
+            info.update({k: expected[k] for k in ("k8s_visible", "gate_path")})
+        path_counts = by_path[str(info["gate_path"])]
         s = scen.setdefault(
             sid,
             {
-                **_scenario_info(scenarios_dir, sid),
+                **info,
                 "runs": [],
                 "invalid": 0,
                 "errors": 0,
@@ -206,6 +228,15 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
                 ]
             run["rules_failed"] = not rules_ok  # AI 통과는 규칙 채점 통과를 전제한다 (spec §4)
             s["runs"].append(run)
+            passed = _passed(run)
+            path_counts[0] += passed
+            path_counts[1] += 1
+            if info["k8s_visible"] is False and _outcome(run) not in NOT_INVESTIGATED:
+                invisible.append(run)
+            if row is not None:
+                row[0] += passed
+                row[1] += 1
+                tally(row, 4, run.get("impact"))
     for s in scen.values():
         runs = s.pop("runs")
         s["runs"] = runs
@@ -237,13 +268,6 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
         s["consistent"] = len({_outcome(r) for r in runs}) == 1 if runs else None
     # KPI는 조사가 돈 회차만 센다: skip(정상 생략)·not_run은 뺀다. gate_fail은 남긴다
     all_runs = [r for s in scen.values() for r in s["runs"] if _outcome(r) not in NOT_INVESTIGATED]
-    invisible = [
-        r
-        for s in scen.values()
-        if s["k8s_visible"] is False
-        for r in s["runs"]
-        if _outcome(r) not in NOT_INVESTIGATED
-    ]
 
     def both(rs: list[dict]) -> float | None:
         ok = sum(
@@ -274,7 +298,8 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
         "drift": drift,
         "scenarios": dict(sorted(scen.items())),
         "by_level": group("level"),
-        "by_path": group("gate_path"),
+        "by_stage": dict(by_stage),
+        "by_path": dict(sorted(by_path.items())),
         "consistency": _rate(sum(s["consistent"] for s in judged), len(judged)),
         "kpi": {
             "accuracy": both(all_runs),
@@ -405,10 +430,33 @@ def render(summary: dict, baseline: dict | None) -> str:
         "gate_fail 포함)가 분모다.",
         "",
     ]
-    for title, key in (
-        ("레벨별 통과율 (Wilson 95%)", "by_level"),
-        ("경로별 통과율 (Wilson 95%)", "by_path"),
-    ):
+    by_stage = summary.get("by_stage") or {}
+    if by_stage:
+        out += [
+            "## 단계별·K8s 가시성별·실행 조건별 결과",
+            "",
+            "| 단계 | k8s_visible | 조건 | 통과/유효 | 1차 심각도 일치/대조 | AI 영향 일치/대조 |",
+            "|---|---|---|---|---|---|",
+        ]
+        for (stage, visible, condition), counts in sorted(
+            by_stage.items(), key=lambda item: (str(item[0][0]), *item[0][1:])
+        ):
+            passed, valid, severity_match, severity_n, impact_match, impact_n = counts
+            out.append(
+                f"| {stage} | {str(visible).lower()} | {condition} | {passed}/{valid} | "
+                f"{severity_match}/{severity_n} | {impact_match}/{impact_n} |"
+            )
+        out += [
+            "",
+            "단계가 기록된 실행을 주 단계에 한 번만 집계한다. "
+            "1차 심각도는 실행당 한 번, AI 영향은 유효한 조사 회차별로 대조한다. "
+            "기대값 미선언·미측정·생략은 대조 분모에서 뺀다.",
+            "",
+        ]
+    groups = [("경로별 통과율 (Wilson 95%)", "by_path")]
+    if not by_stage:
+        groups.insert(0, ("레벨별 통과율 (Wilson 95%)", "by_level"))
+    for title, key in groups:
         out += [f"## {title}", "", "| 구분 | 통과 |", "|---|---|"]
         out += [f"| {k} | {_ci(*v)} |" for k, v in summary[key].items()]
         out.append("")

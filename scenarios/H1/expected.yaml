@@ -1,6 +1,9 @@
 # H1 정답 파일 (기획서 §8.2). 부재 정상 기준선: 설정이 없어도 장애가 아닌 서비스.
 # ConfigMap·Secret 참조도 *_SERVICE_URL도 없고, localhost 주소는 같은 Pod 사이드카를 가리킨다 (05-rules §0.1.1, S04 제외).
 id: H1
+stage: normal
+related_stages: [2]
+expected_first_severity: null
 level: L1
 k8s_visible: true
 gate_path: C              # 장애 신호 없음. 개선 권고(H01 등)만 나올 수 있다

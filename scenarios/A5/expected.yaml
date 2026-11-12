@@ -1,5 +1,9 @@
 # A5 정답 파일 (기획서 §8.2). 기능보다 먼저 쓴다.
 id: A5
+stage: 2
+related_stages: [8]
+expected_first_severity: critical
+expected_ai_impact: core_path_broken
 level: L1                 # 신호 하나로 원인 확정
 k8s_visible: true         # gateway env의 서비스 주소만 보면 원인이 드러난다
 gate_path: A

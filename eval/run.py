@@ -207,7 +207,9 @@ def investigate_and_judge(
     ai["conclusion"] = result.report.conclusion
     report_dict = result.report.model_dump(mode="json")
     ai["must_check"] = coverage_record(expected.get("must_check") or {}, report_dict["coverage"])
-    top = min(result.report.issues, key=lambda i: i.rank, default=None)
+    top = result.report.top_issue
+    if "stage" in expected:
+        ai["report_impact"] = top.impact if top else None
     ai["cause_resource"] = top.cause_resource.model_dump() if top and top.cause_resource else None
     ai["eval"] = cause_record(ai["cause_resource"], expected)
     verdict = judge(result.report.conclusion)
@@ -412,6 +414,51 @@ def alert_timing(injected: datetime, checks: list[dict], ai_runs: list[dict]) ->
     return {"detection": detection_timing, "cause": cause_timing}
 
 
+def _severity_assessment(
+    expected: dict, key: str, observed: str | None, *, measured: bool, skipped: bool = False
+) -> dict:
+    if skipped:
+        status = "skipped"
+    elif key not in expected:
+        status = "undeclared"
+    elif not measured:
+        status = "unmeasured"
+    else:
+        status = "match" if expected[key] == observed else "mismatch"
+    return {"expected": expected.get(key), "observed": observed, "status": status}
+
+
+def record_severity_assessments(result: dict, expected: dict) -> None:
+    checks = result.get("checks") or []
+    first = next((c for c in checks if c["gate_path"] != "C"), None)
+    observed = first.get("gate_severity") if first else None
+    measured = (
+        observed is not None
+        if first
+        else (bool(checks) and all("gate_severity" in c for c in checks))
+    )
+    result["first_severity"] = _severity_assessment(
+        expected,
+        "expected_first_severity",
+        observed,
+        measured=measured and not result.get("invalid"),
+    )
+    for ai in result.get("ai_runs") or []:
+        impact = ai.get("report_impact")
+        ai["impact"] = _severity_assessment(
+            expected,
+            "expected_ai_impact",
+            impact,
+            measured=(
+                impact is not None
+                and ai.get("status") == "done"
+                and not (result.get("invalid") or ai.get("invalid") or ai.get("failure") == "F0")
+            ),
+            skipped=ai.get("status") == "skipped"
+            and not (result.get("invalid") or ai.get("invalid")),
+        )
+
+
 def run(
     scenario: str,
     config_path: str,
@@ -425,6 +472,7 @@ def run(
     ai_on_rules: bool = False,
 ) -> int:
     expected = yaml.safe_load((SCENARIOS / scenario / "expected.yaml").read_text(encoding="utf-8"))
+    snapshot = expected_record(expected)
     config = load_kubeguardian_config(config_path)
     started = datetime.now(UTC)
     out_dir = HISTORY / f"{started:%Y%m%dT%H%M%SZ}-{scenario}"
@@ -433,7 +481,7 @@ def run(
         "scenario": scenario,
         "condition": "ai" if condition == "ai" else "rules-only",
         "started_at": started.isoformat(),
-        "expected": expected_record(expected),
+        "expected": snapshot,
     }
     if batch:
         result["batch"] = batch
@@ -502,16 +550,22 @@ def run(
                 out = remote.check(user_symptom)
                 if hasattr(out, "detection_alert"):
                     check_metadata["detection_alert"] = out.detection_alert
-                return out
-            out = run_check(
-                reader,
-                config,
-                engine,
-                trigger="check",
-                http=target_http(config),
-                user_symptom=user_symptom,
-            )
-            check_metadata["detection_alert"] = record_detection_alert(engine, config, out)
+            else:
+                out = run_check(
+                    reader,
+                    config,
+                    engine,
+                    trigger="check",
+                    http=target_http(config),
+                    user_symptom=user_symptom,
+                )
+                check_metadata["detection_alert"] = record_detection_alert(engine, config, out)
+            if (
+                "stage" in snapshot
+                and hasattr(out.gate, "severity")
+                and (not remote or "severity" in out.gate.model_fields_set)
+            ):
+                check_metadata["gate_severity"] = out.gate.severity
             return out
 
         def on_check(c: dict) -> None:
@@ -713,6 +767,9 @@ def score_ai_runs(
 
 
 def finish(result: dict, out_dir: Path, exit_code: int) -> int:
+    expected = result.get("expected") or {}
+    if "stage" in expected:
+        record_severity_assessments(result, expected)
     result["finished_at"] = datetime.now(UTC).isoformat()
     result["exit_code"] = exit_code
     (out_dir / "result.json").write_text(
