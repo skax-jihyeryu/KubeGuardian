@@ -106,7 +106,7 @@ def snapshot():
 def qualify(cfg, snap, status="passed"):
     signals = [
         Signal(rule_id="C01", verdict="passed", subject="demo/Pod/agent-pod", service="agent"),
-        Signal(rule_id="C05", verdict="passed", subject="demo/Service/agent", service="agent"),
+        Signal(rule_id="C05", verdict="passed", subject="demo/Deployment/agent", service="agent"),
     ]
     symptoms = [Symptom(scenario="chat", status=status, summary=SENTINEL)]
     observe_baselines(cfg, snap, signals, symptoms)
@@ -176,6 +176,28 @@ def test_baseline_rejects_unqualified_snapshots(variant, reason):
     assert SENTINEL not in result.model_dump_json()
 
 
+def test_service_wide_required_observation_cannot_qualify_deployment_baseline():
+    cfg = config()
+    previous = snapshot()
+    qualify(cfg, previous)
+    observation = previous.config_baseline.observations["agent"]
+    # Version 1 digest for this fixture, recorded when C05 aggregated by service.
+    observation.intent_digest = "6bf04821579ebee1a9d9f225b267275560e7f41d5e5fc0f3db6dbaecb148ab81"
+
+    assert report(cfg, snapshot(), previous).baseline.limitations == ("intent_mismatch",)
+
+
+def test_prior_baseline_without_required_config_remains_approved():
+    cfg = config()
+    cfg.required_config.clear()
+    previous = snapshot()
+    qualify(cfg, previous)
+    observation = previous.config_baseline.observations["agent"]
+    observation.intent_digest = "97cfd82608714a75d6e1cbb3db04daaf074c61b4d501701edcbd2f30fba3fb40"
+
+    assert report(cfg, snapshot(), previous).baseline.result == "approved"
+
+
 @pytest.mark.parametrize(
     ("data", "verdict"), [({}, "missing"), ({"GATEWAY_URL": SENTINEL}, "unsupported")]
 )
@@ -231,7 +253,7 @@ def test_missing_observation_does_not_count_as_pass(missing):
     previous = snapshot()
     signals = [
         Signal(rule_id="C01", verdict="passed", subject="demo/Pod/agent-pod", service="agent"),
-        Signal(rule_id="C05", verdict="passed", subject="demo/Service/agent", service="agent"),
+        Signal(rule_id="C05", verdict="passed", subject="demo/Deployment/agent", service="agent"),
     ]
     if missing == "pod_verdict":
         signals.pop(0)
@@ -245,6 +267,45 @@ def test_missing_observation_does_not_count_as_pass(missing):
     observe_baselines(cfg, previous, signals, symptoms)
     result = report(cfg, snapshot(), previous)
     assert result.baseline.limitations == ("observations_not_passed",)
+
+
+@pytest.mark.parametrize(
+    ("target_verdict", "rule_unknown", "expected"),
+    [
+        ("passed", False, "approved"),
+        ("unknown", False, "unavailable"),
+        (None, False, "unavailable"),
+        ("passed", True, "unavailable"),
+    ],
+)
+def test_required_observation_matches_baseline_deployment(target_verdict, rule_unknown, expected):
+    cfg = config()
+    previous = snapshot()
+    signals = [
+        Signal(rule_id="C01", verdict="passed", subject="demo/Pod/agent-pod", service="agent"),
+        Signal(
+            rule_id="C05",
+            verdict="detected",
+            subject="demo/Deployment/agent-canary",
+            service="agent",
+        ),
+    ]
+    if target_verdict:
+        signals.append(
+            Signal(
+                rule_id="C05",
+                verdict=target_verdict,
+                subject="demo/Deployment/agent",
+                service="agent",
+            )
+        )
+    if rule_unknown:
+        signals.append(Signal(rule_id="C05", verdict="unknown", subject="demo"))
+    symptoms = [Symptom(scenario="chat", status="passed", summary="")]
+
+    observe_baselines(cfg, previous, signals, symptoms)
+
+    assert report(cfg, snapshot(), previous).baseline.result == expected
 
 
 def test_env_from_prefix_and_secret_shadowing():

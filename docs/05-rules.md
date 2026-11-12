@@ -284,15 +284,15 @@ required_config:
 
 | 항목 | 내용 |
 |---|---|
-| 판정 조건 | 선언한 서비스의 컨테이너 `env`와 `envFrom` 어디에도 선언한 이름이 없음. ConfigMap envFrom은 키를 읽어 확인하고, Secret envFrom은 값을 읽지 않고 키 이름만 확인한다. envFrom에 `prefix`가 있으면 붙인 이름으로 본다. 컨테이너가 여럿이면 어느 컨테이너에도 없을 때 적발한다. `valueFrom` env와 빈 문자열 값은 **있는 것**으로 본다 (값을 읽지 않는 원칙) |
+| 판정 조건 | 선언한 서비스에 귀속된 Deployment를 각각 판정한다. 해당 Deployment의 일반 컨테이너 `env`와 `envFrom` 어디에도 선언한 이름이 없으면 적발한다. ConfigMap envFrom은 키를 읽어 확인하고, Secret envFrom은 값을 읽지 않고 키 이름만 확인한다. envFrom에 `prefix`가 있으면 붙인 이름으로 본다. 필수 이름마다 같은 Deployment 내 어느 일반 컨테이너에든 있으면 충족한다. `valueFrom` env와 빈 문자열 값은 **있는 것**으로 본다 (값을 읽지 않는 원칙) |
 | 서비스 이름 | `kubeguardian.yaml`의 다른 서비스 키(`core_paths`)와 같은 기준이다. 코드(`sensors/topology.py` `_source_name`, `detectors/_common.py` `Workloads`)가 쓰는 규칙대로, Deployment 템플릿 라벨을 선택하는 Service 이름(여럿이면 이름순 첫째), 없으면 Deployment 이름이다 |
-| 선언 오류 | 선언한 서비스가 네임스페이스에 없으면 "확인하지 못함"이 아니라 **설정 오류로 적발**한다 (오타가 조용히 통과하지 않게). 근거 값에 "선언한 서비스 없음"을 남긴다 |
-| 확인하지 못함 | envFrom ConfigMap·Secret·Deployment·Service를 수집하지 못했을 때. Service는 서비스 이름과 선언 오류 판정에 직접 쓰므로 §0.3의 묶음 대체를 하지 않는다. 참조한 ConfigMap 자체가 없으면 C01이 적발하므로 C05는 그 출처를 "확인하지 못함"으로 두고 중복 적발하지 않는다 |
+| 선언 오류 | 선언한 서비스 이름에 귀속된 Deployment가 하나도 없으면 **설정 오류로 적발**한다. 근거 값에 "선언한 서비스 없음"을 남긴다 |
+| 확인하지 못함 | ConfigMap·Secret·Deployment·Service를 수집하지 못했을 때. Service는 서비스 이름과 선언 오류 판정에 직접 쓰므로 §0.3의 묶음 대체를 하지 않는다. 필수 이름을 확인할 수 있는 출처가 없고, `optional`이 아닌 envFrom의 ConfigMap·Secret이 없어 해당 이름을 제공할 가능성이 있으면 그 이름을 미확인으로 남긴다. 같은 Deployment에서 누락이 확정된 이름이 있으면 적발한다 |
 | 지속 시간 | 없음 (선언 비교) |
 | 제외 | 선언하지 않은 서비스와 이름 (판정 대상이 아님) |
 | 1차 심각도 | S04와 같은 기준: 그 서비스가 핵심 경로면 🔴 긴급, 아니면 🟠 주의 |
-| 근거로 남길 값 | 서비스, 선언된 이름, 확인한 env·envFrom 위치와 결과 (Secret은 키 이름만) |
-| 확인할 사항 | 선언한 필수 env가 해당 서비스의 env·envFrom에 있는지 확인하세요. |
+| 근거로 남길 값 | Deployment, 서비스, 선언된 이름, 확인한 env·envFrom 위치와 결과 (Secret은 키 이름만) |
+| 확인할 사항 | 서비스에 귀속된 각 Deployment의 env·envFrom에 필수 env가 있는지 확인하세요. |
 | 관련 지침 | failure-after-deploy, service-unreachable (S04·C01의 지침) |
 | 출처 | 운영자 선언 (C01 확장, [#60](https://github.com/skax-jihyeryu/KubeGuardian/issues/60)의 (b)안) |
 
@@ -432,7 +432,7 @@ Kind별 주요 필드는 판정 및 서비스별 대상 묶음에 쓰는 저장 
 | C01 | Secret | metadata.name, keys |
 | C01 | ReplicaSet | metadata.ownerReferences |
 | C01 | Service | spec.selector |
-| C05 | Deployment | spec.template.spec.containers.env, spec.template.spec.containers.envFrom |
+| C05 | Deployment | metadata.name, spec.template.metadata.labels, spec.template.spec.containers.env, spec.template.spec.containers.envFrom |
 | C05 | ConfigMap | metadata.name, data |
 | C05 | Secret | metadata.name, keys |
 | C05 | Service | spec.selector |

@@ -165,6 +165,21 @@ def test_incident_resolves_when_a_full_check_no_longer_sees_it(engine):
     assert inc.status == "resolved" and inc.resolved_at == NOW + timedelta(minutes=10)
 
 
+def test_historical_c05_service_incident_waits_for_deployment_checks(engine):
+    checks = Checks(engine)
+    [opened] = checks.run([_sig("C05")])
+    stable = _sig("C05", verdict="passed", subject="dev/Deployment/agent")
+    [continued] = checks.run([stable, _sig("C05", subject="dev/Deployment/agent-canary")])
+    assert (continued.action, continued.incident_id) == ("continued", opened.incident_id)
+
+    canary = _sig("C05", verdict="unknown", subject="dev/Deployment/agent-canary")
+
+    assert checks.run([stable, canary]) == []
+
+    [resolved] = checks.run([stable, canary.model_copy(update={"verdict": "passed"})])
+    assert (resolved.action, resolved.incident_id) == ("resolved", opened.incident_id)
+
+
 @pytest.mark.parametrize(
     ("signals", "symptoms"),
     [

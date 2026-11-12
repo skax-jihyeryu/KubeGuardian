@@ -189,7 +189,11 @@ _INPUTS: dict[str, tuple[tuple[str, str], ...]] = {
         ("Service", "spec.selector"),
     ),
     "C05": (
-        ("Deployment", "spec.template.spec.containers.env, spec.template.spec.containers.envFrom"),
+        (
+            "Deployment",
+            "metadata.name, spec.template.metadata.labels, spec.template.spec.containers.env, "
+            "spec.template.spec.containers.envFrom",
+        ),
         ("ConfigMap", "metadata.name, data"),
         ("Secret", "metadata.name, keys"),
         ("Service", "spec.selector"),
@@ -222,7 +226,7 @@ _GUIDANCE: dict[str, str] = {
     "S03": "Service targetPort와 컨테이너가 실제로 여는 포트가 같은지 확인하세요.",
     "S04": "적발된 env 값의 호스트·포트가 네임스페이스의 Service 이름·포트와 맞는지 확인하세요.",
     "C01": "참조한 ConfigMap·Secret과 키가 네임스페이스에 있는지 확인하세요.",
-    "C05": "선언한 필수 env가 해당 서비스의 env·envFrom에 있는지 확인하세요.",
+    "C05": "서비스에 귀속된 각 Deployment의 env·envFrom에 필수 env가 있는지 확인하세요.",
     "H01": "서비스를 받는 컨테이너의 readinessProbe 종류와 설정을 확인하세요.",
     "H02": "컨테이너의 resources.requests·limits 설정을 확인하세요.",
 }
