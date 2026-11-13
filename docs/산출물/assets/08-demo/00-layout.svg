@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1560" width="1920" height="1560" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif">
+<rect width="1920" height="1560" fill="#ffffff"/>
+<text x="960" y="60" font-size="44" font-weight="700" fill="#1A365D" text-anchor="middle">녹화 레이아웃 프리셋 4개 (캔버스 1920 x 1080, 16:9)</text>
+<text x="1000" y="105" font-size="28" fill="#4A5568" text-anchor="middle">OBS 장면 L1~L4를 미리 만들고 단축키로 전환한다. 창은 녹화 중에 옮기지 않는다.</text>
+<g transform="translate(40,140)">
+<rect width="880" height="495" fill="#F7FAFC" stroke="#1A365D" stroke-width="4"/>
+<rect x="0" y="0" width="880" height="495" fill="#EBF4FF" stroke="#2B6CB0" stroke-width="3"/><text x="440.0" y="217.5" font-size="40" font-weight="700" fill="#1A365D" text-anchor="middle">① 브라우저 (전체 화면)</text><text x="440.0" y="267.5" font-size="28" fill="#2C5282" text-anchor="middle">1920 x 1080</text>
+</g>
+<text x="40" y="680" font-size="38" font-weight="700" fill="#1A365D">L1 화면 전체</text>
+<text x="40" y="722" font-size="28" fill="#2C5282">브라우저 1920 x 1080</text>
+<text x="40" y="762" font-size="28" fill="#2D3748">로그가 필요 없는 장면. 정상 상태, 규칙 목록, 결과 화면, 보고서</text>
+<text x="40" y="802" font-size="30" font-weight="700" fill="#C05621">쓰는 장면: R1 · R1-2 · R4 · R11</text>
+<g transform="translate(1000,140)">
+<rect width="880" height="495" fill="#F7FAFC" stroke="#1A365D" stroke-width="4"/>
+<rect x="0" y="0" width="587" height="495" fill="#EBF4FF" stroke="#2B6CB0" stroke-width="3"/><text x="293.5" y="217.5" font-size="40" font-weight="700" fill="#1A365D" text-anchor="middle">① 브라우저</text><text x="293.5" y="267.5" font-size="28" fill="#2C5282" text-anchor="middle">1280 x 1080</text>
+<rect x="587" y="0" width="293" height="495" fill="#2D3748" stroke="#2B6CB0" stroke-width="3"/><text x="733.5" y="217.5" font-size="30" font-weight="700" fill="#FFFFFF" text-anchor="middle">③ 명령</text><text x="733.5" y="261.5" font-size="22" fill="#BEE3F8" text-anchor="middle">640 x 1080</text><text x="733.5" y="303.5" font-size="20" fill="#E2E8F0" text-anchor="middle">주입 · 점검</text><text x="733.5" y="337.5" font-size="20" fill="#E2E8F0" text-anchor="middle">Job 로그</text>
+</g>
+<text x="1000" y="680" font-size="38" font-weight="700" fill="#1A365D">L2 화면 + 명령 터미널</text>
+<text x="1000" y="722" font-size="28" fill="#2C5282">브라우저 1280 x 1080 + ③ 640 x 1080</text>
+<text x="1000" y="762" font-size="28" fill="#2D3748">주입, 점검 실행처럼 명령 출력과 화면을 함께 볼 때</text>
+<text x="1000" y="802" font-size="30" font-weight="700" fill="#C05621">쓰는 장면: R2 · R3 · R7 · R8 앞부분</text>
+<g transform="translate(40,860)">
+<rect width="880" height="495" fill="#F7FAFC" stroke="#1A365D" stroke-width="4"/>
+<rect x="0" y="0" width="587" height="495" fill="#EBF4FF" stroke="#2B6CB0" stroke-width="3"/><text x="293.5" y="217.5" font-size="40" font-weight="700" fill="#1A365D" text-anchor="middle">① 브라우저 / Slack</text><text x="293.5" y="267.5" font-size="28" fill="#2C5282" text-anchor="middle">1280 x 1080</text>
+<rect x="587" y="0" width="293" height="495" fill="#1A202C" stroke="#2B6CB0" stroke-width="3"/><text x="733.5" y="217.5" font-size="30" font-weight="700" fill="#FFFFFF" text-anchor="middle">② 작업자</text><text x="733.5" y="261.5" font-size="22" fill="#BEE3F8" text-anchor="middle">640 x 1080</text><text x="733.5" y="303.5" font-size="20" fill="#E2E8F0" text-anchor="middle">로그 줄</text>
+</g>
+<text x="40" y="1400" font-size="38" font-weight="700" fill="#1A365D">L3 화면 + 작업자 로그</text>
+<text x="40" y="1442" font-size="28" fill="#2C5282">브라우저·Slack 1280 x 1080 + ② 640 x 1080</text>
+<text x="40" y="1482" font-size="28" fill="#2D3748">알림과 그 알림을 낸 로그 줄을 나란히 볼 때</text>
+<text x="40" y="1522" font-size="30" font-weight="700" fill="#C05621">쓰는 장면: R5 · R8 뒷부분 · R10</text>
+<g transform="translate(1000,860)">
+<rect width="880" height="495" fill="#F7FAFC" stroke="#1A365D" stroke-width="4"/>
+<rect x="0" y="0" width="880" height="495" fill="#1A202C" stroke="#2B6CB0" stroke-width="3"/><text x="440.0" y="217.5" font-size="36" font-weight="700" fill="#FFFFFF" text-anchor="middle">② 작업자 로그 (전체 화면)</text><text x="440.0" y="261.5" font-size="26" fill="#BEE3F8" text-anchor="middle">1920 x 1080 · 글자 22pt 이상</text><text x="440.0" y="303.5" font-size="24" fill="#E2E8F0" text-anchor="middle">[조사 #N] 줄이 화면 가득</text>
+</g>
+<text x="1000" y="1400" font-size="38" font-weight="700" fill="#1A365D">L4 로그 전체</text>
+<text x="1000" y="1442" font-size="28" fill="#2C5282">② 작업자 로그 1920 x 1080</text>
+<text x="1000" y="1482" font-size="28" fill="#2D3748">C8 조사 진행. 글자 22pt 이상</text>
+<text x="1000" y="1522" font-size="30" font-weight="700" fill="#C05621">쓰는 장면: R9</text>
+</svg>
