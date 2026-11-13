@@ -1,0 +1,590 @@
+{
+  "resources": {
+    "Pod": [
+      {
+        "metadata": {
+          "name": "entry-v1-pod",
+          "labels": {
+            "app": "entry"
+          },
+          "ownerReferences": [
+            {
+              "kind": "ReplicaSet",
+              "name": "entry-v1"
+            }
+          ]
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "entry"
+            }
+          ]
+        },
+        "status": {
+          "phase": "Running",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "entry",
+              "ready": true,
+              "restartCount": 0,
+              "state": {
+                "running": {
+                  "startedAt": "2026-01-01T09:00:04Z"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "identity-v1-pod",
+          "labels": {
+            "app": "identity"
+          },
+          "ownerReferences": [
+            {
+              "kind": "ReplicaSet",
+              "name": "identity-v1"
+            }
+          ]
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "identity"
+            }
+          ]
+        },
+        "status": {
+          "phase": "Running",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "identity",
+              "ready": true,
+              "restartCount": 0,
+              "state": {
+                "running": {
+                  "startedAt": "2026-01-01T09:00:04Z"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "sessionstore-v1-pod",
+          "labels": {
+            "app": "sessionstore"
+          },
+          "ownerReferences": [
+            {
+              "kind": "ReplicaSet",
+              "name": "sessionstore-v1"
+            }
+          ]
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "sessionstore"
+            }
+          ]
+        },
+        "status": {
+          "phase": "Running",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "sessionstore",
+              "ready": true,
+              "restartCount": 0,
+              "state": {
+                "running": {
+                  "startedAt": "2026-01-01T09:00:04Z"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "thumbnailer-v1-pod",
+          "labels": {
+            "app": "thumbnailer"
+          },
+          "ownerReferences": [
+            {
+              "kind": "ReplicaSet",
+              "name": "thumbnailer-v1"
+            }
+          ]
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "thumbnailer"
+            }
+          ]
+        },
+        "status": {
+          "phase": "Running",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "name": "thumbnailer",
+              "ready": true,
+              "restartCount": 0,
+              "state": {
+                "running": {
+                  "startedAt": "2026-01-01T09:00:04Z"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "Service": [
+      {
+        "metadata": {
+          "name": "entry"
+        },
+        "spec": {
+          "type": "ClusterIP",
+          "selector": {
+            "app": "entry"
+          },
+          "ports": [
+            {
+              "port": 8080,
+              "targetPort": 8080,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "identity"
+        },
+        "spec": {
+          "type": "ClusterIP",
+          "selector": {
+            "app": "identity"
+          },
+          "ports": [
+            {
+              "port": 8081,
+              "targetPort": 8081,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "sessionstore"
+        },
+        "spec": {
+          "type": "ClusterIP",
+          "selector": {
+            "app": "sessionstore"
+          },
+          "ports": [
+            {
+              "port": 6379,
+              "targetPort": 6379,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "thumbnailer"
+        },
+        "spec": {
+          "type": "ClusterIP",
+          "selector": {
+            "app": "thumbnailer"
+          },
+          "ports": [
+            {
+              "port": 8090,
+              "targetPort": 8090,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      }
+    ],
+    "ReplicaSet": [
+      {
+        "metadata": {
+          "name": "entry-v1",
+          "ownerReferences": [
+            {
+              "kind": "Deployment",
+              "name": "entry"
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "identity-v1",
+          "ownerReferences": [
+            {
+              "kind": "Deployment",
+              "name": "identity"
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "sessionstore-v1",
+          "ownerReferences": [
+            {
+              "kind": "Deployment",
+              "name": "sessionstore"
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "thumbnailer-v1",
+          "ownerReferences": [
+            {
+              "kind": "Deployment",
+              "name": "thumbnailer"
+            }
+          ]
+        }
+      }
+    ],
+    "Deployment": [
+      {
+        "metadata": {
+          "name": "entry",
+          "labels": {
+            "app": "entry"
+          }
+        },
+        "spec": {
+          "replicas": 1,
+          "selector": {
+            "matchLabels": {
+              "app": "entry"
+            }
+          },
+          "template": {
+            "metadata": {
+              "labels": {
+                "app": "entry"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "entry",
+                  "env": [
+                    {
+                      "name": "IDENTITY_URL",
+                      "value": "identity:8081"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "status": {
+          "replicas": 1,
+          "readyReplicas": 1,
+          "availableReplicas": 1
+        }
+      },
+      {
+        "metadata": {
+          "name": "identity",
+          "labels": {
+            "app": "identity"
+          }
+        },
+        "spec": {
+          "replicas": 1,
+          "selector": {
+            "matchLabels": {
+              "app": "identity"
+            }
+          },
+          "template": {
+            "metadata": {
+              "labels": {
+                "app": "identity"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "identity",
+                  "env": [
+                    {
+                      "name": "SESSIONSTORE_URL",
+                      "value": "sessionstore:6379"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "status": {
+          "replicas": 1,
+          "readyReplicas": 1,
+          "availableReplicas": 1
+        }
+      },
+      {
+        "metadata": {
+          "name": "sessionstore",
+          "labels": {
+            "app": "sessionstore"
+          }
+        },
+        "spec": {
+          "replicas": 1,
+          "selector": {
+            "matchLabels": {
+              "app": "sessionstore"
+            }
+          },
+          "template": {
+            "metadata": {
+              "labels": {
+                "app": "sessionstore"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "sessionstore",
+                  "env": []
+                }
+              ]
+            }
+          }
+        },
+        "status": {
+          "replicas": 1,
+          "readyReplicas": 1,
+          "availableReplicas": 1
+        }
+      },
+      {
+        "metadata": {
+          "name": "thumbnailer",
+          "labels": {
+            "app": "thumbnailer"
+          }
+        },
+        "spec": {
+          "replicas": 1,
+          "selector": {
+            "matchLabels": {
+              "app": "thumbnailer"
+            }
+          },
+          "template": {
+            "metadata": {
+              "labels": {
+                "app": "thumbnailer"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "thumbnailer",
+                  "env": []
+                }
+              ]
+            }
+          }
+        },
+        "status": {
+          "replicas": 1,
+          "readyReplicas": 1,
+          "availableReplicas": 1
+        }
+      }
+    ],
+    "EndpointSlice": [
+      {
+        "metadata": {
+          "name": "entry-slice",
+          "labels": {
+            "kubernetes.io/service-name": "entry"
+          }
+        },
+        "ports": [
+          {
+            "port": 8080,
+            "protocol": "TCP"
+          }
+        ],
+        "endpoints": [
+          {
+            "targetRef": {
+              "kind": "Pod",
+              "name": "entry-v1-pod"
+            },
+            "conditions": {
+              "ready": true
+            }
+          }
+        ]
+      },
+      {
+        "metadata": {
+          "name": "identity-slice",
+          "labels": {
+            "kubernetes.io/service-name": "identity"
+          }
+        },
+        "ports": [
+          {
+            "port": 8081,
+            "protocol": "TCP"
+          }
+        ],
+        "endpoints": [
+          {
+            "targetRef": {
+              "kind": "Pod",
+              "name": "identity-v1-pod"
+            },
+            "conditions": {
+              "ready": true
+            }
+          }
+        ]
+      },
+      {
+        "metadata": {
+          "name": "sessionstore-slice",
+          "labels": {
+            "kubernetes.io/service-name": "sessionstore"
+          }
+        },
+        "ports": [
+          {
+            "port": 6379,
+            "protocol": "TCP"
+          }
+        ],
+        "endpoints": [
+          {
+            "targetRef": {
+              "kind": "Pod",
+              "name": "sessionstore-v1-pod"
+            },
+            "conditions": {
+              "ready": true
+            }
+          }
+        ]
+      },
+      {
+        "metadata": {
+          "name": "thumbnailer-slice",
+          "labels": {
+            "kubernetes.io/service-name": "thumbnailer"
+          }
+        },
+        "ports": [
+          {
+            "port": 8090,
+            "protocol": "TCP"
+          }
+        ],
+        "endpoints": [
+          {
+            "targetRef": {
+              "kind": "Pod",
+              "name": "thumbnailer-v1-pod"
+            },
+            "conditions": {
+              "ready": true
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "login": {
+    "via": "entry",
+    "path": "/signin",
+    "status": 504,
+    "latency_ms": 4000,
+    "port": 8080
+  },
+  "log_observations": {
+    "entry-v1-pod": [
+      {
+        "timestamp": "2026-01-01 14:03:16",
+        "level": "ERROR",
+        "error": "Timeout awaiting response",
+        "method": "POST",
+        "route": "/signin",
+        "target": "identity:8081",
+        "status": 504
+      }
+    ],
+    "identity-v1-pod": [
+      {
+        "timestamp": "2026-01-01 14:03:14",
+        "level": "ERROR",
+        "error": "Connection timeout",
+        "operation": "write session",
+        "target": "sessionstore:6379",
+        "route": "/signin"
+      }
+    ],
+    "sessionstore-v1-pod": [
+      {
+        "timestamp": "2026-01-01 14:02:12",
+        "level": "INFO",
+        "operation": "background health check",
+        "status": "ok"
+      }
+    ]
+  }
+}
