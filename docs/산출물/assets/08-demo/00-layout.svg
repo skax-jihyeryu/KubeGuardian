@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1560" width="1920" height="1560" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif">
 <rect width="1920" height="1560" fill="#ffffff"/>
 <text x="960" y="60" font-size="44" font-weight="700" fill="#1A365D" text-anchor="middle">녹화 레이아웃 프리셋 4개 (캔버스 1920 x 1080, 16:9)</text>
-<text x="1000" y="105" font-size="28" fill="#4A5568" text-anchor="middle">OBS 장면 L1~L4를 미리 만들고 단축키로 전환한다. 창은 녹화 중에 옮기지 않는다.</text>
+<text x="1000" y="105" font-size="28" fill="#4A5568" text-anchor="middle">화면 전체를 FocuSee로 한 번에 녹화하고, 장면마다 창 배치 단축키로 프리셋을 바꾼다.</text>
 <g transform="translate(40,140)">
 <rect width="880" height="495" fill="#F7FAFC" stroke="#1A365D" stroke-width="4"/>
 <rect x="0" y="0" width="880" height="495" fill="#EBF4FF" stroke="#2B6CB0" stroke-width="3"/><text x="440.0" y="217.5" font-size="40" font-weight="700" fill="#1A365D" text-anchor="middle">① 브라우저 (전체 화면)</text><text x="440.0" y="267.5" font-size="28" fill="#2C5282" text-anchor="middle">1920 x 1080</text>
