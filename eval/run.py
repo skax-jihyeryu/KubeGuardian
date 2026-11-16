@@ -42,11 +42,14 @@ from core.tracing import setup_tracing  # noqa: E402
 from evidence_db import agent_evidence_ids, load_evidence  # noqa: E402
 from judge import (  # noqa: E402
     JUDGE_MODEL,
+    OBSERVABILITY_CONTRACTS,
     Claim,
     ClaimVerdict,
     JudgeResult,
+    ObservableJudgement,
     extract_claims,
     judge_claims,
+    judge_observability,
     judge_top1,
     support_summary,
 )
@@ -57,6 +60,7 @@ from runner_step import (  # noqa: E402
     record_detection_alert,
 )
 from scoring import (  # noqa: E402
+    assess_observability,
     cause_record,
     classify,
     coverage_record,
@@ -255,6 +259,7 @@ def score_layers(
     *,
     db_path: Path,
     claim_judge: Callable[[list[Claim], dict[str, dict]], list[ClaimVerdict]],
+    observable_judge: Callable[[str, str, list[ClaimVerdict]], ObservableJudgement] | None = None,
 ) -> dict:
     """2단계 채점: 원복 뒤 가져온 근거 DB로 핵심 근거와 주장별 근거를 채점해 실패를 분류한다.
 
@@ -306,6 +311,15 @@ def score_layers(
         conclusion_support=summary["conclusion_support"],
     )
     ai["passed"] = ai["failure"] == "pass"
+    scenario = expected.get("id")
+    if observable_judge is not None and scenario in OBSERVABILITY_CONTRACTS:
+        try:
+            verdict = observable_judge(scenario, report["conclusion"], verdicts)
+            ai["observability"] = assess_observability(
+                scenario, ai.get("judgement"), summary["conclusion_support"], verdict
+            )
+        except Exception as error:
+            ai["observability"] = {"version": 1, "error": type(error).__name__}
     return ai
 
 
@@ -754,6 +768,9 @@ def score_ai_runs(
                 db_path=db_path,
                 claim_judge=lambda claims, ev: judge_claims(
                     claims, ev, build_chat_model(JUDGE_MODEL)
+                ),
+                observable_judge=lambda scenario, conclusion, verdicts: judge_observability(
+                    scenario, conclusion, verdicts, build_chat_model(JUDGE_MODEL)
                 ),
             )
         except Exception as e:  # 한 회차의 채점 오류가 다른 회차와 결과 저장을 막지 않는다

@@ -297,6 +297,11 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
     return {
         "drift": drift,
         "scenarios": dict(sorted(scen.items())),
+        "observability": {
+            sid: [r["observability"] for r in s["runs"] if r.get("observability")]
+            for sid, s in sorted(scen.items())
+            if any(r.get("observability") for r in s["runs"])
+        },
         "by_level": group("level"),
         "by_stage": dict(by_stage),
         "by_path": dict(sorted(by_path.items())),
@@ -430,6 +435,35 @@ def render(summary: dict, baseline: dict | None) -> str:
         "gate_fail 포함)가 분모다.",
         "",
     ]
+    observability = summary.get("observability") or {}
+    if observability:
+        out += [
+            "## 관측 가능성 평가",
+            "",
+            "| 시나리오 | 계약 버전 | 지지·양립 원인 | 정확한 출처 지지 | 관측과 모순 | "
+            "미해결 충돌 인식/전체 | 과도한 확정 | 적절한 보류 | 부적절한 보류 | 채점 오류 |",
+            "|---|---|---|---|---|---|---|---|---|---|",
+        ]
+        for sid, assessments in observability.items():
+            by_version = defaultdict(list)
+            for assessment in assessments:
+                by_version[assessment["version"]].append(assessment)
+            for version, records in sorted(by_version.items()):
+                valid = [r for r in records if not r.get("error")]
+                n = len(valid)
+                conflicts = _count(r["unresolved_conflict"] for r in valid)
+                calibration = _count(r["calibration"] for r in valid)
+                out.append(
+                    f"| {sid} | {version} | {sum(r['accuracy'] for r in valid)}/{n} | "
+                    f"{sum(r['exact_origin_supported'] for r in valid)}/{n} | "
+                    f"{sum(r['finding'] == 'contradicted' for r in valid)}/{n} | "
+                    f"{conflicts.get('recognized', 0)}/"
+                    f"{conflicts.get('recognized', 0) + conflicts.get('missed', 0)} | "
+                    f"{calibration.get('overconfirmation', 0)} | "
+                    f"{calibration.get('appropriate_abstention', 0)} | "
+                    f"{calibration.get('unwarranted_abstention', 0)} | {len(records) - n} |"
+                )
+        out += ["", "관측 가능성 채점은 기존 cause·judge·통과·실패 분류와 별도로 보고한다.", ""]
     by_stage = summary.get("by_stage") or {}
     if by_stage:
         out += [

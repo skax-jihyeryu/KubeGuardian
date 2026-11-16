@@ -191,3 +191,45 @@ def test_ai_repeats_above_one_requires_ai_condition():
         main(argv=["A1", "--ai-repeats", "3"])
     with pytest.raises(SystemExit):
         main(argv=["A1", "--ai-repeats", "3", "--condition", "rules"])
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_observability_keeps_strict_f1_and_isolates_scoring_errors(tmp_path, fails):
+    from judge import ObservableJudgement
+
+    db, ev = _db(tmp_path)
+    expected = {
+        **EXPECTED,
+        "id": "C2",
+        "key_evidence": [{"id": "missing", "obtainable": False}],
+    }
+
+    def observable_judge(scenario, conclusion, verdicts):
+        assert scenario == "C2"
+        assert conclusion == _report(ev)["conclusion"]
+        assert verdicts[0].verdict == "partial"
+        if fails:
+            raise RuntimeError("invalid auxiliary judge response")
+        return ObservableJudgement(
+            finding="compatible",
+            exact_origin_supported=False,
+            unresolved_conflict="none",
+            abstained=True,
+        )
+
+    ai = score_layers(
+        {**_ai(judge_match=False), "judgement": "candidate"},
+        _report(ev),
+        [],
+        expected,
+        db_path=db,
+        claim_judge=_judge("partial"),
+        observable_judge=observable_judge,
+    )
+    assert ai["failure"] == "F1"
+    assert ai["passed"] is False
+    if fails:
+        assert ai["observability"] == {"version": 1, "error": "RuntimeError"}
+    else:
+        assert ai["observability"]["accuracy"] is True
+        assert ai["observability"]["calibration"] == "appropriate_abstention"
