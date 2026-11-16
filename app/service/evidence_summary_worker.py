@@ -1,6 +1,5 @@
 """중요한 근거의 AI 요약을 작업자가 뒤에서 미리 만든다 (#176). 조사 스레드와 분리된다."""
 
-import sys
 import threading
 import time
 from collections.abc import Callable
@@ -12,10 +11,13 @@ from core.config import get_setting
 from core.db import EvidenceStore
 from core.db.evidence import _parse_id
 from core.db.evidence_summaries import EvidenceSummaryStore
+from core.log.logging import get_logging
 from service.agent.base import LlmFactory
 from service.checks.detectors.catalog import CATALOG
 from service.evidence_summary import summarize_evidence
 from service.model import Evidence
+
+logger = get_logging()
 
 LOOKBACK = timedelta(hours=24)  # 기존 근거를 소급 생성하지 않는다
 PAGE = 200
@@ -65,7 +67,7 @@ def next_targets(engine: Engine, now: datetime, limit: int = 20) -> list[str]:
 
 
 def _log(message: str) -> None:
-    print(f"근거 요약: {message}", file=sys.stderr, flush=True)
+    logger.info(f"근거 요약: {message}")
 
 
 def run_once(
