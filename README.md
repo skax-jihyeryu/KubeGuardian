@@ -48,6 +48,42 @@ docs/       # 기획·계획·규칙 명세·산출물·ADR·학습 노트
 
 브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](.github/CONTRIBUTING.md). 기본 브랜치는 `develop`이다.
 
+## 시연 환경 띄우기
+
+영상 촬영 전에 위에서부터 순서대로 실행한다. 이미 떠 있는 단계는 건너뛴다.
+
+```bash
+# 1. minikube 상태 확인 — 꺼져 있으면(Stopped) 시작한다 (옵션은 docs/environment-setup.md §3)
+minikube status
+minikube start --driver=docker --container-runtime=docker --cpus=4 --memory=10g --cni=calico --embed-certs
+
+# 2. 이미 배포돼 있는지 확인
+kubectl -n dev get deploy
+kubectl -n kubeguardian get deploy,cronjob
+
+# 3. 처음 배포하거나 코드·이미지를 바꿨을 때만 (이미 떠 있으면 건너뛴다)
+make up       # 진단 대상 (dev)
+make kg-up    # KubeGuardian (kubeguardian 네임스페이스, .env 필요)
+
+# 4. 보고서 화면 연결 — 별도 터미널에서 켜 두고 끄지 않는다 (끄면 화면이 끊긴다)
+make kg-web
+
+# 5. 정상 확인 (기준선이 정상이면 OK로 끝난다)
+bash scenarios/H0/verify_symptom.sh
+```
+
+- 2번에서 `dev`에 admin·agent·front-admin·front-chat·gateway·llm-gateway·postgres·redis가 모두 `READY`(agent는 3/3), `kubeguardian`에 diagnostic-agent·kg-runner·phoenix와 CronJob `kg-check`가 보이면 정상이다.
+- `make kg-up`으로 diagnostic-agent Pod가 다시 뜨면 `make kg-web`의 port-forward가 끊긴다. 끊겼으면 `make kg-web`을 다시 실행한다.
+- 브라우저 주소는 예시 설정의 프로젝트 ID(`llm-gateway`) 기준이다.
+
+| 화면 | 주소 |
+|---|---|
+| 점검 이력 | `http://localhost:8080/llm-gateway/checks` |
+| 이슈 목록 | `http://localhost:8080/llm-gateway/issues` |
+| 점검 구성 — 점검 규칙 탭 | `http://localhost:8080/llm-gateway/setup/rules` |
+
+촬영 장면과 대본은 [시연 영상 스크립트](docs/산출물/08-시연영상스크립트.md)와 [docs/07-demo-script.md](docs/07-demo-script.md)를 따른다.
+
 ## 보고서 화면
 
 `make run`으로 로컬 서버를 실행한 뒤 `http://localhost:8000/`에서 연다.
