@@ -15,6 +15,29 @@ scenario = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(scenario)
 
 
+class DeploymentTest(unittest.TestCase):
+    def test_accepts_local_readiness_build(self):
+        deployment = {
+            "metadata": {"name": "gateway", "namespace": "dev"},
+            "spec": {
+                "template": {
+                    "metadata": {"labels": {"app": "gateway"}},
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "gateway",
+                                "image": "kg-target/gateway:readiness-9f0579948484",
+                            }
+                        ]
+                    },
+                }
+            },
+        }
+        with patch.object(scenario, "kubectl", return_value=json.dumps(deployment)):
+            _, container = scenario.deployment()
+        self.assertEqual(container, deployment["spec"]["template"]["spec"]["containers"][0])
+
+
 class ScenarioTest(unittest.TestCase):
     def setUp(self):
         directory = TemporaryDirectory()
