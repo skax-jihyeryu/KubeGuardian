@@ -7,7 +7,9 @@
   "형식 예시"는 출처가 없어 형식만 보인 줄이다(문서에도 그렇게 적는다).
 - 강조할 줄은 (텍스트, True)로 표시한다.
 """
+
 from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).resolve().parent
@@ -34,7 +36,7 @@ def wrap(text, f, width):
             cut = cur.rfind(" ")
             if cut > len(cur) // 2:
                 out.append(cur[:cut])
-                cur = "  " + cur[cut + 1:] + ch
+                cur = "  " + cur[cut + 1 :] + ch
             else:
                 out.append(cur)
                 cur = "  " + ch
@@ -154,12 +156,25 @@ def l4(name, command, lines):
 
 
 # ---- 로그 줄 데이터 ----
-GREP_ALL = "$ kubectl -n kubeguardian logs -f deploy/diagnostic-agent -c worker --since=1s | grep --line-buffered -E '\\[조사|\\[작업\\]|\\[알림\\]'"
-GREP_SUM = "$ kubectl -n kubeguardian logs -f deploy/diagnostic-agent -c worker --since=1s | grep --line-buffered -E '근거 요약|\\[작업\\]|\\[알림\\]'"
-JOB_CMD = "$ make kg-cron-run && J=$(kubectl -n kubeguardian get jobs ...) && until kubectl -n kubeguardian logs -f job/$J ...; do sleep 1; done"
+GREP_ALL = (
+    "$ kubectl -n kubeguardian logs -f deploy/diagnostic-agent -c worker --since=1s | grep "
+    "--line-buffered -E '\\[조사|\\[작업\\]|\\[알림\\]'"
+)
+GREP_SUM = (
+    "$ kubectl -n kubeguardian logs -f deploy/diagnostic-agent -c worker --since=1s | grep "
+    "--line-buffered -E '근거 요약|\\[작업\\]|\\[알림\\]'"
+)
+JOB_CMD = (
+    "$ make kg-cron-run && J=$(kubectl -n kubeguardian get jobs ...) && until kubectl -n "
+    "kubeguardian logs -f job/$J ...; do sleep 1; done"
+)
 
 R2 = [
-    ("A7 주입(dot): dev/Deployment/gateway AGENT_SERVICE_URL http://agent:8006 → http://agent.:8006", True),
+    (
+        "A7 주입(dot): dev/Deployment/gateway AGENT_SERVICE_URL http://agent:8006 → "
+        "http://agent.:8006",
+        True,
+    ),
     ("$ kubectl get pods -n dev -w", False),
     ("NAME                       READY   STATUS              RESTARTS   AGE", False),
     ("gateway-<해시>-<새>        0/1     ContainerCreating   0          1s", False),
@@ -182,19 +197,30 @@ R7 = [
     ("$ bash scenarios/C8/inject.sh", False),
     ("C8 injected: test deployment_name changed; original saved; credentials unchanged", False),
     ("$ bash scenarios/C8/verify_symptom.sh", False),
-    ('{"valid": true, "target_pods_ready": true, "chat_failed": true, "upstream_error": "403 deployment_not_allowed", "server_log_matches": true}', True),
+    (
+        '{"valid": true, "target_pods_ready": true, "chat_failed": true, "upstream_error": "403 '
+        'deployment_not_allowed", "server_log_matches": true}',
+        True,
+    ),
 ]
 R8A = [
     ("03:27:12  게이트: 경로 B (critical) — 증상: chat 2단계 실패", True),
     ("03:27:12  이슈 #20 새로 열림 (조사 대기)", True),
     ("03:27:12  [알림] M1 발송 이슈 #20 (Slack)", False),
 ]
-SVC_CMD = "$ kubectl -n dev logs -f deploy/llm-gateway --since=1s | grep --line-buffered -E 'chat/completions|gpt-4.1-next'"
+SVC_CMD = (
+    "$ kubectl -n dev logs -f deploy/llm-gateway --since=1s | grep --line-buffered -E "
+    "'chat/completions|gpt-4.1-next'"
+)
 # 형식 예시: scenarios/C8/README.md "확인 상태" 절의 기록만 근거. 모르는 부분은 ...
 R8A_SVC = [
     ("(형식 예시 — README 기록 기반, 리허설 후 실측으로 교체)", False),
     ("POST /api/v1/chat/completions ... 500", True),
-    ("... INSERT ... 'deployment_name': 'gpt-4.1-next' ... 'response_status': 'error' ... 'log_data': '... (N characters truncated) ...'", False),
+    (
+        "... INSERT ... 'deployment_name': 'gpt-4.1-next' ... 'response_status': 'error' ... "
+        "'log_data': '... (N characters truncated) ...'",
+        False,
+    ),
 ]
 R8B = [
     ("03:27:15  [조사 #19] 시작: 이슈 #20 경로 B", True),
@@ -202,17 +228,58 @@ R8B = [
 ]
 R9 = [
     ("03:27:16  [조사 #19] 사전 확인: 근거 8건", False),
-    ("03:27:24  [조사 #19] 선별: 문제 1개 — 외부 모델 배포 거부로 채팅 응답이 실패합니다 [ev-0637, ev-…", False),
-    ("03:27:36  [조사 #19] 계획: 가설 3개 — 추정: 모델 배포 설정이 허용되지 않은 배포 이름으로 변경되었을 가능성… / 추정: 외부 호출 경로의 배포 허용 정책이 요청한 모델 배포를 차단했을… / 추정: 외부 API 인증 정보가 해당 모델 배포에 접근할 권한이 없는 …", True),
-    ("03:27:39  [조사 #19] 도구 get_pod_logs llm-gateway-66b994f766-xnks8 llm-gateway 100 deployment_not… → 근거 ev-0643", False),
-    ("03:27:44  [조사 #19] 도구 query_app_api gateway /api/v1/llm-gateway/deployments/assignments/org/${o… → 근거 ev-0644", False),
+    (
+        "03:27:24  [조사 #19] 선별: 문제 1개 — 외부 모델 배포 거부로 채팅 응답이 실패합니다 "
+        "[ev-0637, ev-…",
+        False,
+    ),
+    (
+        "03:27:36  [조사 #19] 계획: 가설 3개 — 추정: 모델 배포 설정이 허용되지 않은 배포 이름으로 "
+        "변경되었을 가능성… / 추정: 외부 호출 경로의 "
+        "배포 허용 정책이 요청한 모델 배포를 차단했을… / 추정: 외부 API 인증 정보가 해당 모델 "
+        "배포에 접근할 권한이 없는 …",
+        True,
+    ),
+    (
+        "03:27:39  [조사 #19] 도구 get_pod_logs llm-gateway-66b994f766-xnks8 llm-gateway 100 "
+        "deployment_not… → 근거 ev-0643",
+        False,
+    ),
+    (
+        "03:27:44  [조사 #19] 도구 query_app_api gateway "
+        "/api/v1/llm-gateway/deployments/assignments/org/${o… → 근거 ev-0644",
+        False,
+    ),
     ("03:27:44  [조사 #19] 도구 get_resource Deployment/llm-gateway → 근거 ev-0645", False),
     ("03:29:01  [조사 #19] 재조사: 빈틈 1개", True),
-    ("03:29:04  [조사 #19] 도구 get_pod_logs llm-gateway-66b994f766-xnks8 llm-gateway 2 Azure OpenAI err… → 근거 ev-0651", False),
+    (
+        "03:29:04  [조사 #19] 도구 get_pod_logs llm-gateway-66b994f766-xnks8 llm-gateway 2 Azure "
+        "OpenAI err… → 근거 ev-0651",
+        False,
+    ),
     ("03:29:07  [조사 #19] 도구 get_topology → 근거 ev-0652", False),
-    ("03:29:12  [조사 #19] 도구 get_pod_logs llm-gateway-66b994f766-xnks8 llm-gateway 6 atl_gateway|upst… → 근거 ev-0653", False),
-    ("03:30:19  [조사 #19] 가설 판정: 현재 할당된 외부 배포 호출의 거부가 조사한 채팅 실패를 일으켰습니다. 지지 / 외부 ATL 게이트웨이의 자체 배포 허용 정책이 최종 거부 원인입니다. 판단 불가 / 최근 모델 배포 설정이 허용되지 않은 이름으로 변경되었습니다. 판단 불가 / 외부 인증 정보가 해당 배포에 접근할 수 없는 인증 대상으로 변경되었습… 판단 불가 / llm-gateway 내부에서 외부 응답 없이 배포 거부 오류를 생성했… 반증 / llm-gateway의 다운이나 반복 재시작이 이번 실패의 직접 원인입… 반증 / 할당량 초과나 요청 시간 초과가 조사한 요청의 직접 실패 사유입니다. 반증", False),
-    ("03:30:19  [조사 #19] 결론: Deployment/llm-gateway의 외부 배포 gpt-4.1-next 호출이 <주소 가림> … (판단 수준 후보, 183s, 도구 19회)", True),
+    (
+        "03:29:12  [조사 #19] 도구 get_pod_logs llm-gateway-66b994f766-xnks8 llm-gateway 6 "
+        "atl_gateway|upst… → 근거 ev-0653",
+        False,
+    ),
+    (
+        "03:30:19  [조사 #19] 가설 판정: 현재 할당된 외부 배포 호출의 거부가 조사한 채팅 실패를 "
+        "일으켰습니다. 지지 / 외부 ATL 게이트웨이의 자체 "
+        "배포 허용 정책이 최종 거부 원인입니다. 판단 불가 / 최근 모델 배포 설정이 허용되지 않은 "
+        "이름으로 변경되었습니다. 판단 불가 / 외부 인증 정보가 해당 "
+        "배포에 접근할 수 없는 인증 대상으로 변경되었습… 판단 불가 / llm-gateway 내부에서 외부 "
+        "응답 없이 배포 거부 오류를 생성했… 반증 / "
+        "llm-gateway의 다운이나 반복 재시작이 이번 실패의 직접 원인입… 반증 / 할당량 초과나 요청 "
+        "시간 초과가 조사한 요청의 직접 실패 사유입니다. 반증",
+        False,
+    ),
+    (
+        "03:30:19  [조사 #19] 결론: Deployment/llm-gateway의 외부 배포 gpt-4.1-next 호출이 <주소 "
+        "가림> … (판단 수준 "
+        "후보, 183s, 도구 19회)",
+        True,
+    ),
 ]
 R10 = [
     ("[알림] M1u 발송 이슈 #12 (Slack)", True),
@@ -222,24 +289,48 @@ R10 = [
 
 
 def main():
-    l2("R2-a7-inject.png", "01-normal-checks.png", "③ 명령 터미널",
-       "$ KG_TYPO=dot bash scenarios/A7/inject.sh", R2)
+    l2(
+        "R2-a7-inject.png",
+        "01-normal-checks.png",
+        "③ 명령 터미널",
+        "$ KG_TYPO=dot bash scenarios/A7/inject.sh",
+        R2,
+    )
     l2("R3-a7-check-run.png", "01-normal-checks.png", "③ 명령 터미널", JOB_CMD, R3)
-    l3("R5-a7-slack-evidence-summary.png",
-       slack_area("A7 1차 알림 (규칙 기반 진단 결과)", [
-           ("적발 규칙 ID, 이름, 위치 (최대 3줄)", False),
-           ("규칙 기반 진단 결과입니다. 근본 원인은 확인하지 않았습니다.", True),
-       ]), GREP_SUM, R5)
-    l2("R7-c8-inject.png", "01-normal-checks.png", "③ 명령 터미널",
-       "$ bash scenarios/H0/verify_symptom.sh", R7)
+    l3(
+        "R5-a7-slack-evidence-summary.png",
+        slack_area(
+            "A7 1차 알림 (규칙 기반 진단 결과)",
+            [
+                ("적발 규칙 ID, 이름, 위치 (최대 3줄)", False),
+                ("규칙 기반 진단 결과입니다. 근본 원인은 확인하지 않았습니다.", True),
+            ],
+        ),
+        GREP_SUM,
+        R5,
+    )
+    l2(
+        "R7-c8-inject.png",
+        "01-normal-checks.png",
+        "③ 명령 터미널",
+        "$ bash scenarios/H0/verify_symptom.sh",
+        R7,
+    )
     l5("R8a-c8-check-run.png", JOB_CMD, R8A, SVC_CMD, R8A_SVC)
     l3("R8b-c8-investigation-start.png", browser_area("05-c8-check-92-judge.png"), GREP_ALL, R8B)
     l4("R9-c8-investigation-log.png", GREP_ALL, R9)
-    l3("R10-c8-slack-update.png",
-       slack_area("C8 1차 알림 갱신과 스레드 답글", [
-           ("1차 알림이 원인 문구로 갱신된다 (M1 -> M1u)", True),
-           ("스레드에 후속 답글이 붙는다 (M9)", True),
-       ]), GREP_ALL, R10)
+    l3(
+        "R10-c8-slack-update.png",
+        slack_area(
+            "C8 1차 알림 갱신과 스레드 답글",
+            [
+                ("1차 알림이 원인 문구로 갱신된다 (M1 -> M1u)", True),
+                ("스레드에 후속 답글이 붙는다 (M9)", True),
+            ],
+        ),
+        GREP_ALL,
+        R10,
+    )
 
 
 if __name__ == "__main__":
