@@ -166,3 +166,16 @@ def test_unknown_area_evidence_dropped():
     out = validate_report(report, known)
 
     assert out.report.coverage.wiring.evidence_ids == ["ev-1"]
+
+
+def test_outcome_counts_cited_and_confirmed_evidence():
+    report = Report(
+        conclusion="c",
+        confidence="high",
+        impact_scope="x",
+        evidence_ids=["ev-1", "ev-9"],
+        hypotheses=[Hypothesis(statement="h", status="supported", evidence_ids=["ev-1", "ev-2"])],
+        preliminary_facts=[Fact(statement="f", evidence_ids=["ev-3"])],
+    )
+    out = validate_report(report, {"ev-1", "ev-2"}.__contains__)
+    assert (out.cited, out.confirmed) == (4, 2)  # ev-1 ev-9 ev-2 ev-3 (중복은 한 번)

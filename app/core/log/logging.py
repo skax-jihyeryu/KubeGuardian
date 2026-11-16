@@ -1,6 +1,7 @@
 """로거 설정."""
 
 import logging
+import re
 from datetime import datetime
 from functools import lru_cache
 from zoneinfo import ZoneInfo
@@ -26,15 +27,30 @@ class KgFormatter(logging.Formatter):
 
 
 class AccessLogFilter(logging.Filter):
-    """uvicorn 접속 로그에서 상태 확인·정적 파일 요청 줄을 뺀다. 화면 요청은 남긴다."""
+    """uvicorn 접속 로그에서 상태 확인·정적 파일·화면 자동 갱신(폴링) 요청 줄을 뺀다.
+
+    사람이 연 화면 요청은 남긴다. 자동 갱신은 `?live=1`, `/shell`, 근거 요약 GET이다.
+    """
 
     QUIET_PREFIXES = ("/healthz", "/readyz", "/static/")
+    SUMMARY_POLL = re.compile(r"/evidence/\d+/summary$")
+
+    @classmethod
+    def _is_polling(cls, method: object, target: str) -> bool:
+        path, _, query = target.partition("?")
+        return (
+            "live=1" in query.split("&")
+            or path.endswith("/shell")
+            or (method == "GET" and bool(cls.SUMMARY_POLL.search(path)))
+        )
 
     def filter(self, record: logging.LogRecord) -> bool:
         # uvicorn.access의 args: (클라이언트 주소, 메서드, 경로, HTTP 버전, 상태 코드)
         args = record.args
         if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
-            return not args[2].startswith(self.QUIET_PREFIXES)
+            return not (
+                args[2].startswith(self.QUIET_PREFIXES) or self._is_polling(args[1], args[2])
+            )
         return True
 
 

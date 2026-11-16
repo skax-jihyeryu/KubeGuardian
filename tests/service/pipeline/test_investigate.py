@@ -477,7 +477,7 @@ def test_investigation_and_steps_are_stored_for_the_check(engine):
     assert inv.report.judgement == "candidate"  # 판단 수준까지 붙은 보고서가 저장된다
     steps = store.steps(inv.id)
     assert [s.node for s in steps] == [s.node for s in result.steps]  # 결과에도 그대로 남는다
-    assert steps[0].node == "preliminary"
+    assert [s.node for s in steps[:2]] == ["knowledge", "preliminary"]
 
 
 # ── 리뷰 지적: 실패 경로·저장 실패·추적 (#98 / PR #112) ──

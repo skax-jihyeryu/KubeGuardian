@@ -748,3 +748,20 @@ def test_empty_log_lines_evidence_drawer_says_no_match_without_box(client, engin
     res = detail(client, run, f"?ev={int(ev[3:])}")
     assert 'class="term"' not in res.text
     assert "일치한 줄 없음" in res.text
+
+
+def test_list_polling_url_is_marked_live_so_the_access_log_can_skip_it(client, engine, monkeypatch):
+    import dataclasses
+
+    from core.log.logging import AccessLogFilter
+    from tests.core.test_logging import _access
+    from web.routes import pages
+
+    real = pages.list_checks
+    monkeypatch.setattr(
+        pages, "list_checks", lambda *a, **k: dataclasses.replace(real(*a, **k), live=True)
+    )
+    make_run(engine)
+    text = client.get("/dev/checks?severity=critical").text
+    assert 'hx-get="http://testserver/dev/checks?severity=critical&amp;live=1"' in text
+    assert AccessLogFilter().filter(_access("/dev/checks?severity=critical&live=1")) is False

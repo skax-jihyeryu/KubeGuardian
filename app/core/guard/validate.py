@@ -32,6 +32,9 @@ class ValidationOutcome(BaseModel):
     report: Report
     demoted: list[str] = []  # 근거가 없어 추정으로 내린 문장
     conclusion_supported: bool
+    # 조회 실패 기록도 센다 (번호가 저장돼 있으면 일치). 판단 수준 계산과 기준이 다르다
+    cited: int = 0  # 보고서가 인용한 서로 다른 근거 번호 수
+    confirmed: int = 0  # 그중 저장된 근거 번호와 일치한 수 (나머지는 지웠다)
 
 
 def validate_report(report: Report, known: Callable[[str], bool]) -> ValidationOutcome:
@@ -90,9 +93,23 @@ def validate_report(report: Report, known: Callable[[str], bool]) -> ValidationO
             "cause_chain": chain,
         }
     )
+    cited = _cited(report)
     return ValidationOutcome(
-        report=cleaned, demoted=demoted, conclusion_supported=bool(evidence_ids)
+        report=cleaned,
+        demoted=demoted,
+        conclusion_supported=bool(evidence_ids),
+        cited=len(cited),
+        confirmed=sum(1 for i in cited if known(i)),
     )
+
+
+def _cited(report: Report) -> set[str]:
+    ids = set(report.evidence_ids)
+    for group in (report.preliminary_facts, report.hypotheses, report.issues, report.cause_chain):
+        for item in group:
+            ids.update(item.evidence_ids)
+    ids.update(i for area in AREAS for i in getattr(report.coverage, area).evidence_ids)
+    return ids
 
 
 def validate_answer(

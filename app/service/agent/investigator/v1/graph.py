@@ -37,6 +37,8 @@ from service.agent.investigator.v1.context import (
     render_facts,
     render_plan,
     render_symptoms,
+    runbook_names,
+    runbook_title,
 )
 from service.agent.investigator.v1.coverage import (
     downgrade_unresolved_cause,
@@ -299,6 +301,13 @@ def build_graph(agent: "InvestigatorV1"):
         return issues[index].title if index < len(issues) else "(선별된 문제 없음)"
 
     def load_context(state: InvestigationState) -> InvestigationState:
+        with agent.step("knowledge") as s:  # 시스템 프롬프트에 넣는 지식 (조사 흐름 로그용)
+            names = runbook_names(KNOWLEDGE_DIR)
+            s.detail = {
+                "environment": 1,
+                "runbooks": names,
+                "chars": len(load_knowledge(KNOWLEDGE_DIR)),
+            }
         board = state["request"].signal_board
         seen = [s.evidence_id for ss in board.by_service.values() for s in ss if s.evidence_id]
         seen += [x.evidence_id for x in state["request"].symptoms if x.evidence_id]
@@ -361,6 +370,9 @@ def build_graph(agent: "InvestigatorV1"):
                         facts.append(table)
                         obs += edge_obs
                         s.evidence_ids += [i for i in table.evidence_ids if i not in s.evidence_ids]
+            s.detail = {
+                "facts": [{"statement": f.statement, "evidence_ids": f.evidence_ids} for f in facts]
+            }
         return {
             "facts": facts,
             "seen": state["seen"] + s.evidence_ids,
@@ -381,7 +393,11 @@ def build_graph(agent: "InvestigatorV1"):
             result = invoke_structured(
                 agent.llm("triage"), TriageResult, [system(), HumanMessage(text)], usage=ctx.usage
             )
-            s.detail = {"issues": [i.title for i in result.issues], "runbook": result.runbook}
+            s.detail = {
+                "issues": [i.title for i in result.issues],
+                "runbook": result.runbook,
+                "runbook_title": runbook_title(KNOWLEDGE_DIR, result.runbook),
+            }
         return {"triage": result}
 
     def plan(state: InvestigationState) -> InvestigationState:
@@ -403,7 +419,12 @@ def build_graph(agent: "InvestigatorV1"):
                 )
             else:
                 made = InvestigationPlan()
-            s.detail = {"issue": issue, "hypotheses": [h.statement for h in made.hypotheses]}
+            s.detail = {
+                "issue": issue,
+                "hypotheses": [h.statement for h in made.hypotheses],
+                "areas": [h.area for h in made.hypotheses],
+                "runbook": triage_result.runbook,
+            }
         ctx.budget.start_issue()
         message = HumanMessage(
             prompt(
@@ -539,6 +560,8 @@ def build_graph(agent: "InvestigatorV1"):
                 started = probe_result[2] if probe_result else None
                 with agent.step("tools", started_at=started) as s:
                     s.tool, s.args = call["name"], dict(call["args"])
+                    if state["rechecked"]:
+                        s.detail = {"recheck": True}
                     lc = lc_tools.get(call["name"])
                     if probe_result:
                         probe, outcome, _, s.ended_at = probe_result
@@ -589,7 +612,7 @@ def build_graph(agent: "InvestigatorV1"):
 
     def write_report(state: InvestigationState) -> InvestigationState:
         attempts = state["report_attempts"] + 1
-        with agent.step("write_report", attempt=attempts):
+        with agent.step("write_report", attempt=attempts, recheck=state["rechecked"]):
             issues = state["triage"].issues
             done = state["current_issue"] + 1
             issue = (
@@ -612,9 +635,19 @@ def build_graph(agent: "InvestigatorV1"):
 
     def validate(state: InvestigationState) -> InvestigationState:
         seen = set(state["seen"])
+        fact_texts = {f.statement for f in state["report"].preliminary_facts}
         with agent.step("validate") as s:
             out = validate_report(state["report"], seen.__contains__)
-            s.detail = {"demoted": out.demoted, "conclusion_supported": out.conclusion_supported}
+            s.detail = {
+                "demoted": out.demoted,
+                "conclusion_supported": out.conclusion_supported,
+                "cited": out.cited,
+                "confirmed": out.confirmed,
+                "removed": out.cited - out.confirmed,
+                "recheck": state["rechecked"],
+                # 사전 확인은 뒤에서 코드가 모은 사실로 덮어쓰므로 로그에서 뺀다
+                "demoted_facts": [x for x in out.demoted if x in fact_texts],
+            }
         report = out.report.model_copy(update={"conclusion_supported": out.conclusion_supported})
         if not out.conclusion_supported and state["report_attempts"] >= 2:
             report = report.model_copy(update={"confidence": "low"})
@@ -640,7 +673,7 @@ def build_graph(agent: "InvestigatorV1"):
                 and ctx.budget.tool_calls_left()  # 시간은 재조사 연장을 포함해 따로 본다
                 and ctx.budget.remaining_with_recheck() >= NEXT_ISSUE_MIN_SECONDS
             )
-            s.detail = {"gaps": gaps, "recheck": recheck}
+            s.detail = {"gaps": gaps, "recheck": recheck, "rechecked": state["rechecked"]}
             if state["rechecked"] and ctx.budget.issue_tool_calls == 0:
                 s.detail["recheck_no_tool_calls"] = True  # 재조사가 도구를 한 번도 부르지 않았다
         if recheck:
