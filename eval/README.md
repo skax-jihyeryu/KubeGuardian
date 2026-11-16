@@ -122,6 +122,7 @@ make eval S=A1 ARGS="--in-cluster --condition ai"   # AI 조건
 | `user_symptom` | 정답 파일의 사용자 증상을 점검·조사에 넘겼을 때 그 문장. 없으면 키가 없다 |
 | `check_interval_s` · `check_max_s` | 이 실행의 점검 간격·상한 |
 | `checks` | 점검이 끝날 때마다 바로 쌓는다 (반복 중 예외가 나도 남는다). 점검별 `n`, `elapsed_s`(주입 시각 기준 초, 점검이 끝난 시각), `gate_path`, `detected`(장애 신호), `observing`, `collect_failed` |
+| `injection_elapsed_s`, `symptom_elapsed_s`, `check_elapsed_s` | 실행 호스트의 단조 시계로 잰 주입, 사전 증상 확인, 점검 전체의 각 경과 초. 점검을 반복한 경우 점검 구간에는 반복 사이의 대기도 포함한다. |
 | `first_detected_s` | 기대 신호별 첫 적발 경과 초. 적발하지 못했으면 `null` |
 | `score` | 마지막 점검의 채점 결과 |
 | `expected` | 단계 메타데이터가 있는 정답 파일의 주 단계, 연관 단계, K8s 가시성, 기대 게이트 및 심각도·영향 기대값을 실행 시점에 기록 |
