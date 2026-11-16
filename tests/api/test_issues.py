@@ -517,14 +517,14 @@ def test_issue_list_ignores_extreme_dates(client, engine):
 def test_issue_list_period_picker(client, engine):
     open_incident(engine, make_run(engine))
     html = client.get("/dev/issues?days=7&from=2026-11-02").text
-    assert '<span>2026-11-02 ~ </span>' in html
+    assert "<span>2026-11-02 ~ </span>" in html
     assert 'value="custom" data-period-mode' in html
     assert "days=" not in html.split('class="irow', 1)[1].split('"', 3)[2]
     preset = 'data-period-quick="7d" aria-pressed="true"'
     assert preset in client.get("/dev/issues?days=7").text
     assert preset in client.get("/dev/issues?period=7d").text
     default = client.get("/dev/issues").text
-    assert default.index('data-period-picker') < default.index('name="status"')
+    assert default.index("data-period-picker") < default.index('name="status"')
     assert "<span>전체 기간</span>" in default
 
 
