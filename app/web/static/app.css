@@ -28,6 +28,14 @@
 .crow .rel{min-width:0;white-space:normal;overflow-wrap:anywhere;text-align:right}
 .crow .l2{font-size:14px;line-height:22px;margin:4px 0 2px}
 .crow .l2 .sum{white-space:normal;overflow-wrap:anywhere}
+.check-list{container:check-list / inline-size}
+.crow .check-row-compact{display:none}
+@container check-list (max-width:400px){
+  .crow .check-row-wide{display:none}
+  .crow .check-row-meta{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;overflow-wrap:anywhere}
+  .crow .check-row-compact{display:inline-block}
+  .crow .t{min-width:0;white-space:normal;overflow-wrap:anywhere}
+}
 .crow:not(.sel):hover,.irow:not(.sel):hover{background:var(--bg)}
 
 .detail{padding:clamp(20px,2vw,36px) clamp(20px,2.5vw,48px) 56px}
@@ -86,8 +94,6 @@ details.stp>.sbody{padding-left:22px}
   .gnb{height:auto;min-height:56px;flex-wrap:wrap;padding-block:8px;gap:8px}
   .detail{padding-inline:10px}
   .lhead,.filters,.crow,.irow{padding-inline:14px}
-  .crow .l2{flex-wrap:wrap}
-  .crow .l2 .sum{flex-basis:9rem}
   .stp>summary.hd{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:2px 8px}
   .stp>summary.hd b{min-width:0}
   .stp>summary.hd .sum{grid-column:2/-1;grid-row:2}

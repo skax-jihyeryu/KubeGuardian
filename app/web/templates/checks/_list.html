@@ -1,5 +1,5 @@
 {% from "_period_picker.html" import period_picker %}
-<section class="list{% if d is defined %} with-detail{% endif %}" aria-label="점검 목록">
+<section class="list check-list{% if d is defined %} with-detail{% endif %}" aria-label="점검 목록">
   <div class="lhead"><h1>점검 이력</h1><p class="sub">점검 시점의 판정과 근거를 확인합니다</p></div>
   <form class="filters" method="get" action="/{{ p }}/checks">
     <div class="frow">
