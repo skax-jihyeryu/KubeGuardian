@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from api.router import api_router
 from core.config import get_setting
 from core.error.error_handler import set_error_handlers
-from core.log.logging import get_logging
+from core.log.logging import get_logging, quiet_access_log
 from web.rendering import STATIC_DIR
 from web.routes import chat_pages, checks, issues, pages, setup
 
@@ -16,6 +16,7 @@ logger = get_logging()
 
 
 def create_app() -> FastAPI:
+    quiet_access_log()  # 상태 확인 요청이 30분에 수백 줄 쌓인다
     app = FastAPI(title=settings.APP_NAME)
     app.include_router(api_router)
     app.include_router(pages.router)  # 보고서 화면 (HTML, /api/v1 아래가 아님)

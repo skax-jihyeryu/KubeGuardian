@@ -25,6 +25,25 @@ class KgFormatter(logging.Formatter):
         return super().format(record)
 
 
+class AccessLogFilter(logging.Filter):
+    """uvicorn 접속 로그에서 상태 확인·정적 파일 요청 줄을 뺀다. 화면 요청은 남긴다."""
+
+    QUIET_PREFIXES = ("/healthz", "/readyz", "/static/")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # uvicorn.access의 args: (클라이언트 주소, 메서드, 경로, HTTP 버전, 상태 코드)
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            return not args[2].startswith(self.QUIET_PREFIXES)
+        return True
+
+
+def quiet_access_log() -> None:
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, AccessLogFilter) for f in access.filters):
+        access.addFilter(AccessLogFilter())
+
+
 @lru_cache
 def get_logging() -> logging.Logger:
     handler = logging.StreamHandler()

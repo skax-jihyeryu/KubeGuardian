@@ -1,7 +1,9 @@
 import logging
 from datetime import UTC, datetime
 
-from core.log.logging import get_logging
+import pytest
+
+from core.log.logging import AccessLogFilter, get_logging
 
 
 def test_http_client_loggers_are_quiet():
@@ -49,3 +51,28 @@ def test_role_falls_back_to_app_name(monkeypatch):
 def test_third_party_logger_gets_same_role(monkeypatch):
     line = _formatter(monkeypatch, "listener").format(_record(name="slack_sdk.socket_mode"))
     assert "INFO [listener] 메시지" in line
+
+
+def _access(path):
+    # uvicorn.access 줄 형식: '%s - "%s %s HTTP/%s" %d'
+    args = ("10.0.0.1:5000", "GET", path, "1.1", 200)
+    return logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1, "%s", args, None)
+
+
+@pytest.mark.parametrize("path", ["/healthz", "/readyz", "/static/app.css"])
+def test_access_filter_drops_probe_and_static_requests(path):
+    assert AccessLogFilter().filter(_access(path)) is False
+
+
+@pytest.mark.parametrize("path", ["/llm-gateway/checks", "/", "/api/v1/checks"])
+def test_access_filter_keeps_screen_requests(path):
+    assert AccessLogFilter().filter(_access(path)) is True
+
+
+def test_create_app_installs_access_filter_once():
+    from main import create_app
+
+    create_app()
+    create_app()
+    filters = logging.getLogger("uvicorn.access").filters
+    assert sum(isinstance(f, AccessLogFilter) for f in filters) == 1
