@@ -216,6 +216,7 @@ def test_exception_on_one_target_does_not_block_the_next(engine, monkeypatch, ca
     assert run_once(engine, FakeLlm()) == "done"
     assert EvidenceSummaryStore(engine).get(good, NOW).status == "done"
     assert "OSError" in caplog.text and "hunter2" not in caplog.text
+    assert [r.levelname for r in caplog.records if "OSError" in r.getMessage()] == ["WARNING"]
 
 
 def test_summary_thread_is_daemon_and_generates(engine):
@@ -241,6 +242,7 @@ def test_log_has_status_and_tokens_but_no_content(engine, caplog):
     llm = FakeLlm(text="본문 secret-text", usage={"input_tokens": 120, "output_tokens": 30})
     run_once(engine, llm)
     assert re.search(r"근거 요약: ev-0001 done \d+\.\d초 입력 120 출력 30", caplog.text)
+    assert [r.levelname for r in caplog.records if "근거 요약" in r.getMessage()] == ["INFO"]
     assert "secret-text" not in caplog.text and "hunter2" not in caplog.text
 
 
@@ -248,6 +250,7 @@ def test_log_marks_failure_and_missing_tokens(engine, caplog):
     add_evidence(engine, None, kind="resource", data={})
     run_once(engine, FakeLlm(error=RuntimeError("x")))
     assert re.search(r"ev-0001 failed \d+\.\d초 입력 - 출력 -", caplog.text)
+    assert [r.levelname for r in caplog.records if "근거 요약" in r.getMessage()] == ["WARNING"]
 
 
 def test_next_targets_skips_malformed_row_and_logs_type(engine, caplog):
@@ -263,6 +266,9 @@ def test_next_targets_skips_malformed_row_and_logs_type(engine, caplog):
         )
     assert next_targets(engine, NOW) == [good]
     assert "ValidationError" in caplog.text
+    assert [r.levelname for r in caplog.records if "ValidationError" in r.getMessage()] == [
+        "WARNING"
+    ]
 
 
 class Stop(Exception):

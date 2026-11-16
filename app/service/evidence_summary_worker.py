@@ -1,5 +1,6 @@
 """중요한 근거의 AI 요약을 작업자가 뒤에서 미리 만든다 (#176). 조사 스레드와 분리된다."""
 
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -56,7 +57,7 @@ def next_targets(engine: Engine, now: datetime, limit: int = 20) -> list[str]:
                 item = evidence.get(ev_id)
                 target = item is not None and is_presummary_target(item)
             except Exception as e:  # 한 행이 다른 대상을 막지 않는다
-                _log(f"{ev_id} 건너뜀 {type(e).__name__}")
+                _log(f"{ev_id} 건너뜀 {type(e).__name__}", logging.WARNING)
                 continue
             if target:
                 found.append(ev_id)
@@ -66,8 +67,8 @@ def next_targets(engine: Engine, now: datetime, limit: int = 20) -> list[str]:
     return found
 
 
-def _log(message: str) -> None:
-    logger.info(f"근거 요약: {message}")
+def _log(message: str, level: int = logging.INFO) -> None:
+    logger.log(level, f"근거 요약: {message}")
 
 
 def run_once(
@@ -93,13 +94,14 @@ def run_once(
                 on_usage=usage.append,
             )
         except Exception as e:
-            _log(f"{ev_id} 오류 {type(e).__name__}")
+            _log(f"{ev_id} 오류 {type(e).__name__}", logging.WARNING)
             continue
         meta = usage[0] if usage and usage[0] else {}
         tokens = [meta.get(k) if isinstance(meta.get(k), int) else "-" for k in _USAGE_KEYS]
         _log(
             f"{ev_id} {summary.status} {time.monotonic() - started:.1f}초 "
-            f"입력 {tokens[0]} 출력 {tokens[1]}"
+            f"입력 {tokens[0]} 출력 {tokens[1]}",
+            logging.INFO if summary.status == "done" else logging.WARNING,
         )
         return summary.status
     return None
@@ -126,7 +128,7 @@ def summary_loop(
         try:
             status = run_once(engine, model=model, llm_factory=llm_factory, clock=clock)
         except Exception as e:  # 스레드가 죽으면 이후 요약이 멈춘다
-            _log(f"오류 {type(e).__name__}")
+            _log(f"오류 {type(e).__name__}", logging.WARNING)
             status = None
         if status is None:
             sleep(poll_s)
