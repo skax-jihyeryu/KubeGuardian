@@ -71,9 +71,25 @@ def _cause_gap(report: Report, observations: list[Observation]) -> str | None:
 
 def _unresolved_gap(report: Report) -> str | None:
     """문제가 있는데 지지된 가설이 없으면 그 사유. 미확인(inconclusive) 가설을 항목으로 붙인다."""
-    if not report.issues or any(h.status == "supported" for h in report.hypotheses):
+    if not report.issues:
         return None
+    linked = report.linked_hypothesis
     head = "핵심 가설이 미해결입니다."
+    if linked is not None:
+        checks = [
+            f"  - {unknown.question[:_STATEMENT_MAX]}: {unknown.check[:_REASON_MAX]}"
+            for unknown in linked.unknown
+            if unknown.check and unknown.check.strip()
+        ][:_UNRESOLVED_MAX]
+        if checks:
+            return "\n".join([f"{head} 가설을 구별할 관측을 확인하세요:", *checks])
+        if linked.unknown or (linked.status == "supported" and not linked.refute):
+            return None
+        return f"{head} 연결된 가설을 지지·반박하는 관측을 확인하세요"
+    if any(h.id is not None for h in report.hypotheses):
+        return f"{head} 1순위 원인과 이를 검증할 가설을 연결하세요"
+    if any(h.status == "supported" for h in report.hypotheses):
+        return None
     open_items = [h for h in report.hypotheses if h.status == "inconclusive"][:_UNRESOLVED_MAX]
     if not open_items:
         return f"{head} 근거를 더 모으세요"

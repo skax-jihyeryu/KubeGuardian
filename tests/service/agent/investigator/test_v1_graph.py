@@ -1783,7 +1783,7 @@ def test_recheck_note_tells_how_many_tool_calls_are_left():
 
     assert "이번 재조사에 도구를 8회 새로 쓸 수 있습니다." in note
     assert "이미 쓴 횟수는 다시 세지 않습니다." in note
-    assert "빈틈을 해소할 도구를 먼저 호출하세요." in note
+    assert "가설을 구별하는 새 관측을 먼저 확보하세요." in note
 
 
 def test_recheck_note_count_is_capped_by_the_total_calls_left():
