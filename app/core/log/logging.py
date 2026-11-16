@@ -38,7 +38,15 @@ class AccessLogFilter(logging.Filter):
         return True
 
 
-def quiet_access_log() -> None:
+def format_uvicorn_logs() -> None:
+    """uvicorn 자체 줄(서버 시작·오류·접속)도 같은 형식으로 찍고, 접속 줄에서 상태 확인 요청을 뺀다.
+
+    uvicorn 로거는 자기 핸들러를 쓰고 root로 전파하지 않는다. uvicorn은 로깅 설정을
+    앱 import보다 먼저 하므로, 앱 시작 시점에 그 핸들러의 formatter를 바꾸면 유지된다.
+    """
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        for handler in logging.getLogger(name).handlers:
+            handler.setFormatter(KgFormatter())
     access = logging.getLogger("uvicorn.access")
     if not any(isinstance(f, AccessLogFilter) for f in access.filters):
         access.addFilter(AccessLogFilter())
