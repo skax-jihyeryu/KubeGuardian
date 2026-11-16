@@ -63,9 +63,9 @@ def test_third_party_logger_gets_same_role(monkeypatch):
     assert "INFO [listener] 메시지" in line
 
 
-def _access(path):
+def _access(path, method="GET"):
     # uvicorn.access 줄 형식: '%s - "%s %s HTTP/%s" %d'
-    args = ("10.0.0.1:5000", "GET", path, "1.1", 200)
+    args = ("10.0.0.1:5000", method, path, "1.1", 200)
     return logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1, "%s", args, None)
 
 
@@ -148,3 +148,28 @@ def test_uvicorn_server_and_error_lines_use_kg_format(uvicorn_logging):
         "INFO [web] Started server process [1]",
         "ERROR [web] Exception in ASGI application",
     ]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/llm-gateway/checks/209/steps?live=1&check_state=running",
+        "/llm-gateway/shell",
+        "/llm-gateway/checks/209/evidence/3/summary",
+    ],
+)
+def test_access_filter_drops_auto_refresh_polling(path):
+    assert AccessLogFilter().filter(_access(path)) is False
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/llm-gateway/checks/209", "/llm-gateway/checks/209/steps", "/llm-gateway/checks?live=0"],
+)
+def test_access_filter_keeps_human_opened_screens(path):
+    assert AccessLogFilter().filter(_access(path)) is True
+
+
+def test_access_filter_keeps_summary_request_started_by_a_person():
+    record = _access("/llm-gateway/checks/209/evidence/3/summary?retry=true", method="POST")
+    assert AccessLogFilter().filter(record) is True
