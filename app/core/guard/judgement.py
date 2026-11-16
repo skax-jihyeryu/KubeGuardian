@@ -5,14 +5,14 @@ LLM이 매긴 확신도(confidence)는 기준이 없고 정답률과 맞는지 �
 
 | 값 | 조건 |
 |---|---|
-| confirmed (확정) | 원인 리소스 설정 인용 + 근거 출처 2종+ + supported 가설 하나의 근거 출처 2종+ |
+| confirmed (확정) | 원인 리소스 설정 인용 + 1순위 가설의 직접 지지 근거 출처 2종 이상 |
 | candidate (후보) | 결론 근거는 있으나 위 조건 중 하나가 빠짐 (지지된 가설 없음 포함) |
 | guess (추정) | 결론에 근거가 없음(검증기 강등), 1순위 문제가 없음, 인용이 조회 실패 기록뿐 |
 
 에이전트 버전과 상관없이 같은 기준이 되도록 조사 실행 공통 경로(run_request)가 저장된 근거로 정한다.
 출처는 근거 종류로 묶는다. 같은 종류를 여러 번 인용해도 1종이고, 조회 실패 기록은 세지 않는다.
 가설의 출처는 가설 하나 안에서만 센다 (여러 가설의 출처를 합치지 않는다).
-한계: 가설과 원인 리소스의 연결이 스키마에 없어 무관한 가설이 supported여도 통과한다.
+지지 관계의 의미는 보고서가 서술한다. 코드는 연결·유효성·출처와 미해결 항목을 검사한다.
 """
 
 from collections.abc import Callable, Iterable
@@ -54,15 +54,36 @@ def judge(report: Report, lookup: EvidenceLookup) -> Report:
     cause_cited = cause is not None and any(
         e.kind == "resource" and e.subject.endswith(f"/{cause.kind}/{cause.name}") for e in usable
     )
-    # 가설 하나 안에서 출처가 2종이어야 한다 (여러 가설의 출처를 합치지 않는다)
-    supported = [h for h in report.hypotheses if h.status == "supported"]
-    best = max((len(_sources(_usable(h.evidence_ids, lookup))) for h in supported), default=0)
-    if not supported:
-        hypothesis_basis = "지지된 가설 없음"
-    elif best < CONFIRM_MIN_SOURCES:
-        hypothesis_basis = f"지지 가설 근거 최대 {best}종"
+    hypothesis = report.linked_hypothesis
+    support_ids = (
+        {
+            link.evidence_id
+            for link in hypothesis.support
+            if link.evidence_id in ids and link.observation.strip()
+        }
+        if hypothesis is not None and hypothesis.status == "supported"
+        else set()
+    )
+    support = _usable(support_ids, lookup)
+    terminal_supported = bool(
+        _usable(support_ids.intersection(report.cause_chain[-1].evidence_ids), lookup)
+    )
+    support_sources = len(_sources(support))
+    cause_supported = cause is not None and any(
+        e.kind == "resource" and e.subject.endswith(f"/{cause.kind}/{cause.name}") for e in support
+    )
+    if hypothesis is None:
+        hypothesis_basis = "1순위 원인과 연결된 가설 없음"
+    elif hypothesis.status != "supported":
+        hypothesis_basis = "연결된 가설의 지지 근거 부족"
+    elif hypothesis.refute or hypothesis.unknown:
+        hypothesis_basis = "연결된 가설에 미해결 반증 또는 미확인 항목 있음"
+    elif not cause_supported:
+        hypothesis_basis = "연결된 가설의 원인 리소스 설정 지지 근거 없음"
+    elif not terminal_supported:
+        hypothesis_basis = "호출 체인 종점과 가설의 공통 지지 근거 없음"
     else:
-        hypothesis_basis = f"지지 가설 근거 {best}종"
+        hypothesis_basis = f"연결된 지지 가설 근거 {support_sources}종"
     basis = " · ".join(
         [
             "원인 리소스 설정 인용" if cause_cited else "원인 리소스 설정 미인용",
@@ -70,7 +91,14 @@ def judge(report: Report, lookup: EvidenceLookup) -> Report:
             hypothesis_basis,
         ]
     )
-    confirmed = cause_cited and len(kinds) >= CONFIRM_MIN_SOURCES and best >= CONFIRM_MIN_SOURCES
+    confirmed = (
+        hypothesis is not None
+        and cause_supported
+        and terminal_supported
+        and support_sources >= CONFIRM_MIN_SOURCES
+        and not hypothesis.refute
+        and not hypothesis.unknown
+    )
     return _with(report, "confirmed" if confirmed else "candidate", basis)
 
 

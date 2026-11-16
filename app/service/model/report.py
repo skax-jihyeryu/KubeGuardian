@@ -50,17 +50,35 @@ class Issue(BaseModel):
     evidence_ids: list[str] = []
     cause_resource: ResourceRef | None = None  # 원인으로 지목한 리소스 (1순위는 필수, 모르면 None)
 
+    hypothesis_id: str | None = None
+
     @computed_field
     @property
     def severity(self) -> Severity:
         return severity_for(self.impact)
 
 
+class HypothesisEvidence(BaseModel):
+    evidence_id: str
+    observation: str  # 해당 근거에서 직접 확인한 사실
+
+
+class UnknownObservation(BaseModel):
+    question: str
+    check: str | None = None  # 도구로 확인할 수 있는 추가 관측
+    reason: str = ""  # 확인하지 못했거나 도구로 확인할 수 없는 이유
+
+
 class Hypothesis(BaseModel):
     statement: str
     status: HypothesisStatus
     reason: str = ""
-    evidence_ids: list[str] = []
+    evidence_ids: list[str] = []  # 기존 소비자용 인용 목록
+    id: str | None = None
+    resource: ResourceRef | None = None
+    support: list[HypothesisEvidence] = Field(default_factory=list)
+    refute: list[HypothesisEvidence] = Field(default_factory=list)
+    unknown: list[UnknownObservation] = Field(default_factory=list)
 
 
 class Fact(BaseModel):
@@ -113,3 +131,13 @@ class Report(BaseModel):
     def top_issue(self) -> Issue | None:
         """1순위 문제 (rank가 가장 작은 것). 출력·이슈 최종 심각도가 같은 기준을 쓴다."""
         return min(self.issues, key=lambda i: i.rank) if self.issues else None
+
+    @property
+    def linked_hypothesis(self) -> Hypothesis | None:
+        top = self.top_issue
+        if top is None or not top.hypothesis_id or top.cause_resource is None:
+            return None
+        matches = [h for h in self.hypotheses if h.id == top.hypothesis_id]
+        if len(matches) != 1 or matches[0].resource != top.cause_resource:
+            return None
+        return matches[0]

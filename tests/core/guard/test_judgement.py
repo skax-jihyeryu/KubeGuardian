@@ -21,13 +21,19 @@ STORE = {
 LOOKUP = STORE.get
 
 
-DEFAULT_HYPOTHESES = [
-    {"statement": "gateway 주소 오류", "status": "supported", "evidence_ids": ["ev-1", "ev-2"]}
-]
+def _hyp(status, evidence_ids, *, hypothesis_id="h1", resource="gateway", **extra):
+    return {
+        "id": hypothesis_id,
+        "resource": {"kind": "Deployment", "name": resource},
+        "statement": "가설",
+        "status": status,
+        "evidence_ids": list(evidence_ids),
+        "support": [{"evidence_id": e, "observation": "직접 관찰"} for e in evidence_ids],
+        **extra,
+    }
 
 
-def _hyp(status, evidence_ids):
-    return {"statement": "가설", "status": status, "evidence_ids": list(evidence_ids)}
+DEFAULT_HYPOTHESES = [_hyp("supported", ["ev-1", "ev-2"])]
 
 
 def _report(
@@ -37,9 +43,11 @@ def _report(
     issues=True,
     cause=("Deployment", "gateway"),
     hypotheses=DEFAULT_HYPOTHESES,
+    hypothesis_id="h1",
 ):
     issue = {
         "rank": 1,
+        "hypothesis_id": hypothesis_id,
         "title": "gateway 주소 설정 오류",
         "impact": "core_path_broken",
         "confidence": "high",
@@ -75,7 +83,7 @@ def test_cited_cause_config_and_two_kinds_is_confirmed():
 
     assert out.judgement == "confirmed"
     assert out.judgement_basis == (
-        "원인 리소스 설정 인용 · 근거 출처 2종(로그, 설정·상태) · 지지 가설 근거 2종"
+        "원인 리소스 설정 인용 · 근거 출처 2종(로그, 설정·상태) · 연결된 지지 가설 근거 2종"
     )
 
 
@@ -84,58 +92,72 @@ def _basis(**kw):
     return out.judgement, out.judgement_basis
 
 
-def test_no_supported_hypothesis_is_candidate():
-    for hyps in ([], [_hyp("refuted", ["ev-1", "ev-2"])], [_hyp("inconclusive", ["ev-1", "ev-2"])]):
-        judgement, basis = _basis(hypotheses=hyps)
-        assert judgement == "candidate" and basis.endswith(" · 지지된 가설 없음")
+def test_missing_or_unsupported_linked_hypothesis_is_candidate():
+    assert _basis(hypotheses=[]) == (
+        "candidate",
+        "원인 리소스 설정 인용 · 근거 출처 2종(로그, 설정·상태) · 1순위 원인과 연결된 가설 없음",
+    )
+    for status in ("refuted", "inconclusive"):
+        judgement, basis = _basis(hypotheses=[_hyp(status, ["ev-1", "ev-2"])])
+        assert judgement == "candidate" and basis.endswith("연결된 가설의 지지 근거 부족")
 
 
 def test_supported_hypothesis_with_one_kind_is_candidate():
     judgement, basis = _basis(hypotheses=[_hyp("supported", ["ev-1"])])
 
-    assert judgement == "candidate" and basis.endswith(" · 지지 가설 근거 최대 1종")
+    assert judgement == "candidate" and basis.endswith("연결된 지지 가설 근거 1종")
 
 
-def test_supported_hypothesis_citing_only_failure_records_is_candidate():
-    judgement, basis = _basis(hypotheses=[_hyp("supported", ["ev-5"])])
+def test_failed_or_missing_support_is_not_counted():
+    for other in ("ev-5", "ev-99"):
+        out = judge(
+            _report(["ev-1", "ev-2", other], hypotheses=[_hyp("supported", ["ev-1", other])]),
+            LOOKUP,
+        )
+        assert out.judgement == "candidate" and out.judgement_basis.endswith("근거 1종")
 
-    assert judgement == "candidate" and basis.endswith(" · 지지 가설 근거 최대 0종")
 
-
-def test_sources_of_different_supported_hypotheses_are_not_merged():
-    judgement, basis = _basis(hypotheses=[_hyp("supported", ["ev-1"]), _hyp("supported", ["ev-2"])])
-
-    assert judgement == "candidate" and basis.endswith("최대 1종")
+def test_unlinked_hypotheses_do_not_supply_support():
+    first = _hyp("supported", ["ev-1"])
+    for evidence in (["ev-2"], ["ev-1", "ev-2"]):
+        other = _hyp("supported", evidence, hypothesis_id="h2")
+        judgement, basis = _basis(hypotheses=[first, other])
+        assert judgement == "candidate" and basis.endswith("근거 1종")
 
 
 def test_same_kind_cited_many_times_in_hypothesis_is_one_kind():
-    judgement, basis = _basis(hypotheses=[_hyp("supported", ["ev-1", "ev-3", "ev-6"])])
-
-    assert judgement == "candidate" and basis.endswith("최대 1종")
-
-
-def test_any_supported_hypothesis_with_two_kinds_is_enough():
     out = judge(
         _report(
-            ["ev-1", "ev-2"],
-            hypotheses=[_hyp("supported", ["ev-1"]), _hyp("supported", ["ev-1", "ev-4"])],
+            ["ev-1", "ev-2", "ev-3", "ev-6"],
+            hypotheses=[_hyp("supported", ["ev-1", "ev-3", "ev-6"])],
         ),
         LOOKUP,
     )
+    assert out.judgement == "candidate" and out.judgement_basis.endswith("근거 1종")
 
-    assert out.judgement == "confirmed" and out.judgement_basis.endswith(" · 지지 가설 근거 2종")
+
+def test_duplicate_id_and_different_cause_do_not_resolve_link():
+    first = _hyp("supported", ["ev-1", "ev-2"])
+    different = _hyp("supported", ["ev-1", "ev-2"], resource="agent")
+    for hypotheses in ([first, different], [different]):
+        judgement, basis = _basis(hypotheses=hypotheses)
+        assert judgement == "candidate" and basis.endswith("연결된 가설 없음")
 
 
-def test_hypothesis_evidence_not_found_by_lookup_is_not_counted():
-    judgement, basis = _basis(hypotheses=[_hyp("supported", ["ev-1", "ev-99"])])
-
-    assert judgement == "candidate" and basis.endswith("최대 1종")
+def test_refutation_or_unknown_blocks_confirmation():
+    for extra in (
+        {"refute": [{"evidence_id": "ev-4", "observation": "같은 요청의 상충 기록"}]},
+        {"unknown": [{"question": "동일 요청의 오류 생성 위치", "reason": "요청 식별자 없음"}]},
+    ):
+        judgement, basis = _basis(hypotheses=[_hyp("supported", ["ev-1", "ev-2"], **extra)])
+        assert judgement == "candidate" and "미해결" in basis
 
 
 def test_uncited_cause_config_stays_candidate_with_two_kind_hypothesis():
     out = judge(_report(["ev-3", "ev-4"]), LOOKUP)
 
-    assert out.judgement == "candidate" and out.judgement_basis.endswith(" · 지지 가설 근거 2종")
+    assert out.judgement == "candidate"
+    assert out.judgement_basis.endswith("원인 리소스 설정 지지 근거 없음")
 
 
 def test_unsupported_conclusion_is_guess_even_with_supported_hypothesis():
@@ -143,7 +165,8 @@ def test_unsupported_conclusion_is_guess_even_with_supported_hypothesis():
 
 
 def test_issue_evidence_counts_toward_sources():
-    assert judge(_report(["ev-1"], issue_ids=["ev-4"]), LOOKUP).judgement == "confirmed"
+    report = _report(["ev-1"], issue_ids=["ev-4"], hypotheses=[_hyp("supported", ["ev-1", "ev-4"])])
+    assert judge(report, LOOKUP).judgement == "confirmed"
 
 
 def test_one_kind_cited_many_times_is_candidate():
@@ -192,3 +215,43 @@ def test_judgement_fields_are_not_in_llm_schema():
     props = Report.model_json_schema()["properties"]
 
     assert "judgement" not in props and "judgement_basis" not in props
+
+
+def test_legacy_report_with_no_explicit_link_is_not_newly_confirmed():
+    legacy = _report(
+        ["ev-1", "ev-2"],
+        hypothesis_id=None,
+        hypotheses=[
+            {"statement": "주소 오류", "status": "supported", "evidence_ids": ["ev-1", "ev-2"]}
+        ],
+    )
+    assert judge(legacy, LOOKUP).judgement == "candidate"
+    saved = legacy.model_copy(update={"judgement": "confirmed"}).model_dump_json(exclude_none=True)
+    assert Report.model_validate_json(saved).judgement == "confirmed"
+
+
+def test_caller_receipt_with_no_same_request_origin_stays_candidate():
+    hypothesis = _hyp(
+        "supported",
+        ["ev-1", "ev-2"],
+        unknown=[
+            {
+                "question": "게이트웨이가 동일 요청의 429를 만들었는가",
+                "reason": "호출자 수신 기록과 서버 200을 잇는 요청 식별자가 없음",
+            }
+        ],
+    )
+    report = _report(["ev-1", "ev-2"], hypotheses=[hypothesis])
+    report.cause_chain[-1].error_from_downstream = True
+    assert judge(report, LOOKUP).judgement == "candidate"
+    assert "오류를 전달" in judge(report, LOOKUP).judgement_basis
+
+
+def test_terminal_hop_must_share_usable_support():
+    report = _report(["ev-1", "ev-2", "ev-4"])
+    report.cause_chain[-1].evidence_ids = ["ev-4"]
+
+    out = judge(report, LOOKUP)
+
+    assert out.judgement == "candidate"
+    assert out.judgement_basis.endswith("공통 지지 근거 없음")

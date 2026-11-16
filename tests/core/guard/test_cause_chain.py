@@ -17,6 +17,7 @@ def report(chain=None):
         "issues": [
             {
                 "rank": 1,
+                "hypothesis_id": "h1",
                 "title": "오류",
                 "impact": "core_path_broken",
                 "confidence": "high",
@@ -25,7 +26,17 @@ def report(chain=None):
             }
         ],
         "hypotheses": [
-            {"statement": "오류", "status": "supported", "evidence_ids": ["ev-1", "ev-2"]}
+            {
+                "id": "h1",
+                "resource": {"kind": "Deployment", "name": "gateway"},
+                "statement": "오류",
+                "status": "supported",
+                "evidence_ids": ["ev-1", "ev-2"],
+                "support": [
+                    {"evidence_id": "ev-1", "observation": "잘못된 환경 변수"},
+                    {"evidence_id": "ev-2", "observation": "해당 주소에서 연결 실패"},
+                ],
+            }
         ],
         "coverage": {
             a: {"status": "not_applicable", "summary": "해당 없음"}

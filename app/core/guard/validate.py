@@ -19,6 +19,7 @@ from collections.abc import Callable
 from pydantic import BaseModel
 
 from service.model import AREAS, ChatAnswer, Report
+from service.model.report import HypothesisEvidence
 
 _ESTIMATE = "(추정) "
 _ESTIMATE_SUFFIX = " (추정)"  # 채팅 답변은 문장 끝에 붙인다
@@ -34,9 +35,23 @@ class ValidationOutcome(BaseModel):
     conclusion_supported: bool
 
 
-def validate_report(report: Report, known: Callable[[str], bool]) -> ValidationOutcome:
+def validate_report(
+    report: Report,
+    known: Callable[[str], bool],
+    *,
+    observed: Callable[[str], bool] | None = None,
+) -> ValidationOutcome:
     def keep(ids: list[str]) -> list[str]:
         return [i for i in ids if known(i)]
+
+    def keep_links(links: list[HypothesisEvidence]) -> list[HypothesisEvidence]:
+        return [
+            link
+            for link in links
+            if known(link.evidence_id)
+            and (observed is None or observed(link.evidence_id))
+            and link.observation.strip()
+        ]
 
     demoted: list[str] = []
     facts = []
@@ -50,10 +65,19 @@ def validate_report(report: Report, known: Callable[[str], bool]) -> ValidationO
     hypotheses = []
     for h in report.hypotheses:
         ids = keep(h.evidence_ids)
-        if not ids and h.status != "inconclusive":
+        support = keep_links(h.support)
+        refute = keep_links(h.refute)
+        ids = list(dict.fromkeys([*ids, *(link.evidence_id for link in (*support, *refute))]))
+        linked = h.id is not None or bool(h.support or h.refute)
+        warrants_status = (
+            bool(support if h.status == "supported" else refute) if linked else bool(ids)
+        )
+        if not warrants_status and h.status != "inconclusive":
             demoted.append(h.statement)
             h = h.model_copy(update={"status": "inconclusive", "statement": _estimate(h.statement)})
-        hypotheses.append(h.model_copy(update={"evidence_ids": ids}))
+        hypotheses.append(
+            h.model_copy(update={"evidence_ids": ids, "support": support, "refute": refute})
+        )
 
     issues = []
     for i in report.issues:

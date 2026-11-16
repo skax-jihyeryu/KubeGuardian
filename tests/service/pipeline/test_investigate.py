@@ -401,6 +401,7 @@ def test_run_investigation_confirms_with_cause_config_and_supported_hypothesis(e
                 "issues": [
                     {
                         "rank": 1,
+                        "hypothesis_id": "h1",
                         "title": "gateway 주소 설정 오류",
                         "impact": "core_path_broken",
                         "confidence": "high",
@@ -410,6 +411,12 @@ def test_run_investigation_confirms_with_cause_config_and_supported_hypothesis(e
                 ],
                 "hypotheses": [
                     {
+                        "id": "h1",
+                        "resource": {"kind": "Deployment", "name": "gateway"},
+                        "support": [
+                            {"evidence_id": config_id, "observation": "잘못된 환경 변수"},
+                            {"evidence_id": event_id, "observation": "해당 주소에서 연결 실패"},
+                        ],
                         "statement": "gateway 주소 오류",
                         "status": "supported",
                         "reason": "설정과 이벤트가 같은 원인을 가리킴",
@@ -444,7 +451,7 @@ def test_run_investigation_confirms_with_cause_config_and_supported_hypothesis(e
     assert result.status == "done", result.error
     assert result.report.judgement == "confirmed"
     assert result.report.judgement_basis == (
-        "원인 리소스 설정 인용 · 근거 출처 2종(설정·상태, 이벤트) · 지지 가설 근거 2종"
+        "원인 리소스 설정 인용 · 근거 출처 2종(설정·상태, 이벤트) · 연결된 지지 가설 근거 2종"
     )
 
 

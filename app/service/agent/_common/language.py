@@ -27,6 +27,8 @@ def cited_ids(report: Report) -> set[str]:
     for group in (report.issues, report.hypotheses, report.cause_chain):
         for item in group:
             ids.update(item.evidence_ids)
+    for hypothesis in report.hypotheses:
+        ids.update(link.evidence_id for link in (*hypothesis.support, *hypothesis.refute))
     return ids
 
 
@@ -42,6 +44,13 @@ def han_fields(report: Report) -> list[str]:
     for i, h in enumerate(report.hypotheses):
         prose[f"hypotheses[{i}].statement"] = h.statement
         prose[f"hypotheses[{i}].reason"] = h.reason
+        for kind in ("support", "refute"):
+            for index, link in enumerate(getattr(h, kind)):
+                prose[f"hypotheses[{i}].{kind}[{index}].observation"] = link.observation
+        for index, item in enumerate(h.unknown):
+            prose[f"hypotheses[{i}].unknown[{index}].question"] = item.question
+            prose[f"hypotheses[{i}].unknown[{index}].check"] = item.check or ""
+            prose[f"hypotheses[{i}].unknown[{index}].reason"] = item.reason
     for i, hop in enumerate(report.cause_chain):
         prose[f"cause_chain[{i}].observation"] = hop.observation
     for i, action in enumerate(report.actions):

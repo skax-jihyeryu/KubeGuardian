@@ -166,3 +166,34 @@ def test_unknown_area_evidence_dropped():
     out = validate_report(report, known)
 
     assert out.report.coverage.wiring.evidence_ids == ["ev-1"]
+
+
+def test_linked_refutation_rejects_failed_and_missing_observation():
+    from service.model.report import Hypothesis, HypothesisEvidence, UnknownObservation
+
+    report = Report(
+        conclusion="호출자 429",
+        confidence="low",
+        impact_scope="채팅",
+        hypotheses=[
+            Hypothesis(
+                id="h1",
+                statement="호출자가 오류를 생성",
+                status="refuted",
+                evidence_ids=["ev-1"],
+                refute=[
+                    HypothesisEvidence(evidence_id="ev-1", observation="로그 조회 실패"),
+                    HypothesisEvidence(evidence_id="ev-2", observation="   "),
+                    HypothesisEvidence(evidence_id="ev-99", observation="없는 근거"),
+                ],
+                unknown=[UnknownObservation(question="동일 요청의 오류 생성 지점")],
+            ),
+        ],
+    )
+    out = validate_report(
+        report, {"ev-1", "ev-2"}.__contains__, observed={"ev-2"}.__contains__
+    ).report.hypotheses[0]
+
+    assert out.status == "inconclusive"
+    assert out.refute == []
+    assert out.unknown == report.hypotheses[0].unknown
