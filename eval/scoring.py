@@ -23,6 +23,7 @@ import fnmatch
 import json
 from typing import Any, Literal, get_args
 
+from judge import ObservableJudgement
 from service.checks.detectors.catalog import CATALOG
 from service.model import GatePath, Signal
 from service.model.report import Impact
@@ -228,3 +229,31 @@ def classify(
     if not cause_match or forbidden_cause:
         return "F3"
     return "F4"
+
+
+def assess_observability(
+    scenario: str,
+    judgement: str | None,
+    conclusion_support: str | None,
+    verdict: ObservableJudgement,
+) -> dict[str, Any]:
+    """기존 pass/F 분류와 독립적인 관측 가능성 채점."""
+    grounded = conclusion_support in ("supported", "partial")
+    accurate = grounded and verdict.finding in ("supported", "compatible")
+    exact = accurate and conclusion_support == "supported" and verdict.exact_origin_supported
+    calibration = "appropriate" if accurate else "insufficient_evidence"
+    if judgement == "confirmed" and (not exact or verdict.unresolved_conflict != "none"):
+        calibration = "overconfirmation"
+    elif verdict.abstained:
+        calibration = (
+            "appropriate_abstention"
+            if accurate and scenario != "A1" and not exact
+            else "unwarranted_abstention"
+        )
+    return {
+        "version": 1,
+        **verdict.model_dump(exclude={"exact_origin_supported"}),
+        "accuracy": accurate,
+        "exact_origin_supported": exact,
+        "calibration": calibration,
+    }
