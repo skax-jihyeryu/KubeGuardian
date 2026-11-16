@@ -173,7 +173,7 @@ REQ = InvestigationRequest(
 )
 
 
-def _run(script: list, budget: Budget | None = None, clock=None):
+def _run(script: list, budget: Budget | None = None, clock=None, steps=None):
     llm = ScriptedLLM(script=script, calls=[])
     tracker = (
         BudgetTracker(budget or Budget(), clock=clock)
@@ -183,6 +183,8 @@ def _run(script: list, budget: Budget | None = None, clock=None):
     ctx = RunContext(
         run_id="r1", namespace="dev", evidence=MemoryEvidence(), budget=tracker, now=lambda: NOW
     )
+    if steps is not None:
+        ctx.steps = steps
     result = InvestigatorV1(llm_factory=lambda model: llm, tools=TOOLS, ctx=ctx).run(REQ)
     return result, llm, ctx
 
@@ -2236,3 +2238,110 @@ def test_han_fields_checks_prose_only():
     ]
     clean["coverage"]["logs"]["summary"] = "日志"
     assert han_fields(Report.model_validate(clean)) == ["issues[0].title", "coverage.logs.summary"]
+
+
+def _step_of(result, node, nth=0):
+    return [s for s in result.steps if s.node == node][nth]
+
+
+def test_knowledge_step_counts_injected_environment_and_runbooks():
+    result, _, _ = _run(
+        [TRIAGE, PLAN, _tool_call(1), AIMessage(content="조사 완료"), _report(["ev-3"])]
+    )
+    detail = _step_of(result, "knowledge").detail
+    assert detail["environment"] == 1
+    assert "partial-failure" in detail["runbooks"] and "_template" not in detail["runbooks"]
+    assert len(detail["runbooks"]) == 6 and detail["chars"] > 1000
+
+
+def test_triage_detail_has_runbook_title_and_plan_detail_has_areas_and_runbook():
+    result, _, _ = _run(
+        [TRIAGE, PLAN, _tool_call(1), AIMessage(content="조사 완료"), _report(["ev-3"])]
+    )
+    assert (
+        _step_of(result, "triage").detail["runbook_title"]
+        == "하위 서비스 호출 실패 (502·503·연결 거부)"
+    )
+    plan = _step_of(result, "plan").detail
+    assert plan["areas"] == ["config"] and plan["runbook"] == "service-unreachable"
+
+
+def test_preliminary_detail_lists_facts_with_evidence_ids():
+    result, _, _ = _run(
+        [TRIAGE, PLAN, _tool_call(1), AIMessage(content="조사 완료"), _report(["ev-3"])]
+    )
+    facts = _step_of(result, "preliminary").detail["facts"]
+    assert facts == [
+        {"statement": "get_topology: get_topology 결과", "evidence_ids": ["ev-1"]},
+        {"statement": "get_events: get_events 결과", "evidence_ids": ["ev-2"]},
+    ]
+
+
+def test_validate_detail_counts_cited_confirmed_and_removed():
+    result, _, _ = _run(
+        [TRIAGE, PLAN, _tool_call(1), AIMessage(content="조사 완료"), _report(["ev-3", "ev-99"])]
+    )
+    detail = _step_of(result, "validate").detail
+    assert (detail["cited"], detail["confirmed"], detail["removed"]) == (2, 1, 1)
+    assert detail["conclusion_supported"] is True
+
+
+def test_stop_check_detail_says_whether_it_already_rechecked():
+    deployment = _tool_call(1, args={"kind": "Deployment", "name": "gateway"})
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_cause()),
+        deployment,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_cause()),
+    ]
+    result, _, _ = _run(script)
+    assert _step_of(result, "stop_check", 0).detail["rechecked"] is False
+    assert _step_of(result, "stop_check", 1).detail["rechecked"] is True
+    assert _step_of(result, "tools").detail["recheck"] is True
+    assert _step_of(result, "write_report", 0).detail == {"attempt": 1}
+
+
+def test_tool_call_before_recheck_is_not_marked():
+    result, _, _ = _run(
+        [TRIAGE, PLAN, _tool_call(1), AIMessage(content="조사 완료"), _report(["ev-3"])]
+    )
+    assert not _step_of(result, "tools").detail.get("recheck")
+
+
+def test_flow_log_shows_reasoning_lines_for_a_full_run(caplog):
+    import logging
+
+    from service.pipeline.flow_log import FlowLogSteps
+
+    caplog.set_level(logging.INFO, logger="kubeguardian")
+    deployment = _tool_call(1, args={"kind": "Deployment", "name": "gateway"})
+    script = [
+        TRIAGE,
+        PLAN,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_cause()),
+        deployment,
+        AIMessage(content="조사 완료"),
+        _report(["ev-1"], **_cause()),
+    ]
+    _run(script, steps=FlowLogSteps("#7"))
+    lines = [r.getMessage() for r in caplog.records if r.name == "kubeguardian"]
+    print("\n".join(lines))
+    text = "\n".join(lines)
+    for expected in (
+        "[조사 #7] 지식 주입: 환경 설명 1건 · 조사 지침 6종(",
+        "[조사 #7] 사전 확인: 근거 2건",
+        "[조사 #7]   - get_topology: get_topology 결과 [ev-1]",
+        "조사 지침: service-unreachable(하위 서비스 호출 실패 (502·503·연결 거부))",
+        "[조사 #7] 계획: 가설 1개 · 지침 service-unreachable",
+        "[조사 #7]   - 가설 1 (설정): gateway 주소 env가 localhost",
+        "[조사 #7] 보고서 작성(시도 1)",
+        "[조사 #7] 근거 검증: 보고서 인용 ",
+        "[조사 #7] 재조사: 빈틈 ",
+        "[조사 #7] (재조사) 도구 get_resource Deployment/gateway",
+        "[조사 #7] 빈틈 검사: ",
+    ):
+        assert expected in text, expected

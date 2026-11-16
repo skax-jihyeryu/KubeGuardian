@@ -22,6 +22,20 @@ def load_knowledge(knowledge_dir: Path) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+def runbook_names(knowledge_dir: Path) -> list[str]:
+    """`load_knowledge`가 주입하는 조사 지침 이름 (템플릿 제외)."""
+    return [p.stem for p in sorted((knowledge_dir / "runbooks").glob("*.md")) if p.name[0] != "_"]
+
+
+def runbook_title(knowledge_dir: Path, name: str) -> str:
+    """조사 지침 파일 첫 줄 `# 제목`. 없는 지침이면 빈 문자열."""
+    path = knowledge_dir / "runbooks" / f"{name}.md"
+    if not name or not path.is_file():
+        return ""
+    first = path.read_text(encoding="utf-8").lstrip().split("\n", 1)[0]
+    return first.lstrip("#").strip()
+
+
 def render_board(board: SignalBoard) -> str:
     """서비스별로 적발·관찰 중·확인하지 못함 신호만. 통과는 뺀다."""
     lines = []
