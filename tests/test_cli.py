@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from types import SimpleNamespace
 
@@ -632,7 +633,7 @@ def test_cli_ask_rejects_bad_conversation_id(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("trigger", ["schedule", "check"])
-def test_worker_once_investigates_incident_queued_by_check(tmp_path, capsys, trigger):
+def test_worker_once_investigates_incident_queued_by_check(tmp_path, capsys, caplog, trigger):
     from core.db import IncidentStore, create_db_engine
 
     argv = ["check", "--config", _scenario_config(tmp_path), "--db", str(tmp_path / "kg.db")]
@@ -642,6 +643,7 @@ def test_worker_once_investigates_incident_queued_by_check(tmp_path, capsys, tri
         make_http=lambda cfg: FakeHttp(CHAT_DOWN),
     )
     capsys.readouterr()
+    caplog.set_level(logging.INFO)
 
     code = cli.main(
         ["worker", "--once", "--config", _config(tmp_path), "--db", str(tmp_path / "kg.db")],
@@ -650,7 +652,9 @@ def test_worker_once_investigates_incident_queued_by_check(tmp_path, capsys, tri
         make_llm=_llm_factory(_scripted()),
     )
 
-    assert code == 0 and "이슈 #1 조사 끝" in capsys.readouterr().out
+    assert code == 0
+    assert "작업자 시작:" in caplog.text and "이슈 #1 조사 끝" in caplog.text
+    assert "작업자 시작" not in capsys.readouterr().out  # 흐름 줄은 로거로 간다
     assert IncidentStore(create_db_engine(str(tmp_path / "kg.db"))).get(1).investigation == "done"
 
 
@@ -724,18 +728,20 @@ def _slack_listen(tmp_path, monkeypatch, token, listen, wait=lambda: None):
         get_setting.cache_clear()
 
 
-def test_slack_listen_without_app_token_logs_once_and_waits(tmp_path, monkeypatch, capsys):
+def test_slack_listen_without_app_token_logs_once_and_waits(tmp_path, monkeypatch, caplog):
     calls = []
+    caplog.set_level(logging.INFO)
 
     code = _slack_listen(
         tmp_path, monkeypatch, "", lambda *a, **k: calls.append(a), lambda: calls.append("wait")
     )
 
     assert code == 0 and calls == ["wait"]  # 연결하지 않고 대기만 한다 (재시작 반복 금지)
-    assert "SLACK_APP_TOKEN" in capsys.readouterr().out
+    assert "SLACK_APP_TOKEN" in caplog.text
 
 
-def test_slack_listen_connects_with_app_token_and_handles_clicks(tmp_path, monkeypatch):
+def test_slack_listen_connects_with_app_token_and_handles_clicks(tmp_path, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
     from core.db import AlertStore, IncidentStore, create_db_engine
 
     engine = create_db_engine(str(tmp_path / "kg.db"))
@@ -757,6 +763,7 @@ def test_slack_listen_connects_with_app_token_and_handles_clicks(tmp_path, monke
     assert _slack_listen(tmp_path, monkeypatch, "xapp-test", listen) == 0
 
     assert seen["token"] == "xapp-test"
+    assert "확인 버튼 수신 시작 (Socket Mode)" in caplog.text
     assert [a.kind for a in AlertStore(engine).for_incident(iid)] == ["ACK"]
 
 

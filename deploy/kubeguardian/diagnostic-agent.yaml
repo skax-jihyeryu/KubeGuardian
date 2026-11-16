@@ -34,6 +34,7 @@ spec:
           envFrom:  # LLM 키와 SLACK_BOT_TOKEN(선택). 토큰이 없으면 알림은 dry-run
             - secretRef: { name: kubeguardian-env }
           env:
+            - { name: KG_ROLE, value: worker }
             - { name: KG_CONFIG_PATH, value: /etc/kubeguardian/config/kubeguardian.yaml }
             - { name: KG_ACCOUNTS_DIR, value: /etc/kubeguardian/accounts }
             - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://phoenix.kubeguardian.svc:6006/v1/traces" }
@@ -62,6 +63,7 @@ spec:
           envFrom:
             - secretRef: { name: kubeguardian-env }
           env:
+            - { name: KG_ROLE, value: web }
             - { name: KG_CONFIG_PATH, value: /etc/kubeguardian/config/kubeguardian.yaml }
             - { name: KG_ACCOUNTS_DIR, value: /etc/kubeguardian/accounts }
             - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://phoenix.kubeguardian.svc:6006/v1/traces" }
@@ -91,6 +93,7 @@ spec:
           envFrom:  # SLACK_BOT_TOKEN, SLACK_APP_TOKEN(선택)
             - secretRef: { name: kubeguardian-env }
           env:
+            - { name: KG_ROLE, value: listener }
             - { name: KG_CONFIG_PATH, value: /etc/kubeguardian/config/kubeguardian.yaml }
             - { name: KG_ACCOUNTS_DIR, value: /etc/kubeguardian/accounts }
             - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://phoenix.kubeguardian.svc:6006/v1/traces" }

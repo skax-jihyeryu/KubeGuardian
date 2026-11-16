@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "kubeguardian"
     APP_PORT: int = 8000
+    # 로그 줄의 역할(worker·web·listener·check). 비면 APP_NAME. 매니페스트가 컨테이너마다 정한다
+    KG_ROLE: str = ""
 
     # 진단 에이전트용 LLM. 제공사 분기는 core/llm.py, 모델 이름은 에이전트 버전 config가 정한다
     LLM_PROVIDER: str = "azure_openai"

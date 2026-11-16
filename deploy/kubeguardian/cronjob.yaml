@@ -49,6 +49,7 @@ spec:
               envFrom:  # SLACK_BOT_TOKEN도 여기로 온다. 없으면 알림은 dry-run (#27)
                 - secretRef: { name: kubeguardian-env }
               env:
+                - { name: KG_ROLE, value: check }
                 - { name: KG_CONFIG_PATH, value: /etc/kubeguardian/config/kubeguardian.yaml }
                 - { name: KG_ACCOUNTS_DIR, value: /etc/kubeguardian/accounts }
                 - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://phoenix.kubeguardian.svc:6006/v1/traces" }

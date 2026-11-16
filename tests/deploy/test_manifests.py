@@ -84,6 +84,7 @@ def test_env_has_only_paths_and_addresses_and_secrets_come_from_envfrom():
         "KG_ACCOUNTS_DIR",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "SSL_CERT_FILE",
+        "KG_ROLE",
     }
     assert all("valueFrom" not in e for e in c["env"])
     assert c["envFrom"] == [{"secretRef": {"name": "kubeguardian-env"}}]

@@ -9,6 +9,11 @@ def _deployment():
     return _kind(_docs("diagnostic-agent.yaml"), "Deployment")
 
 
+def _shared_env(container):
+    """컨테이너마다 다른 로그 역할(KG_ROLE)을 뺀 env."""
+    return [e for e in container["env"] if e["name"] != "KG_ROLE"]
+
+
 def _containers():
     pod = _deployment()["spec"]["template"]["spec"]
     return {c["name"]: c for c in pod["containers"]}
@@ -38,8 +43,9 @@ def test_same_secrets_env_and_hardening_as_the_cronjob():
     pod = _deployment()["spec"]["template"]["spec"]
     worker, [cron] = _containers()["worker"], _pod()["containers"]
     assert pod["serviceAccountName"] == "kubeguardian"
-    for key in ("envFrom", "env", "securityContext", "volumeMounts"):
+    for key in ("envFrom", "securityContext", "volumeMounts"):
         assert worker[key] == cron[key], key
+    assert _shared_env(worker) == _shared_env(cron)
 
 
 # ── web 컨테이너 (보고서 화면, #23) ──
@@ -58,9 +64,9 @@ def test_web_has_the_same_env_secrets_mounts_and_hardening_as_the_worker():
     web, worker = _containers()["web"], _containers()["worker"]
     for key in ("envFrom", "securityContext", "volumeMounts"):
         assert web[key] == worker[key], key
-    extra = [e for e in web["env"] if e not in worker["env"]]
+    extra = [e for e in _shared_env(web) if e not in _shared_env(worker)]
     assert extra == [{"name": "KG_DB_PATH", "value": "/data/kubeguardian.db"}]
-    assert all(e in web["env"] for e in worker["env"])
+    assert all(e in _shared_env(web) for e in _shared_env(worker))
 
 
 def test_web_is_ready_only_when_healthz_answers():
@@ -80,8 +86,9 @@ def test_listener_runs_slack_listen_on_the_same_db():
 
 def test_listener_has_the_same_env_secrets_mounts_and_hardening_as_the_worker():
     listener, worker = _containers()["listener"], _containers()["worker"]
-    for key in ("envFrom", "env", "securityContext", "volumeMounts"):
+    for key in ("envFrom", "securityContext", "volumeMounts"):
         assert listener[key] == worker[key], key
+    assert _shared_env(listener) == _shared_env(worker)
 
 
 def test_listener_is_small():
@@ -111,3 +118,18 @@ def test_make_kg_web_port_forwards_the_service():
     assert "service/diagnostic-agent" in line and "8080:8080" in line and "-n $(KG_NS)" in line
     phony = next(ln for ln in text.splitlines() if ln.startswith(".PHONY"))
     assert "kg-web" in phony.split()
+
+
+def _env(container):
+    return {e["name"]: e.get("value") for e in container["env"]}
+
+
+def test_each_container_sets_its_log_role():
+    roles = {name: _env(c)["KG_ROLE"] for name, c in _containers().items()}
+    assert roles == {"worker": "worker", "web": "web", "listener": "listener"}
+
+
+def test_check_job_sets_log_role_check():
+    from tests.deploy.test_manifests import _pod
+
+    assert _env(_pod()["containers"][0])["KG_ROLE"] == "check"

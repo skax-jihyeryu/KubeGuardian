@@ -122,13 +122,20 @@ OpenAPI·관리자 권한은 필요하지 않으며, 계정과 토큰은 LLM·�
 ## 운영 로그
 
 시연·운영에서 흐름은 로그로 본다. 비밀값은 마스킹하고 긴 문장은 자른다.
+로그 줄은 `한국 시각 수준 [역할] 메시지` 형식이다. uvicorn(web)의 서버 시작·오류·접속 줄도 같다.
+역할은 컨테이너의 `KG_ROLE`(worker·web·listener·check)이다. 점검 CLI의 결과 표(`점검 #N …`, `게이트: …`)는
+화면 출력이라 이 형식이 아니다. web은 `/healthz`·`/readyz`·`/static/` 접속 줄을 남기지 않는다.
+grep 없이 한 번에 흐름을 따라가려면 세 컨테이너를 같이 본다.
 
 ```bash
-kubectl -n kubeguardian logs -f deploy/diagnostic-agent -c worker   # 조사 흐름
-kubectl -n kubeguardian logs job/<kg-check-...>                      # 점검 결과
+kubectl -n kubeguardian logs -f deploy/diagnostic-agent --all-containers   # worker·web·listener 전체
+kubectl -n kubeguardian logs -f deploy/diagnostic-agent -c worker          # 조사 흐름만
+kubectl -n kubeguardian logs job/<kg-check-...>                             # 점검 결과
 ```
 
-작업자 로그 (조사 번호는 조사 기록의 번호):
+작업자 로그 (조사 번호는 조사 기록의 번호). 아래 줄마다 `2026-11-16 18:35:58 INFO [worker] `가 앞에 붙는다
+(예: `2026-11-16 18:35:58 INFO [worker] [작업] 조사 대기 집음: 이슈 #5 (점검 #41)`,
+접속 줄 예: `2026-11-16 18:35:58 INFO [web] 127.0.0.1:44246 - "GET /llm-gateway/checks HTTP/1.1" 200`):
 
 ```text
 [작업] 조사 대기 집음: 이슈 #5 (점검 #41)

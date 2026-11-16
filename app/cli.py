@@ -35,6 +35,7 @@ from core.error.service_exception import ErrorCode, ServiceException
 from core.guard.redact import redact_text
 from core.http import NamespacedHttp
 from core.llm import build_chat_model
+from core.log.logging import get_logging
 from service.agent.base import AgentResult
 from service.chat import answer_question, format_answer
 from service.checks.detectors.catalog import CATALOG
@@ -47,6 +48,8 @@ from service.pipeline.check import CheckOutcome, clean_symptom, run_check
 from service.pipeline.investigate import queue_investigations, run_investigation
 from service.pipeline.worker import STALE_CLAIM, Worker, complete_job
 from service.sensors.collector import KubeReader
+
+logger = get_logging()
 
 DEFAULT_DB = "kubeguardian.db"
 WORKER_POLL_S = 5  # 조사 대기를 보는 간격. 원인 파악 7분(기획서 §9.2)에 비해 작다
@@ -230,7 +233,7 @@ def worker(
         make_k8s=lambda: make_reader(config),
         make_http=lambda: make_http(config),
     )
-    print(f"작업자 시작: {args.db} (알림 {'dry-run' if notifier.dry_run else 'Slack'})", flush=True)
+    logger.info(f"작업자 시작: {args.db} (알림 {'dry-run' if notifier.dry_run else 'Slack'})")
     if not args.once:  # 근거 요약은 조사와 분리된 스레드가 미리 만든다 (#176)
         start_summary_thread(
             engine, partial(build_chat_model, timeout=30, max_retries=0), poll_s=WORKER_POLL_S
@@ -239,10 +242,10 @@ def worker(
         try:
             done = work.run_once()
         except SQLAlchemyError as e:  # DB가 잠깐 잠겨도 작업자는 계속 돈다
-            print(f"저장소 오류: {type(e).__name__}", file=sys.stderr, flush=True)
+            logger.error(f"저장소 오류: {type(e).__name__}")
             done = None
         if done is not None:
-            print(f"이슈 #{done} 조사 끝", flush=True)
+            logger.info(f"이슈 #{done} 조사 끝")
         if args.once:
             return 0
         if done is None:
@@ -259,12 +262,12 @@ def slack_listen(
     config = _load_config(args.config)
     token = get_setting().SLACK_APP_TOKEN
     if not token:
-        print("확인 버튼 수신 안 함: SLACK_APP_TOKEN이 비어 있습니다 (대기)", flush=True)
+        logger.info("확인 버튼 수신 안 함: SLACK_APP_TOKEN이 비어 있습니다 (대기)")
         wait()
         return 0
     engine = _open_db(args.db)
     sender = make_sender(config)
-    print("확인 버튼 수신 시작 (Socket Mode)", flush=True)
+    logger.info("확인 버튼 수신 시작 (Socket Mode)")
 
     def handle(payload: dict[str, Any]) -> bool:
         return ack_listener.handle_ack(
