@@ -25,7 +25,8 @@ metadata:
 spec:
   schedule: "0 * * * *"
   concurrencyPolicy: Forbid
-  startingDeadlineSeconds: 120
+  # 1시간 주기: 절전·토큰 재시도로 늦어도 30분 안이면 실행한다 (#276)
+  startingDeadlineSeconds: 1800
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
