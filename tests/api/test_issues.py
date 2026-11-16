@@ -95,7 +95,7 @@ def test_queued_issue_polls_then_stale_running_stops(client, engine, clock):
     assert 'hx-trigger="every 3s"' in response.text
     inv = start_investigation(engine, run, inc, [])
     response = client.get(f"/dev/issues/{inc}?report={inv}")
-    assert f'hx-get="http://testserver/dev/issues/{inc}?report={inv}"' in response.text
+    assert f'hx-get="http://testserver/dev/issues/{inc}?report={inv}&amp;live=1"' in response.text
     clock.now = at(700)
     response = client.get(f"/dev/issues/{inc}")
     assert "조사가 중단되었습니다" in response.text

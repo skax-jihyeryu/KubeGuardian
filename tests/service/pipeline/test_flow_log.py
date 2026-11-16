@@ -103,8 +103,7 @@ def test_knowledge_step_logs_injected_knowledge(caplog):
         )
     )
     assert _lines(caplog) == [
-        "[조사 #12] 지식 주입: 환경 설명 1건 · 조사 지침 2종(auth-failure, partial-failure) "
-        "· 약 12,345자 (전체 주입)"
+        "[조사 #12] 지식 주입: 환경 설명 1건 · 조사 지침 2종 · 약 12,345자 (전체 주입)"
     ]
 
 
@@ -190,7 +189,8 @@ def test_validate_logs_counts_and_demoted_items(caplog):
         )
     )
     assert _lines(caplog) == [
-        "[조사 #12] 근거 검증: 보고서 인용 5건 중 4건 확인 · 제거 1건 · 강등 1건 · 결론 근거 있음",
+        "[조사 #12] 근거 번호 대조: 인용 5건 중 4건 일치 · 없는 번호 제거 1건 · 강등 1건 "
+        "· 결론 근거 있음",
         "[조사 #12]   - 강등: 가설 A",
     ]
 
@@ -214,7 +214,8 @@ def test_validate_says_when_conclusion_has_no_evidence(caplog):
         )
     )
     assert _lines(caplog) == [
-        "[조사 #12] 근거 검증: 보고서 인용 0건 중 0건 확인 · 제거 0건 · 강등 0건 · 결론 근거 없음"
+        "[조사 #12] 근거 번호 대조: 인용 0건 중 0건 일치 · 없는 번호 제거 0건 · 강등 0건 "
+        "· 결론 근거 없음"
     ]
 
 
@@ -243,6 +244,96 @@ def test_write_report_logs_attempt_and_reason_for_rewrite(caplog):
         "[조사 #12] 보고서 작성(시도 1)",
         "[조사 #12] 보고서 작성(시도 2) — 결론에 근거 번호가 없어 다시 씀",
     ]
+
+
+def test_long_triage_line_is_clipped(caplog):
+    FlowLogSteps("#12").record(
+        _step(
+            "triage",
+            detail={"issues": ["가" * 300], "runbook": "r", "runbook_title": "나" * 300},
+        )
+    )
+    [line] = _lines(caplog)
+    assert len(line) < 160 and line.endswith("…)")
+
+
+def test_recheck_report_and_validate_lines_are_marked(caplog):
+    sink = FlowLogSteps("#12")
+    sink.record(_step("write_report", detail={"attempt": 1, "recheck": True}))
+    sink.record(
+        _step(
+            "validate",
+            detail={
+                "cited": 1,
+                "confirmed": 1,
+                "removed": 0,
+                "demoted": [],
+                "conclusion_supported": True,
+                "recheck": True,
+            },
+        )
+    )
+    assert _lines(caplog) == [
+        "[조사 #12] 재조사 후 보고서 작성(시도 1)",
+        "[조사 #12] 재조사 후 근거 번호 대조: 인용 1건 중 1건 일치 · 없는 번호 제거 0건 "
+        "· 강등 0건 · 결론 근거 있음",
+    ]
+
+
+def test_demoted_labels_are_readable_and_fact_demotions_are_hidden(caplog):
+    FlowLogSteps("#12").record(
+        _step(
+            "validate",
+            detail={
+                "cited": 4,
+                "confirmed": 1,
+                "removed": 3,
+                "demoted": ["coverage.logs", "cause_chain.0", "가설 A"],
+                "conclusion_supported": True,
+            },
+        )
+    )
+    assert _lines(caplog)[1:] == [
+        "[조사 #12]   - 강등: 확인 범위(로그)",
+        "[조사 #12]   - 강등: 호출 체인 1번째 지점",
+        "[조사 #12]   - 강등: 가설 A",
+    ]
+
+
+def test_multiline_fact_logs_rows_without_header_and_caps_rows(caplog):
+    rows = [f"{n}. a → b: 오류 {n}줄" for n in range(1, 10)]
+    statement = "\n".join(["호출 구간 근거표 (관찰 사실, 원인 판단 아님):", *rows])
+    FlowLogSteps("#12").record(
+        _step(
+            "preliminary",
+            evidence_ids=["ev-1"],
+            detail={"facts": [{"statement": statement, "evidence_ids": ["ev-1"]}]},
+        )
+    )
+    lines = _lines(caplog)
+    assert lines[0] == "[조사 #12] 사전 확인: 근거 1건"
+    assert lines[1] == "[조사 #12]   - 1. a → b: 오류 1줄"
+    assert lines[6] == "[조사 #12]   - 6. a → b: 오류 6줄"
+    assert lines[7] == "[조사 #12]   - … 외 3행"
+    assert len(lines) == 8
+
+
+def test_stop_check_notes_recheck_without_tool_calls(caplog):
+    FlowLogSteps("#12").record(
+        _step(
+            "stop_check",
+            detail={
+                "gaps": ["g"],
+                "recheck": False,
+                "rechecked": True,
+                "recheck_no_tool_calls": True,
+            },
+        )
+    )
+    assert (
+        _lines(caplog)[0]
+        == "[조사 #12] 빈틈 검사: 1개 남음(재조사 상한) · 재조사 중 도구 호출 없음"
+    )
 
 
 def test_steps_still_reach_inner_sink(tmp_path):

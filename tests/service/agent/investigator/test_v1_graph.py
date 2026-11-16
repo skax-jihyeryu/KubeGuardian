@@ -2301,7 +2301,10 @@ def test_stop_check_detail_says_whether_it_already_rechecked():
     assert _step_of(result, "stop_check", 0).detail["rechecked"] is False
     assert _step_of(result, "stop_check", 1).detail["rechecked"] is True
     assert _step_of(result, "tools").detail["recheck"] is True
-    assert _step_of(result, "write_report", 0).detail == {"attempt": 1}
+    assert _step_of(result, "write_report", 0).detail == {"attempt": 1, "recheck": False}
+    assert _step_of(result, "write_report", 1).detail == {"attempt": 1, "recheck": True}
+    assert _step_of(result, "validate", 0).detail["recheck"] is False
+    assert _step_of(result, "validate", 1).detail["recheck"] is True
 
 
 def test_tool_call_before_recheck_is_not_marked():
@@ -2332,16 +2335,33 @@ def test_flow_log_shows_reasoning_lines_for_a_full_run(caplog):
     print("\n".join(lines))
     text = "\n".join(lines)
     for expected in (
-        "[조사 #7] 지식 주입: 환경 설명 1건 · 조사 지침 6종(",
+        "[조사 #7] 지식 주입: 환경 설명 1건 · 조사 지침 6종 · 약 ",
         "[조사 #7] 사전 확인: 근거 2건",
         "[조사 #7]   - get_topology: get_topology 결과 [ev-1]",
         "조사 지침: service-unreachable(하위 서비스 호출 실패 (502·503·연결 거부))",
         "[조사 #7] 계획: 가설 1개 · 지침 service-unreachable",
         "[조사 #7]   - 가설 1 (설정): gateway 주소 env가 localhost",
         "[조사 #7] 보고서 작성(시도 1)",
-        "[조사 #7] 근거 검증: 보고서 인용 ",
+        "[조사 #7] 근거 번호 대조: 인용 ",
+        "[조사 #7] 재조사 후 보고서 작성(시도 1)",
+        "[조사 #7] 재조사 후 근거 번호 대조: 인용 ",
         "[조사 #7] 재조사: 빈틈 ",
         "[조사 #7] (재조사) 도구 get_resource Deployment/gateway",
         "[조사 #7] 빈틈 검사: ",
     ):
         assert expected in text, expected
+
+
+def test_demoted_preliminary_facts_are_listed_separately_from_demoted():
+    facts = {"statement": "x", "evidence_ids": ["ev-99"]}
+    result, _, _ = _run(
+        [
+            TRIAGE,
+            PLAN,
+            _tool_call(1),
+            AIMessage(content="조사 완료"),
+            _report(["ev-3"], preliminary_facts=[facts]),
+        ]
+    )
+    detail = _step_of(result, "validate").detail
+    assert "x" in detail["demoted"] and detail["demoted_facts"] == ["x"]

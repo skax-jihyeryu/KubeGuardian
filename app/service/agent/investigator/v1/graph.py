@@ -612,7 +612,7 @@ def build_graph(agent: "InvestigatorV1"):
 
     def write_report(state: InvestigationState) -> InvestigationState:
         attempts = state["report_attempts"] + 1
-        with agent.step("write_report", attempt=attempts):
+        with agent.step("write_report", attempt=attempts, recheck=state["rechecked"]):
             issues = state["triage"].issues
             done = state["current_issue"] + 1
             issue = (
@@ -635,6 +635,7 @@ def build_graph(agent: "InvestigatorV1"):
 
     def validate(state: InvestigationState) -> InvestigationState:
         seen = set(state["seen"])
+        fact_texts = {f.statement for f in state["report"].preliminary_facts}
         with agent.step("validate") as s:
             out = validate_report(state["report"], seen.__contains__)
             s.detail = {
@@ -643,6 +644,9 @@ def build_graph(agent: "InvestigatorV1"):
                 "cited": out.cited,
                 "confirmed": out.confirmed,
                 "removed": out.cited - out.confirmed,
+                "recheck": state["rechecked"],
+                # 사전 확인은 뒤에서 코드가 모은 사실로 덮어쓰므로 로그에서 뺀다
+                "demoted_facts": [x for x in out.demoted if x in fact_texts],
             }
         report = out.report.model_copy(update={"conclusion_supported": out.conclusion_supported})
         if not out.conclusion_supported and state["report_attempts"] >= 2:

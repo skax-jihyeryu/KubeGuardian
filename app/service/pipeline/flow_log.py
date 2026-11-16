@@ -18,6 +18,8 @@ logger = get_logging()
 _VERDICT = {"supported": "지지", "refuted": "반증", "inconclusive": "판단 불가"}
 _TITLE_MAX = 40
 _CONCLUSION_MAX = 80
+_FACT_ROWS = 6  # 사실 하나가 여러 줄일 때 싣는 최대 행 수
+_AFTER_RECHECK = "재조사 후 "
 _DETAIL_MAX = 120  # 세부 줄 한 줄의 상한
 _AREA_LABEL = {"run": "구동", "config": "설정", "wiring": "연결", "logs": "로그"}
 
@@ -45,6 +47,27 @@ def _items(items: Any, render) -> list[str]:
     )
 
 
+def _fact_lines(fact: dict[str, Any]) -> list[str]:
+    """사실 하나의 세부 줄. 한 줄이면 근거 번호를 붙이고, 여러 줄(구간 근거표)이면 머리말을 빼고
+    행마다 한 줄씩 `_FACT_ROWS`행까지 싣는다."""
+    rows = [r for r in str(fact["statement"]).splitlines() if r.strip()]
+    if len(rows) <= 1:
+        return [f"  - {_clip(fact['statement'], _DETAIL_MAX)} [{', '.join(fact['evidence_ids'])}]"]
+    rows = rows[1:] if rows[0].rstrip().endswith(":") else rows
+    lines = [f"  - {_clip(r, _DETAIL_MAX)}" for r in rows[:_FACT_ROWS]]
+    return lines + ([f"  - … 외 {len(rows) - _FACT_ROWS}행"] if len(rows) > _FACT_ROWS else [])
+
+
+def _demoted_label(item: str) -> str:
+    """validate가 남기는 `coverage.<영역>`·`cause_chain.<번호>` 표기를 사람이 읽는 말로."""
+    kind, _, key = item.partition(".")
+    if kind == "coverage" and key in _AREA_LABEL:
+        return f"확인 범위({_AREA_LABEL[key]})"
+    if kind == "cause_chain" and key.isdigit():
+        return f"호출 체인 {int(key) + 1}번째 지점"
+    return item
+
+
 def _runbook(d: dict[str, Any]) -> str:
     name = d.get("runbook")
     if not name:
@@ -58,23 +81,16 @@ def describe_step(step: AgentStep) -> list[str]:
     d = step.detail
     match step.node:
         case "knowledge":
-            runbooks = d.get("runbooks", [])
             return [
                 f"지식 주입: 환경 설명 {d.get('environment', 0)}건 · "
-                f"조사 지침 {len(runbooks)}종({', '.join(runbooks)}) · "
-                f"약 {d.get('chars', 0):,}자 (전체 주입)"
+                f"조사 지침 {len(d.get('runbooks', []))}종 · 약 {d.get('chars', 0):,}자 (전체 주입)"
             ]
         case "preliminary":
-            facts = _items(
-                d.get("facts"),
-                lambda _, f: (
-                    f"{_clip(f['statement'], _DETAIL_MAX)} [{', '.join(f['evidence_ids'])}]"
-                ),
-            )
+            facts = [x for f in d.get("facts") or [] for x in _fact_lines(f)]
             return [f"사전 확인: 근거 {len(step.evidence_ids)}건", *facts]
         case "triage":
             issues = d.get("issues", [])
-            return [f"선별: 문제 {len(issues)}개{_titles(issues)}{_runbook(d)}"]
+            return [_clip(f"선별: 문제 {len(issues)}개{_titles(issues)}{_runbook(d)}", _DETAIL_MAX)]
         case "plan":
             hyps = d.get("hypotheses", [])
             guide = f" · 지침 {d['runbook']}" if d.get("runbook") else ""
@@ -92,14 +108,16 @@ def describe_step(step: AgentStep) -> list[str]:
         case "write_report":
             attempt = d.get("attempt", 1)
             why = " — 결론에 근거 번호가 없어 다시 씀" if attempt > 1 else ""
-            return [f"보고서 작성(시도 {attempt}){why}"]
+            return [f"{_AFTER_RECHECK if d.get('recheck') else ''}보고서 작성(시도 {attempt}){why}"]
         case "validate" if "cited" in d:
-            demoted = d.get("demoted", [])
+            hidden = d.get("demoted_facts", [])
+            demoted = [x for x in d.get("demoted", []) if x not in hidden]
             supported = "있음" if d.get("conclusion_supported") else "없음"
+            after = _AFTER_RECHECK if d.get("recheck") else ""
             return [
-                f"근거 검증: 보고서 인용 {d['cited']}건 중 {d['confirmed']}건 확인 · "
-                f"제거 {d['removed']}건 · 강등 {len(demoted)}건 · 결론 근거 {supported}",
-                *_items(demoted, lambda _, t: f"강등: {_clip(t, _DETAIL_MAX)}"),
+                f"{after}근거 번호 대조: 인용 {d['cited']}건 중 {d['confirmed']}건 일치 · "
+                f"없는 번호 제거 {d['removed']}건 · 강등 {len(demoted)}건 · 결론 근거 {supported}",
+                *_items(demoted, lambda _, t: f"강등: {_clip(_demoted_label(t), _DETAIL_MAX)}"),
             ]
         case "stop_check":
             gaps = d.get("gaps", [])
@@ -109,7 +127,8 @@ def describe_step(step: AgentStep) -> list[str]:
             if not gaps:
                 return ["빈틈 검사: 없음"]
             why = "재조사 상한" if d.get("rechecked") else "시간·호출 상한"
-            return [f"빈틈 검사: {len(gaps)}개 남음({why})", *listed]
+            idle = " · 재조사 중 도구 호출 없음" if d.get("recheck_no_tool_calls") else ""
+            return [f"빈틈 검사: {len(gaps)}개 남음({why}){idle}", *listed]
         case "limit" | "limit_time" | "skip_calls":
             return [f"상한 도달 ({d.get('stop_reason')})"]
     return []
