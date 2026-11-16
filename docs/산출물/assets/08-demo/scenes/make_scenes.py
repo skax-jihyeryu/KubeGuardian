@@ -1,4 +1,4 @@
-"""08 시연영상스크립트의 장면 합성 사진(L2·L3·L4)을 만든다.
+"""08 시연영상스크립트의 장면 합성 사진(L2·L3·L4·L5)을 만든다.
 
 실행: python make_scenes.py   (Pillow 필요, 저장소 어디서든 같은 결과)
 - 브라우저 영역은 assets/08-demo의 기존 캡처를 1280x1080 안에 비율 유지로 넣는다.
@@ -141,6 +141,14 @@ def l3(name, left, command, lines):
     compose(name, left, terminal(640, 1080, "② 작업자 로그", command, lines, 16, 10))
 
 
+def l5(name, left_cmd, left_lines, right_cmd, right_lines):
+    """왼쪽 ③' 점검 Job 로그 960 + 오른쪽 ④ 서비스 로그 960, 둘 다 터미널."""
+    img = Image.new("RGB", (1920, 1080), "white")
+    img.paste(terminal(960, 1080, "③' 점검 Job 로그", left_cmd, left_lines, 16, 10), (0, 0))
+    img.paste(terminal(960, 1080, "④ 서비스 로그", right_cmd, right_lines, 16, 10), (960, 0))
+    img.save(HERE / name)
+
+
 def l4(name, command, lines):
     terminal(1920, 1080, "② 작업자 로그", command, lines, 22, 14).save(HERE / name)
 
@@ -181,6 +189,13 @@ R8A = [
     ("03:27:12  이슈 #20 새로 열림 (조사 대기)", True),
     ("03:27:12  [알림] M1 발송 이슈 #20 (Slack)", False),
 ]
+SVC_CMD = "$ kubectl -n dev logs -f deploy/llm-gateway --since=1s | grep --line-buffered -E 'chat/completions|gpt-4.1-next'"
+# 형식 예시: scenarios/C8/README.md "확인 상태" 절의 기록만 근거. 모르는 부분은 ...
+R8A_SVC = [
+    ("(형식 예시 — README 기록 기반, 리허설 후 실측으로 교체)", False),
+    ("POST /api/v1/chat/completions ... 500", True),
+    ("... INSERT ... 'deployment_name': 'gpt-4.1-next' ... 'response_status': 'error' ... 'log_data': '... (N characters truncated) ...'", False),
+]
 R8B = [
     ("03:27:15  [조사 #19] 시작: 이슈 #20 경로 B", True),
     ("03:27:16  [조사 #19] 사전 확인: 근거 8건", False),
@@ -217,7 +232,7 @@ def main():
        ]), GREP_SUM, R5)
     l2("R7-c8-inject.png", "01-normal-checks.png", "③ 명령 터미널",
        "$ bash scenarios/H0/verify_symptom.sh", R7)
-    l2("R8a-c8-check-run.png", "01-normal-checks.png", "③ 명령 터미널", JOB_CMD, R8A)
+    l5("R8a-c8-check-run.png", JOB_CMD, R8A, SVC_CMD, R8A_SVC)
     l3("R8b-c8-investigation-start.png", browser_area("05-c8-check-92-judge.png"), GREP_ALL, R8B)
     l4("R9-c8-investigation-log.png", GREP_ALL, R9)
     l3("R10-c8-slack-update.png",
