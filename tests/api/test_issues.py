@@ -109,7 +109,8 @@ def test_period_filter_and_action_copy(client, engine, clock):
     inv = start_investigation(engine, run, inc, [])
     finish_investigation(engine, inv, report(actions=["kubectl get pods <script>"]))
     response = client.get("/dev/issues?days=1")
-    assert 'aria-label="기간"' in response.text
+    assert 'data-period-quick="1d" aria-pressed="true"' in response.text
+    assert 'class="irow' not in client.get("/dev/issues?period=1d").text
     assert 'class="irow' not in response.text
     assert 'class="irow' in client.get("/dev/issues?days=7").text
     response = client.get(f"/dev/issues/{inc}")
@@ -126,7 +127,7 @@ def test_issue_filters_survive_selection(client, engine):
     assert 'value="open" selected' in response.text
     assert 'value="crit" selected' in response.text
     assert 'value="chat"' in response.text
-    assert 'value="7" selected' in response.text
+    assert 'data-period-quick="7d" aria-pressed="true"' in response.text
 
 
 def test_timeline_reminder_splits_continued_group(client, engine, clock):
@@ -513,12 +514,18 @@ def test_issue_list_ignores_extreme_dates(client, engine):
         assert response.text.count('class="irow') == 1, query
 
 
-def test_issue_list_selects_all_days_when_dates_set(client, engine):
+def test_issue_list_period_picker(client, engine):
     open_incident(engine, make_run(engine))
     html = client.get("/dev/issues?days=7&from=2026-11-02").text
-    assert '<option value="0" selected>' in html and '<option value="7" selected>' not in html
+    assert "<span>2026-11-02 ~ </span>" in html
+    assert 'value="custom" data-period-mode' in html
     assert "days=" not in html.split('class="irow', 1)[1].split('"', 3)[2]
-    assert '<option value="7" selected>' in client.get("/dev/issues?days=7").text
+    preset = 'data-period-quick="7d" aria-pressed="true"'
+    assert preset in client.get("/dev/issues?days=7").text
+    assert preset in client.get("/dev/issues?period=7d").text
+    default = client.get("/dev/issues").text
+    assert default.index("data-period-picker") < default.index('name="status"')
+    assert "<span>전체 기간</span>" in default
 
 
 def test_issue_list_kst_midnight_boundary(client, engine):
