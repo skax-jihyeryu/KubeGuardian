@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "app"))
 sys.path.insert(0, str(ROOT / "eval"))
 
-from judge import ClaimVerdict, support_summary  # noqa: E402
+from judge import OBSERVABILITY_CONTRACTS, ClaimVerdict, support_summary  # noqa: E402
 from scoring import classify  # noqa: E402
 
 HISTORY = ROOT / "eval" / "history"
@@ -213,6 +213,8 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
             s["total"] += 1
             if result.get("invalid") or run.get("invalid") or run.get("failure") == "F0":
                 s["invalid"] += 1
+                # 주장 채점 실패(F0)는 관측 기록이 없어도 관측 표 분모에는 남긴다
+                s["obs_f0"] = s.get("obs_f0", 0) + (run.get("failure") == "F0")
                 continue
             if run.get("failure") == "error":
                 s["errors"] += 1
@@ -297,11 +299,7 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
     return {
         "drift": drift,
         "scenarios": dict(sorted(scen.items())),
-        "observability": {
-            sid: [r["observability"] for r in s["runs"] if r.get("observability")]
-            for sid, s in sorted(scen.items())
-            if any(r.get("observability") for r in s["runs"])
-        },
+        "observability": _observability(scen),
         "by_level": group("level"),
         "by_stage": dict(by_stage),
         "by_path": dict(sorted(by_path.items())),
@@ -355,6 +353,27 @@ def _outcome(run: dict) -> str:
     if run.get("passed"):
         return "skip"
     return "gate_fail" if run.get("fail_reason") else "not_run"
+
+
+def _observability(scen: dict[str, dict]) -> dict[str, dict]:
+    """관측 계약이 있는 시나리오의 기록과 기록 없는 대상 회차 수.
+
+    대상 회차 = 조사가 돈 회차(error·gate_fail 포함) + 주장 채점 실패(F0).
+    기록 없는 회차는 표에서 실패로 셈한다. 기록이 아예 없는 묶음(옛 묶음)은 비운다.
+    """
+    out = {}
+    for sid, s in sorted(scen.items()):
+        if sid not in OBSERVABILITY_CONTRACTS:
+            continue
+        ran = [r for r in s["runs"] if _outcome(r) not in NOT_INVESTIGATED]
+        records = [r["observability"] for r in ran if r.get("observability")]
+        out[sid] = {
+            "records": records,
+            "unrecorded": len(ran) - len(records) + s.get("obs_f0", 0),
+        }
+    if not any(v["records"] for v in out.values()):
+        return {}
+    return out
 
 
 def _passed(run: dict) -> bool:
@@ -440,30 +459,42 @@ def render(summary: dict, baseline: dict | None) -> str:
         out += [
             "## 관측 가능성 평가",
             "",
-            "| 시나리오 | 계약 버전 | 지지·양립 원인 | 정확한 출처 지지 | 관측과 모순 | "
-            "미해결 충돌 인식/전체 | 과도한 확정 | 적절한 보류 | 부적절한 보류 | 채점 오류 |",
-            "|---|---|---|---|---|---|---|---|---|---|",
+            "| 시나리오 | 계약 버전 | 대상 회차 | 기록 없음 | 지지·양립 원인 | "
+            "정확한 출처 지지 | 관측과 모순 | 미해결 충돌 인식/전체 | 과도한 확정 | 적절한 보류 | 부적절한 보류 | 채점 오류 |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|",
         ]
-        for sid, assessments in observability.items():
+        for sid, data in observability.items():
             by_version = defaultdict(list)
-            for assessment in assessments:
+            for assessment in data["records"]:
                 by_version[assessment["version"]].append(assessment)
-            for version, records in sorted(by_version.items()):
+            # 기록 없는 회차는 가장 최근 계약 버전 행에 붙인다. 기록이 하나도 없으면 "-" 행
+            versions = sorted(by_version) or ["-"]
+            for version in versions:
+                records = by_version.get(version, [])
+                missing = data["unrecorded"] if version == versions[-1] else 0
                 valid = [r for r in records if not r.get("error")]
-                n = len(valid)
+                total = len(records) + missing
                 conflicts = _count(r["unresolved_conflict"] for r in valid)
                 calibration = _count(r["calibration"] for r in valid)
                 out.append(
-                    f"| {sid} | {version} | {sum(r['accuracy'] for r in valid)}/{n} | "
-                    f"{sum(r['exact_origin_supported'] for r in valid)}/{n} | "
-                    f"{sum(r['finding'] == 'contradicted' for r in valid)}/{n} | "
+                    f"| {sid} | {version} | {total} | {missing} | "
+                    f"{sum(r['accuracy'] for r in valid)}/{total} | "
+                    f"{sum(r['exact_origin_supported'] for r in valid)}/{total} | "
+                    f"{sum(r['finding'] == 'contradicted' for r in valid)}/{total} | "
                     f"{conflicts.get('recognized', 0)}/"
                     f"{conflicts.get('recognized', 0) + conflicts.get('missed', 0)} | "
                     f"{calibration.get('overconfirmation', 0)} | "
                     f"{calibration.get('appropriate_abstention', 0)} | "
-                    f"{calibration.get('unwarranted_abstention', 0)} | {len(records) - n} |"
+                    f"{calibration.get('unwarranted_abstention', 0)} | "
+                    f"{len(records) - len(valid)} |"
                 )
-        out += ["", "관측 가능성 채점은 기존 cause·judge·통과·실패 분류와 별도로 보고한다.", ""]
+        out += [
+            "",
+            "관측 가능성 채점은 기존 cause·judge·통과·실패 분류와 별도로 보고한다. "
+            "대상 회차는 조사가 돈 회차(error·gate_fail 포함)와 주장 채점 실패(F0)이고, "
+            "기록 없음(채점 오류 포함)은 정확도 분모에 넣어 실패로 센다.",
+            "",
+        ]
     by_stage = summary.get("by_stage") or {}
     if by_stage:
         out += [
