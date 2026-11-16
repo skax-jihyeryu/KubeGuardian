@@ -517,12 +517,15 @@ def run(
         result["injection_started_at"] = injection_wall_time.isoformat()
         injected_at = time.monotonic()
         r = sh(scenario, "inject.sh")
+        result["injection_elapsed_s"] = round(time.monotonic() - injected_at, 3)
         log("inject", (r.stdout + r.stderr).strip())
         if r.returncode != 0:
             result["invalid"] = "inject 실패"
             return exit_code
 
+        symptom_started = time.monotonic()
         ok, out = until_ok(scenario, "verify_symptom.sh", symptom_timeout_s)
+        result["symptom_elapsed_s"] = round(time.monotonic() - symptom_started, 3)
         log("symptom", out)
         if not ok:
             result["invalid"] = "증상이 나지 않음"
@@ -578,6 +581,7 @@ def run(
                 f" 관찰 중 {c['observing']}",
             )
 
+        check_started_at = time.monotonic()
         outcome, checks, first = check_repeatedly(
             check_once,
             expected,
@@ -586,6 +590,7 @@ def run(
             elapsed=lambda: time.monotonic() - injected_at,
             on_check=on_check,
         )
+        result["check_elapsed_s"] = round(time.monotonic() - check_started_at, 3)
         result["first_detected_s"] = {
             r: first.get(r) for r in sorted(expected.get("must_signals") or [])
         }
