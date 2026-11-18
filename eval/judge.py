@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from core.guard.redact import redact_text
 from service.agent._common.structured import invoke_structured
+from service.agent._common.usage import UsageTracker
 
 JUDGE_MODEL = "gpt-4.1"
 
@@ -184,6 +185,7 @@ def judge_observability(
     conclusion: str,
     verdicts: list[ClaimVerdict],
     llm: BaseChatModel,
+    usage: UsageTracker | None = None,
 ) -> ObservableJudgement:
     """기존 근거 채점 요약을 사용한다. 추가 근거 원문이나 주입 정보를 보내지 않는다."""
     summaries = [v.model_dump() for v in verdicts]
@@ -207,4 +209,4 @@ def judge_observability(
 기존 근거 판정 요약:
 {redact_text(json.dumps(summaries, ensure_ascii=False))}
 """
-    return invoke_structured(llm, ObservableJudgement, [("user", prompt)])
+    return invoke_structured(llm, ObservableJudgement, [("user", prompt)], usage=usage)

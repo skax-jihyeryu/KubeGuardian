@@ -204,7 +204,7 @@ def test_observability_keeps_strict_f1_and_isolates_scoring_errors(tmp_path, fai
         "key_evidence": [{"id": "missing", "obtainable": False}],
     }
 
-    def observable_judge(scenario, conclusion, verdicts):
+    def observable_judge(scenario, conclusion, verdicts, usage):
         assert scenario == "C2"
         assert conclusion == _report(ev)["conclusion"]
         assert verdicts[0].verdict == "partial"
@@ -234,3 +234,5 @@ def test_observability_keeps_strict_f1_and_isolates_scoring_errors(tmp_path, fai
         assert ai["observability"]["accuracy"] is True
         assert ai["observability"]["calibration"] == "appropriate_abstention"
         assert ai["observability"]["seconds"] >= 0  # 추가 의미 판정 비용 (조사 usage와 별도)
+        assert (ai["observability"]["input_tokens"], ai["observability"]["output_tokens"]) == (0, 0)
+        assert ai["observability"]["judge_exact_origin"] is False

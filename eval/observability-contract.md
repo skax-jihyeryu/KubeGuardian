@@ -9,7 +9,7 @@
 |---|---|---|---|
 | v0 | ~2026-11-15 | `expected.yaml`의 cause·judge·핵심 근거만으로 채점 | — |
 | v1 | 2026-11-16 (#271) | A1·C1·C2에 관측 판정 추가(`ai_runs[].observability`). 정확도·정확한 출처·미해결 충돌·과도한 확정·적절한/부적절한 보류를 따로 표시 | C1은 HTTPChaos가 앱 처리 뒤 응답을 바꿔 호출자 429와 서버 200이 함께 보인다. v0의 C1 1/3 통과를 원인 식별 성능으로 읽을 수 없었다 |
-| v1 (보강) | 2026-11-18 | 관측 판정 1회당 시간(`seconds`) 기록, 사람 라벨과의 필드별 일치율 표시 | 추가 판정 비용이 조사 usage에 섞이지 않게 하고, judge의 한계를 표본으로 드러내려고 |
+| v1 (보강) | 2026-11-18 | 관측 판정 1회당 시간·토큰(`seconds`·`input_tokens`·`output_tokens`)과 judge 원래 출처 판정(`judge_exact_origin`) 기록, 사람 라벨과의 시나리오별·필드별 일치율 표시 | 추가 판정 비용이 조사 usage에 섞이지 않게 하고, judge의 한계를 표본으로 드러내려고 |
 
 - `expected.yaml`과 정답 문구는 결과에 맞춰 바꾸지 않았다. v1은 판정을 **더하기만** 하고, 기존 F1·F3 분류와 과거 `eval/history/` 결과 파일은 덮어쓰지 않는다.
 - 보고서는 기록의 `version`별로 행을 나눈다. v1 이전 묶음에는 관측 표가 나오지 않는다. 전후 비교는 같은 버전 행끼리만 한다.
@@ -55,20 +55,20 @@ runs:
   - index: 0
     top1_match: false
     claims: []
-    observability:          # 사람이 본 관측 판정. 적은 필드만 비교한다
+    observability:          # 사람이 본 관측 판정. 적은 필드만 비교한다 (top1_match·claims 없이 이것만 적어도 된다)
       finding: compatible   # supported | compatible | contradicted | unsupported
       unresolved_conflict: recognized   # none | recognized | missed
       abstained: true
       exact_origin_supported: false
 ```
 
-`eval/report.py`는 관측 기록이 있는(채점 오류가 아닌) 회차만 필드별 `일치/라벨 수`로 보여 준다. 관측 판정 값은 라벨로 덮어쓰지 않는다. 표본이 작으므로 일치율은 judge가 어디서 틀리는지 보는 용도이고, 관측 표 수치를 보정하지 않는다.
+`eval/report.py`는 관측 기록이 있는(채점 오류가 아닌) 회차만 시나리오별·필드별 `일치/라벨 수`로 보여 준다. `exact_origin_supported`는 기존 채점과 결합한 값이 아니라 judge 원래 값(`judge_exact_origin`)과 비교하고, 그 값이 없는 옛 기록에서는 비교하지 않는다. `top1_match`·`claims`가 없는 라벨은 judge·주장 판정을 덮어쓰지 않는다. 관측 판정 값은 라벨로 덮어쓰지 않는다. 표본이 작으므로 일치율은 judge가 어디서 틀리는지 보는 용도이고, 관측 표 수치를 보정하지 않는다.
 
 ### judge의 한계
 
 - 결론 문장과 기존 주장별 근거 판정 요약만 보고, 근거 원문은 다시 보내지 않는다. 요약이 빠뜨린 관측은 판정에도 빠진다.
 - 계약이 설명하는 관측 한계와 그 회차가 실제로 관측한 사실은 다르다. 같은 C1이라도 회차마다 본 로그가 다르다.
-- 대상 회차마다 모델을 한 번 더 부른다. 그 시간은 `observability.seconds`에 남고 조사 `usage`(시간·토큰)에는 들어가지 않는다. 토큰은 아직 기록하지 않는다.
+- 대상 회차마다 모델을 한 번 더 부른다. 그 시간·토큰은 `observability.seconds`·`input_tokens`·`output_tokens`에 남고 조사 `usage`에는 들어가지 않는다. 보고서 관측 표 아래에 합계가 나온다.
 
 ## 실행 기록에서 함께 보는 것
 

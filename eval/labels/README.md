@@ -2,4 +2,4 @@
 
 회차별로 사람이 LLM judge 판정을 다시 매긴 파일을 둔다. 파일 이름은 `eval/history/` 아래 디렉터리 이름에 `.yaml`을 붙인 것이다(예: `20261029-1010-A1.yaml`). 형식은 `runs: [{index, top1_match, claims: [{source, verdict}], note}]`이며, `index`는 0부터 시작하는 회차 번호(`result.json`의 `ai_runs` 위치이자 `report-<i>.json`의 `<i>`), `top1_match`는 1순위 원인이 정답과 같은지, `claims`는 `source`(conclusion·issue·hypothesis 등)별 `supported`·`partial`·`unsupported` 판정이다. `eval/report.py`가 라벨이 있는 회차의 judge 값을 이 값으로 덮어 다시 분류하고, 원래 judge와의 일치율을 계산한다.
 
-회차 항목에 `observability: {finding, unresolved_conflict, abstained, exact_origin_supported}`(적은 필드만)를 붙이면 관측 판정과의 필드별 일치율을 보고서에 표시한다. 관측 판정 값은 덮어쓰지 않는다 ([관측 가능성 계약](../observability-contract.md#사람-검토-라벨)).
+회차 항목에 `observability: {finding, unresolved_conflict, abstained, exact_origin_supported}`(적은 필드만)를 붙이면 관측 판정과의 시나리오별·필드별 일치율을 보고서에 표시한다. 관측 판정만 검토했으면 `top1_match`·`claims`는 생략해도 된다. 관측 판정 값은 덮어쓰지 않는다 ([관측 가능성 계약](../observability-contract.md#사람-검토-라벨)).
