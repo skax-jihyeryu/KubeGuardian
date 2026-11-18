@@ -255,3 +255,77 @@ def test_terminal_hop_must_share_usable_support():
 
     assert out.judgement == "candidate"
     assert out.judgement_basis.endswith("공통 지지 근거 없음")
+
+
+C1_STORE = {
+    "ev-10": _ev("log_excerpt", "dev/Pod/agent-1/agent"),  # agent가 하위 호출에서 429를 받음
+    "ev-11": _ev("resource", "dev/Deployment/agent"),
+    "ev-12": _ev("log_excerpt", "dev/Pod/llm-gateway-1/llm-gateway"),  # 같은 요청 ID의 429 생성
+    "ev-13": _ev("resource", "dev/Deployment/llm-gateway"),
+}
+
+
+def _c1_report(resource, support, unknown=()):
+    hypothesis = {
+        "id": "h1",
+        "resource": {"kind": "Deployment", "name": resource},
+        "statement": f"{resource}가 429를 만들었다",
+        "status": "supported",
+        "evidence_ids": [e for e, _ in support],
+        "support": [{"evidence_id": e, "observation": o} for e, o in support],
+        "unknown": list(unknown),
+    }
+    report = _report(
+        [e for e, _ in support], cause=("Deployment", resource), hypotheses=[hypothesis]
+    )
+    report.cause_chain[-1].evidence_ids = [e for e, _ in support]
+    return report
+
+
+def test_c1_caller_receipt_does_not_confirm_internal_generation():
+    """#147 회귀: agent의 429 수신 로그는 수신 사실일 뿐 agent 내부 생성의 근거가 아니다."""
+    report = _c1_report(
+        "agent",
+        [("ev-10", "agent가 llm-gateway 호출에서 429를 받음")],
+        unknown=[{"question": "같은 요청의 429 생성 지점", "reason": "요청 식별자가 로그에 없음"}],
+    )
+    out = judge(report, C1_STORE.get)
+    assert out.judgement == "candidate"
+    assert "미확인" in out.judgement_basis
+
+
+def test_c1_receipt_without_config_support_stays_candidate_even_without_unknown():
+    report = _c1_report("agent", [("ev-10", "agent가 429를 받음")])
+    out = judge(report, C1_STORE.get)
+    assert out.judgement == "candidate"
+    assert "설정 지지 근거 없음" in out.judgement_basis
+
+
+def test_c1_same_request_origin_with_config_is_confirmed():
+    """같은 요청의 생성 로그와 원인 리소스 설정을 직접 본 경우만 확정한다."""
+    report = _c1_report(
+        "llm-gateway",
+        [
+            ("ev-12", "같은 요청 ID에서 llm-gateway가 429를 생성"),
+            ("ev-13", "llm-gateway rate limit 설정"),
+        ],
+    )
+    assert judge(report, C1_STORE.get).judgement == "confirmed"
+
+
+def test_saved_v1_json_without_link_fields_loads_and_is_judged():
+    """#181 이전 저장본: id·support·hypothesis_id가 없는 JSON을 그대로 읽는다."""
+    saved = (
+        '{"conclusion": "c", "confidence": "high", "impact_scope": "x",'
+        ' "evidence_ids": ["ev-1", "ev-2"],'
+        ' "issues": [{"rank": 1, "title": "t", "impact": "core_path_broken",'
+        ' "confidence": "high", "evidence_ids": [],'
+        ' "cause_resource": {"kind": "Deployment", "name": "gateway"}}],'
+        ' "hypotheses": [{"statement": "h", "status": "supported", "evidence_ids": ["ev-1"]}],'
+        ' "judgement": "confirmed", "judgement_basis": "옛 기준"}'
+    )
+    report = Report.model_validate_json(saved)
+    h = report.hypotheses[0]
+    assert (h.id, h.support, h.refute, h.unknown) == (None, [], [], [])
+    assert report.judgement == "confirmed"  # 저장된 판정은 다시 매기지 않는다
+    assert report.linked_hypothesis is None
