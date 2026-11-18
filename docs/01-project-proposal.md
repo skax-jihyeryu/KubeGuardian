@@ -294,7 +294,7 @@ Slack 1차 알림(M1)은 규칙 ID·이름·위치 요약과 "규칙 기반 진�
 - 1순위 원인으로 지목한 리소스의 spec을 직접 조회한 근거가 있어야 한다.
 - 로그를 봤거나, 볼 필요가 없는 이유(예: 새 Pod가 시작되지 못함)가 있어야 한다.
 - 채우지 못한 채 조사 완료를 선언하면 빠진 영역을 **한 번 더** 재조사시킨다. 예산이 없으면 "확인하지 못함 (예산 소진)"으로 남긴다. 보고서는 네 영역마다 확인함·확인하지 못함·해당 없음과 근거 또는 사유를 남긴다.
-- 설정이 없다는 사실만으로는 원인으로 올리지 않는다. 앱이 그 설정을 찾는 로그, 이전 revision과의 차이, 그 서비스가 속한 경로의 실패 중 증거가 하나 이상 함께 있으면 원인 "후보"가 되고, 서로 다른 출처의 증거 2개 이상이고 지지된(supported) 가설 하나가 출처 2종 이상을 인용하면 "확정"한다. 근거는 [규칙 점검 명세 §0.1.1](05-rules.md)과 [상세 설계 §2](산출물/04-상세설계및개발환경구축.md)다.
+- 설정이 없다는 사실만으로는 원인으로 올리지 않는다. 앱이 그 설정을 찾는 로그, 이전 revision과의 차이, 그 서비스가 속한 경로의 실패 중 증거가 하나 이상 함께 있으면 원인 "후보"가 되고, 1순위 문제에 연결된 가설(`hypothesis_id`) 하나가 원인 리소스 설정을 포함한 직접 지지 근거 출처 2종 이상을 갖고, 미해결 반증·미확인 항목이 없으며, 호출 체인 종점과 지지 근거를 공유하면 "확정"한다. 무관한 가설이나 여러 가설의 근거를 합쳐 확정하지 않는다 (#181). 근거는 [규칙 점검 명세 §0.1.1](05-rules.md)과 [상세 설계 §2](산출물/04-상세설계및개발환경구축.md)다.
 
 **배포 직후 점검** (화면 지금 점검, CLI `kg check`): 점검 이력을 먼저 만들고 위 흐름을 주기 점검과 동일하게 적용한다. 새 장애·지문 변경이면 이슈를 생성/연결하고 1차 알림을 시도한 뒤, 기능 실패만 있는 경우(경로 B)에는 기존 worker에 AI 조사를 예약하고 규칙 감지(경로 A)는 규칙 진단으로 표시한다. 점검 상세에서 조사 대기·진행·완료/실패(경로 B) 또는 규칙 기반 진단 결과(경로 A)와 연결된 이슈의 결과를 확인한다. 같은 지문이면 새 이슈·조사를 중복 생성하지 않는다. 정상·개선 권고만이면 조사하지 않으며, 해결 조건을 충족하면 그 자리에서 해결·복구 알림을 보낸다 (#173).
 
@@ -338,12 +338,17 @@ Issue (요약 항목):
 Report (조사 보고서):
   conclusion, confidence, impact_scope   # confidence는 LLM 자기 평가 (기록만, 화면·알림에 쓰지 않음)
   judgement: confirmed | candidate | guess   # 판단 수준 (코드가 정함, §6.5)
-  judgement_basis: "원인 리소스 설정 인용 · 근거 출처 2종(설정·상태, 로그) · 지지 가설 근거 2종"
+  judgement_basis: "원인 리소스 설정 인용 · 근거 출처 2종(설정·상태, 로그) · 연결된 지지 가설 근거 2종"
   preliminary_facts: [...]   # 가설 없이 먼저 확인한 사실 (evidence_ids)
   evidence: [...]
-  hypotheses: [{statement, status: supported|refuted|inconclusive, reason, evidence_ids}]
+  hypotheses: [{id, resource, statement, status: supported|refuted|inconclusive, reason, evidence_ids,
+                support: [{evidence_id, observation}],   # 이 주장을 직접 지지한 관찰
+                refute: [{evidence_id, observation}],    # 직접 반박한 관찰 (조회 실패·로그 없음은 넣지 않음)
+                unknown: [{question, check, reason}]}]   # 미확인·미해결 충돌과 확인 방법 또는 확인 불가 사유
+  # 새 필드는 모두 기본값이 있어 #181 이전 저장본도 그대로 읽는다. 연결이 없으면 확정하지 않는다
   coverage: {run|config|wiring|logs: {status: checked|not_checked|not_applicable, summary, evidence_ids}}  # 구동·설정·연결·로그 영역별 확인 범위
   issues[].cause_resource: {kind, name}  # 1순위 원인 리소스
+  issues[].hypothesis_id: "h1"           # 1순위 원인 주장을 뒷받침하는 가설 (resource가 cause_resource와 같아야 함)
   actions: [...]          # 권장 조치 (실행할 명령 수준, 자동 실행 안 함)
   verification: "..."     # 재검증 방법
 ```
