@@ -132,6 +132,12 @@ class BaseAgent(ABC):
     ) -> Iterator[AgentStep]:
         """단계 하나를 기록한다. with 블록 안에서 tool·args·evidence_ids를 채울 수 있다."""
         s = AgentStep(node=node, started_at=started_at or self.ctx.now(), detail=detail)
+        # 선택적 훅: 시작을 알리고 싶은 sink만 start(step)을 둔다. 실패해도 조사는 계속한다
+        if on_start := getattr(self.ctx.steps, "start", None):
+            try:
+                on_start(s)
+            except Exception as e:  # noqa: BLE001
+                get_logging().debug(f"단계 시작 훅 실패: {type(e).__name__}")
         try:
             yield s
         finally:

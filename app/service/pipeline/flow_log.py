@@ -107,8 +107,9 @@ def describe_step(step: AgentStep) -> list[str]:
             return [("(재조사) " if d.get("recheck") else "") + line]
         case "write_report":
             attempt = d.get("attempt", 1)
-            why = " — 결론에 근거 번호가 없어 다시 씀" if attempt > 1 else ""
-            return [f"{_AFTER_RECHECK if d.get('recheck') else ''}보고서 작성(시도 {attempt}){why}"]
+            seconds = int((step.ended_at - step.started_at).total_seconds()) if step.ended_at else 0
+            after = _AFTER_RECHECK if d.get("recheck") else ""
+            return [f"{after}보고서 작성 마침(시도 {attempt}, {seconds}s)"]
         case "validate" if "cited" in d:
             hidden = d.get("demoted_facts", [])
             demoted = [x for x in d.get("demoted", []) if x not in hidden]
@@ -141,6 +142,18 @@ class FlowLogSteps(MemorySteps):
         super().__init__()
         self._label = label
         self._inner = inner
+
+    def start(self, step: AgentStep) -> None:
+        """단계 시작 훅(선택). 오래 걸리는 보고서 작성만 시작 줄을 남기고 DB에는 쓰지 않는다."""
+        if step.node != "write_report":
+            return
+        try:
+            attempt = step.detail.get("attempt", 1)
+            why = " — 결론에 근거 번호가 없어 다시 씀" if attempt > 1 else ""
+            after = _AFTER_RECHECK if step.detail.get("recheck") else ""
+            logger.info(f"[조사 {self._label}] {after}보고서 작성 시작(시도 {attempt}){why}")
+        except Exception as e:  # noqa: BLE001 — 로그가 조사를 멈추지 않게
+            logger.debug(f"조사 단계 로그 실패: {type(e).__name__}")
 
     def record(self, step: AgentStep) -> None:
         super().record(step)

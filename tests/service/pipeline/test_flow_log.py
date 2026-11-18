@@ -1,10 +1,10 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from core.db import InvestigationStore, create_db_engine
-from service.agent.base import AgentResult, AgentStep, Usage
+from service.agent.base import AgentResult, AgentStep, MemorySteps, Usage
 from service.model import Report
 from service.model.report import Hypothesis
 from service.pipeline.flow_log import FlowLogSteps, log_end, log_start
@@ -236,14 +236,32 @@ def test_stop_check_logs_remaining_gaps_or_none(caplog):
     ]
 
 
-def test_write_report_logs_attempt_and_reason_for_rewrite(caplog):
+def test_write_report_logs_start_line_and_finish_line_with_seconds(caplog):
     sink = FlowLogSteps("#12")
-    sink.record(_step("write_report", detail={"attempt": 1}))
-    sink.record(_step("write_report", detail={"attempt": 2}))
+    sink.start(_step("write_report", detail={"attempt": 1}))
+    sink.start(_step("write_report", detail={"attempt": 2}))
+    sink.record(
+        AgentStep(
+            node="write_report",
+            started_at=NOW,
+            ended_at=NOW + timedelta(seconds=42, milliseconds=900),
+            detail={"attempt": 2},
+        )
+    )
     assert _lines(caplog) == [
-        "[조사 #12] 보고서 작성(시도 1)",
-        "[조사 #12] 보고서 작성(시도 2) — 결론에 근거 번호가 없어 다시 씀",
+        "[조사 #12] 보고서 작성 시작(시도 1)",
+        "[조사 #12] 보고서 작성 시작(시도 2) — 결론에 근거 번호가 없어 다시 씀",
+        "[조사 #12] 보고서 작성 마침(시도 2, 42s)",
     ]
+
+
+def test_start_ignores_other_nodes_and_does_not_touch_inner_sink(caplog):
+    inner = MemorySteps()
+    sink = FlowLogSteps("#12", inner)
+    sink.start(_step("plan", detail={"hypotheses": ["a"]}))
+    sink.start(_step("write_report", detail={"attempt": 1}))
+    assert inner.steps == [] and sink.steps == []
+    assert _lines(caplog) == ["[조사 #12] 보고서 작성 시작(시도 1)"]
 
 
 def test_long_triage_line_is_clipped(caplog):
@@ -259,6 +277,7 @@ def test_long_triage_line_is_clipped(caplog):
 
 def test_recheck_report_and_validate_lines_are_marked(caplog):
     sink = FlowLogSteps("#12")
+    sink.start(_step("write_report", detail={"attempt": 1, "recheck": True}))
     sink.record(_step("write_report", detail={"attempt": 1, "recheck": True}))
     sink.record(
         _step(
@@ -274,7 +293,8 @@ def test_recheck_report_and_validate_lines_are_marked(caplog):
         )
     )
     assert _lines(caplog) == [
-        "[조사 #12] 재조사 후 보고서 작성(시도 1)",
+        "[조사 #12] 재조사 후 보고서 작성 시작(시도 1)",
+        "[조사 #12] 재조사 후 보고서 작성 마침(시도 1, 0s)",
         "[조사 #12] 재조사 후 근거 번호 대조: 인용 1건 중 1건 일치 · 없는 번호 제거 0건 "
         "· 강등 0건 · 결론 근거 있음",
     ]
