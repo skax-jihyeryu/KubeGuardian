@@ -10,7 +10,7 @@ k8s_visible: true
 gate_path: B              # 규칙 신호 없음. 기능 점검 chat 실패로 경로 B
 must_signals: []
 allowed_signals: []
-forbidden_signals: []
+forbidden_signals: ["*"]
 must_check:
   config: "gateway PROXY_TIMEOUT이 채팅 응답 시간보다 짧아 채팅만 504 (로그인은 성공)"
 expected_cause:
@@ -20,7 +20,7 @@ key_evidence:
     desc: "gateway 로그에 agent 채팅 호출의 업스트림 시간 초과(UPSTREAM_TIMEOUT)가 남는다"
     obtainable: true
     any_of:
-      - {kind: log_excerpt, subject: "*/Pod/gateway-*", contains: ["UPSTREAM_TIMEOUT", "agent/invoke"]}
+      - {kind: log_excerpt, subject: "*/Pod/gateway-*", contains: ["UPSTREAM_TIMEOUT", "agent/invoke", "http://agent:"]}
 not_a_cause:
   - text: "llm-gateway는 정상이다 (응답이 gateway의 시간 제한보다 느릴 뿐)"
     resource: {kind: Deployment, name: llm-gateway}

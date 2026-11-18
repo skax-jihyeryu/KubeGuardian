@@ -39,7 +39,7 @@ N=3
 fail=0
 started=$(date +%s.%N)
 for _ in $(seq "$N"); do
-  code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/agent/invoke" \
+  code="$(curl -s --max-time 30 -o /dev/null -w '%{http_code}' "$BASE/agent/invoke" \
     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
     -d "$(jq -n --arg m "$MODEL" --arg o "$org_id" '{query: "한 문장으로 자기소개를 해 주세요.", model: $m, org_id: $o}')")"
   [[ "$code" == 504 ]] && fail=$((fail + 1))
@@ -54,7 +54,7 @@ fi
 logged=""
 for _ in $(seq 10); do
   glog="$(kubectl -n "$TARGET_NS" logs deploy/gateway --since=10m 2>/dev/null || true)"  # grep -q를 파이프로 받으면 pipefail에서 SIGPIPE로 실패한다
-  if grep -q 'UPSTREAM_TIMEOUT.*agent/invoke' <<<"$glog"; then
+  if grep -q 'UPSTREAM_TIMEOUT.*agent/invoke.*http://agent:' <<<"$glog"; then
     logged=1
     break
   fi

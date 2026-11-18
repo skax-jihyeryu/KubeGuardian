@@ -2,7 +2,7 @@
 # inject.sh: C4 — gateway PROXY_TIMEOUT을 채팅 응답 시간보다 짧게 줄인다
 #
 # gateway의 업스트림 프록시 시간 제한(`PROXY_TIMEOUT`, 기본 60초)을 로그인 응답 시간(약 0.9~1.0초)보다 길고
-# 채팅 응답 시간(약 1.3~1.5초)보다 짧은 값으로 줄인다. 로그인 같은 짧은 요청은 성공하고 채팅만 gateway에서 시간 초과로 끝난다.
+# 채팅 응답 시간(약 1.33~1.86초)보다 짧은 값으로 줄인다. 로그인 같은 짧은 요청은 성공하고 채팅만 gateway에서 시간 초과로 끝난다.
 # Deployment env만 바꾼다 (롤아웃). Pod는 모두 Ready로 남고 재시작 횟수는 늘지 않는다 (새 Pod가 뜰 뿐이다)
 #
 # 환경 변수
@@ -17,6 +17,14 @@ STATE="$(dirname "$0")/.state"
 
 if [[ -f "$STATE/original_proxy_timeout" ]]; then
   echo "이미 주입된 상태다 ($STATE/original_proxy_timeout 있음). reset.sh를 먼저 실행한다." >&2
+  exit 1
+fi
+
+# 이미 PROXY_TIMEOUT이 있으면(.state가 사라진 주입 중 상태 포함) 거절한다. 주입값이 '원래 값'으로 기록되는 것을 막는다
+envjson="$(kubectl -n "$NS" get "deploy/$DEPLOY" \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="gateway")].env[?(@.name=="PROXY_TIMEOUT")]}')"
+if [[ -n "$envjson" ]]; then
+  echo "중단: gateway에 PROXY_TIMEOUT env가 이미 있다 (${envjson}). reset.sh로 정리하거나 원래 값을 확인한다." >&2
   exit 1
 fi
 
