@@ -9,7 +9,7 @@ from core.guard.budget import Budget, BudgetTracker
 from service.agent import registry
 from service.agent._common.prompts import load_prompt
 from service.agent._common.structured import invoke_structured, parse_structured
-from service.agent.base import AgentResult, AgentSpec, BaseAgent, RunContext
+from service.agent.base import AgentResult, AgentSpec, BaseAgent, MemorySteps, RunContext
 from service.model import InvestigationRequest, Report, SignalBoard
 
 REPORT = {
@@ -215,3 +215,32 @@ def test_tool_context_carries_namespace_bound_clients():
 
     assert (tool_ctx.namespace, tool_ctx.k8s, tool_ctx.http) == ("dev", k8s, http)
     assert tool_ctx.budget is ctx.budget
+
+
+class _StartSink(MemorySteps):
+    def __init__(self, fail: bool = False):
+        super().__init__()
+        self.events: list[str] = []
+        self._fail = fail
+
+    def start(self, step):
+        self.events.append(f"start:{step.node}")
+        if self._fail:
+            raise RuntimeError("hook 실패")
+
+    def record(self, step):
+        self.events.append(f"record:{step.node}")
+        super().record(step)
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_step_calls_optional_start_hook_before_record_and_survives_hook_failure(fail):
+    sink = _StartSink(fail=fail)
+    ctx = _ctx()
+    ctx.steps = sink
+    agent = EchoAgent(llm_factory=_fake_llm(json.dumps(REPORT)), tools=[], ctx=ctx)
+
+    result = agent.run(REQ)
+
+    assert result.status == "done"
+    assert sink.events == ["start:write", "record:write"]
