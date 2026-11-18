@@ -6,7 +6,7 @@ A6는 F1이 설정한 gateway의 `ADMIN_SERVICE_URL` 항목 하나를 제거한�
 
 - 환경 설치 가이드대로 준비한 로컬 `minikube` 컨텍스트의 `dev` 네임스페이스와 H0 정상 기준선을 사용한다. `kubectl`과 Python 3이 필요하다.
 - 평가 설정에 실패 시 경로 B를 여는 로그인 API 시나리오를 두고, C05의 `required_config`에 gateway의 `ADMIN_SERVICE_URL`을 선언하지 않는다. 이 키를 운영자가 필수로 선언하면 C05의 규칙 감지로 경로 A가 된다. 시나리오 스크립트는 평가 설정을 바꾸지 않는다.
-- 주입 전에 로컬 overlay의 gateway Deployment, F1의 직접 env 값, envFrom의 중복 키 여부, 실행 중인 앱의 localhost 기본값을 확인한다. 같은 키를 envFrom으로 다시 주입하거나 `valueFrom`으로 설정한 Deployment에서는 실행을 중단한다.
+- 주입 전에 로컬 overlay의 gateway Deployment(`local` 또는 `readiness-<12자리 해시>` 이미지 태그), F1의 직접 env 값, envFrom의 중복 키 여부, 실행 중인 앱의 localhost 기본값을 확인한다. 같은 키를 envFrom으로 다시 주입하거나 `valueFrom`으로 설정한 Deployment에서는 실행을 중단한다.
 
 ## 주입과 원복
 
@@ -21,3 +21,14 @@ scenarios/A6/reset.sh
 원복에 필요한 항목과 위치는 Git이 무시하는 `.state/dev-gateway.json`에 보관한다. 원복은 UID와 resourceVersion을 확인한 뒤 원래 위치에 항목을 복구한다. 주입 뒤 다른 env 편집이나 Deployment 교체가 확인되면 원복을 중단하고 기록을 보존한다. 원복과 롤아웃 확인이 끝나면 기록을 삭제하며, 다시 원복을 실행해도 클러스터를 변경하지 않는다.
 
 오프라인 테스트는 `uv run pytest tests/eval/test_scenario_a6.py`로 실행한다.
+
+## 실측 결과
+
+2026-11-16 로컬 minikube에서 규칙 조건과 AI 조건을 각각 1회 검증했다.
+
+| 조건 | 결과 | 실행 ID |
+|---|---|---|
+| 규칙 | 로그인 500, gateway·admin Ready, localhost 연결 실패. 필수·금지 규칙 판정 통과, 경로 B. | `20261116T053318Z-A6` |
+| AI | 경로 B. gateway의 `ADMIN_SERVICE_URL` 누락을 1순위로 지목. 원인 리소스 및 결론 채점 일치. | `20261116T053422Z-A6` |
+
+두 실행 모두 점검 반환까지 주입 기준 18초였으며 원복과 H0 스모크를 통과했다. AI 조사 시간은 80.4초였다. 이 실행은 기존 최종 제출 KPI 집계와 별도다.

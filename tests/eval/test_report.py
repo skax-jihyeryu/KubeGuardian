@@ -576,3 +576,51 @@ def test_mixed_batch_attributes_path_and_coverage_per_result(tmp_path):
     assert summary["kpi"]["coverage"] == 1.0
     assert summary["kpi"]["accuracy"] == 0.5
     assert summary["by_stage"] == {(7, False, "ai"): [1, 1, 0, 0, 0, 0]}
+
+
+def test_observability_report_counts_only_versioned_records(tmp_path):
+    assessment = {
+        "version": 1,
+        "accuracy": True,
+        "exact_origin_supported": False,
+        "finding": "compatible",
+        "unresolved_conflict": "recognized",
+        "calibration": "appropriate_abstention",
+    }
+    runs = [
+        make_run("F1", judge=False),
+        make_run("F1", judge=False, observability=assessment),
+        make_run("F1", judge=False, observability={"version": 1, "error": "RuntimeError"}),
+    ]
+    results, scen = build(tmp_path, {"C2": runs})
+    summary = summarize(results, {}, scen)
+    assert summary["scenarios"]["C2"]["dist"] == {"F1": 3}
+    assert "| C2 | 1 | 3 | 1 | 1/3 | 0/3 | 0/3 | 1/1 | 0 | 1 | 0 | 1 |" in render(summary, None)
+
+
+def test_observability_denominator_counts_error_gate_fail_and_f0(tmp_path):
+    assessment = {
+        "version": 1,
+        "accuracy": True,
+        "exact_origin_supported": True,
+        "finding": "supported",
+        "unresolved_conflict": "none",
+        "calibration": "appropriate",
+    }
+    runs = [
+        make_run("pass", observability=assessment),
+        make_run("error"),
+        make_run("gate_fail"),
+        make_run("F0"),
+    ]
+    results, scen = build(tmp_path, {"A1": runs})
+    summary = summarize(results, {}, scen)
+    assert summary["observability"]["A1"]["unrecorded"] == 3
+    assert "| A1 | 1 | 4 | 3 | 1/4 | 1/4 | 0/4 | 0/0 | 0 | 0 | 0 | 0 |" in render(summary, None)
+
+
+def test_observability_section_absent_for_old_batches(tmp_path):
+    results, scen = build(tmp_path, {"A1": [make_run("pass"), make_run("error")]})
+    summary = summarize(results, {}, scen)
+    assert summary["observability"] == {}
+    assert "관측 가능성 평가" not in render(summary, None)

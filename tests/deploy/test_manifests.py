@@ -25,9 +25,15 @@ def test_cronjob_runs_every_five_minutes_without_overlap():
     spec = _cronjob()["spec"]
     assert spec["schedule"] == "0 * * * *"
     assert spec["concurrencyPolicy"] == "Forbid"
-    assert spec["startingDeadlineSeconds"] == 120
     assert spec["successfulJobsHistoryLimit"] == 3
     assert spec["failedJobsHistoryLimit"] == 3
+
+
+def test_starting_deadline_absorbs_sleep_but_stays_before_next_run():
+    # 절전·토큰 재시도를 흡수하되 다음 회차(3600초)보다 작아야 한다 (#276)
+    spec = _cronjob()["spec"]
+    assert 1800 <= spec["startingDeadlineSeconds"] < 3600
+    assert spec["concurrencyPolicy"] == "Forbid"
 
 
 def test_job_does_not_retry_and_ends_before_next_run():
@@ -84,6 +90,7 @@ def test_env_has_only_paths_and_addresses_and_secrets_come_from_envfrom():
         "KG_ACCOUNTS_DIR",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "SSL_CERT_FILE",
+        "KG_ROLE",
     }
     assert all("valueFrom" not in e for e in c["env"])
     assert c["envFrom"] == [{"secretRef": {"name": "kubeguardian-env"}}]

@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -66,7 +67,9 @@ def deployment():
         or pod.get("initContainers")
         or len(containers) != 1
         or containers[0]["name"] != "gateway"
-        or containers[0]["image"] != "kg-target/gateway:local"
+        or not re.fullmatch(
+            r"kg-target/gateway:(?:local|readiness-[0-9a-f]{12})", containers[0]["image"]
+        )
         or containers[0].get("command")
         or containers[0].get("args")
     ):

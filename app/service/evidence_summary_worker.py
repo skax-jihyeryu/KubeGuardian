@@ -1,6 +1,6 @@
 """중요한 근거의 AI 요약을 작업자가 뒤에서 미리 만든다 (#176). 조사 스레드와 분리된다."""
 
-import sys
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -12,10 +12,13 @@ from core.config import get_setting
 from core.db import EvidenceStore
 from core.db.evidence import _parse_id
 from core.db.evidence_summaries import EvidenceSummaryStore
+from core.log.logging import get_logging
 from service.agent.base import LlmFactory
 from service.checks.detectors.catalog import CATALOG
 from service.evidence_summary import summarize_evidence
 from service.model import Evidence
+
+logger = get_logging()
 
 LOOKBACK = timedelta(hours=24)  # 기존 근거를 소급 생성하지 않는다
 PAGE = 200
@@ -54,7 +57,7 @@ def next_targets(engine: Engine, now: datetime, limit: int = 20) -> list[str]:
                 item = evidence.get(ev_id)
                 target = item is not None and is_presummary_target(item)
             except Exception as e:  # 한 행이 다른 대상을 막지 않는다
-                _log(f"{ev_id} 건너뜀 {type(e).__name__}")
+                _log(f"{ev_id} 건너뜀 {type(e).__name__}", logging.WARNING)
                 continue
             if target:
                 found.append(ev_id)
@@ -64,8 +67,8 @@ def next_targets(engine: Engine, now: datetime, limit: int = 20) -> list[str]:
     return found
 
 
-def _log(message: str) -> None:
-    print(f"근거 요약: {message}", file=sys.stderr, flush=True)
+def _log(message: str, level: int = logging.INFO) -> None:
+    logger.log(level, f"근거 요약: {message}")
 
 
 def run_once(
@@ -91,13 +94,14 @@ def run_once(
                 on_usage=usage.append,
             )
         except Exception as e:
-            _log(f"{ev_id} 오류 {type(e).__name__}")
+            _log(f"{ev_id} 오류 {type(e).__name__}", logging.WARNING)
             continue
         meta = usage[0] if usage and usage[0] else {}
         tokens = [meta.get(k) if isinstance(meta.get(k), int) else "-" for k in _USAGE_KEYS]
         _log(
             f"{ev_id} {summary.status} {time.monotonic() - started:.1f}초 "
-            f"입력 {tokens[0]} 출력 {tokens[1]}"
+            f"입력 {tokens[0]} 출력 {tokens[1]}",
+            logging.INFO if summary.status == "done" else logging.WARNING,
         )
         return summary.status
     return None
@@ -124,7 +128,7 @@ def summary_loop(
         try:
             status = run_once(engine, model=model, llm_factory=llm_factory, clock=clock)
         except Exception as e:  # 스레드가 죽으면 이후 요약이 멈춘다
-            _log(f"오류 {type(e).__name__}")
+            _log(f"오류 {type(e).__name__}", logging.WARNING)
             status = None
         if status is None:
             sleep(poll_s)
