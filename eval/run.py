@@ -314,10 +314,15 @@ def score_layers(
     scenario = expected.get("id")
     if observable_judge is not None and scenario in OBSERVABILITY_CONTRACTS:
         try:
+            started = time.monotonic()
             verdict = observable_judge(scenario, report["conclusion"], verdicts)
-            ai["observability"] = assess_observability(
-                scenario, ai.get("judgement"), summary["conclusion_support"], verdict
-            )
+            ai["observability"] = {
+                **assess_observability(
+                    scenario, ai.get("judgement"), summary["conclusion_support"], verdict
+                ),
+                # 추가 의미 판정 1회의 시간. 조사 usage에는 들어가지 않는다
+                "seconds": round(time.monotonic() - started, 1),
+            }
         except Exception as error:
             ai["observability"] = {"version": 1, "error": type(error).__name__}
     return ai

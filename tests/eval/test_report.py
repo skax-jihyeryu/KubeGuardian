@@ -624,3 +624,65 @@ def test_observability_section_absent_for_old_batches(tmp_path):
     summary = summarize(results, {}, scen)
     assert summary["observability"] == {}
     assert "관측 가능성 평가" not in render(summary, None)
+
+
+def _obs(**kw):
+    record = {
+        "version": 1,
+        "accuracy": True,
+        "exact_origin_supported": False,
+        "finding": "compatible",
+        "unresolved_conflict": "recognized",
+        "abstained": True,
+        "calibration": "appropriate_abstention",
+        "seconds": 2.5,
+    }
+    record.update(kw)
+    return record
+
+
+def test_observability_human_label_agreement_by_field(tmp_path):
+    runs = [make_run("F1", judge=False, observability=_obs()) for _ in range(2)]
+    results, scen = build(tmp_path, {"C1": runs})
+    labels = {
+        ("t0-C1", 0): {
+            "index": 0,
+            "top1_match": False,
+            "claims": [],
+            "observability": {"finding": "compatible", "unresolved_conflict": "missed"},
+        },
+        ("t0-C1", 1): {
+            "index": 1,
+            "top1_match": False,
+            "claims": [],
+            "observability": {"finding": "compatible", "abstained": True},
+        },
+    }
+    summary = summarize(results, labels, scen)
+    agreement = summary["observability_agreement"]
+    assert agreement["runs"] == 2
+    assert agreement["fields"]["finding"] == [2, 2]
+    assert agreement["fields"]["unresolved_conflict"] == [0, 1]
+    assert agreement["fields"]["abstained"] == [1, 1]
+    text = render(summary, None)
+    assert "관측 판정 사람 검토 2회차" in text
+    assert "finding 2/2" in text and "unresolved_conflict 0/1" in text
+
+
+def test_observability_label_ignored_for_error_or_unlabeled_records(tmp_path):
+    runs = [
+        make_run("F1", judge=False, observability={"version": 1, "error": "RuntimeError"}),
+        make_run("F1", judge=False, observability=_obs()),
+    ]
+    results, scen = build(tmp_path, {"C1": runs})
+    label = {"top1_match": False, "claims": [], "observability": {"finding": "supported"}}
+    summary = summarize(results, {("t0-C1", 0): {"index": 0, **label}}, scen)
+    assert summary["observability_agreement"] == {"runs": 0, "fields": {}}
+    assert "관측 판정 사람 검토" not in render(summary, None)
+
+
+def test_observability_judge_cost_is_reported_separately(tmp_path):
+    runs = [make_run("pass", observability=_obs(seconds=1.5)) for _ in range(2)]
+    results, scen = build(tmp_path, {"A1": runs})
+    text = render(summarize(results, {}, scen), None)
+    assert "관측 판정 추가 호출 2회 · 3.0초" in text

@@ -233,3 +233,4 @@ def test_observability_keeps_strict_f1_and_isolates_scoring_errors(tmp_path, fai
     else:
         assert ai["observability"]["accuracy"] is True
         assert ai["observability"]["calibration"] == "appropriate_abstention"
+        assert ai["observability"]["seconds"] >= 0  # 추가 의미 판정 비용 (조사 usage와 별도)
