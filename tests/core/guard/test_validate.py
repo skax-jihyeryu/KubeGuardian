@@ -210,3 +210,23 @@ def test_outcome_counts_cited_and_confirmed_evidence():
     )
     out = validate_report(report, {"ev-1", "ev-2"}.__contains__)
     assert (out.cited, out.confirmed) == (4, 2)  # ev-1 ev-9 ev-2 ev-3 (중복은 한 번)
+
+
+def test_blank_unknown_items_are_dropped():
+    from service.model.report import UnknownObservation
+
+    report = Report(
+        conclusion="c",
+        confidence="high",
+        impact_scope="x",
+        hypotheses=[
+            Hypothesis(
+                statement="h",
+                status="supported",
+                evidence_ids=["ev-1"],
+                unknown=[UnknownObservation(question="  "), UnknownObservation(question="q")],
+            )
+        ],
+    )
+    out = validate_report(report, {"ev-1"}.__contains__).report.hypotheses[0]
+    assert [u.question for u in out.unknown] == ["q"]

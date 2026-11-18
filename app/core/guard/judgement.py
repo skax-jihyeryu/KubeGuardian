@@ -5,9 +5,13 @@ LLM이 매긴 확신도(confidence)는 기준이 없고 정답률과 맞는지 �
 
 | 값 | 조건 |
 |---|---|
-| confirmed (확정) | 원인 리소스 설정 인용 + 1순위 가설의 직접 지지 근거 출처 2종 이상 |
+| confirmed (확정) | 아래 "확정 조건"을 모두 만족 |
 | candidate (후보) | 결론 근거는 있으나 위 조건 중 하나가 빠짐 (지지된 가설 없음 포함) |
 | guess (추정) | 결론에 근거가 없음(검증기 강등), 1순위 문제가 없음, 인용이 조회 실패 기록뿐 |
+
+확정 조건: 1순위 문제에 연결된(hypothesis_id) supported 가설 하나가
+원인 리소스 설정을 포함한 직접 지지 근거 출처 2종 이상을 갖고,
+호출 체인 종점과 지지 근거를 공유하며, 미해결 반증(조회 실패 기록 제외)·미확인 항목이 없다.
 
 에이전트 버전과 상관없이 같은 기준이 되도록 조사 실행 공통 경로(run_request)가 저장된 근거로 정한다.
 출처는 근거 종류로 묶는다. 같은 종류를 여러 번 인용해도 1종이고, 조회 실패 기록은 세지 않는다.
@@ -19,6 +23,7 @@ from collections.abc import Callable, Iterable
 
 from core.guard.cause_chain import cause_chain_gaps
 from service.model import Evidence, Report
+from service.model.report import ResourceRef
 
 CONFIG = "설정·상태"
 SOURCE_OF_KIND: dict[str, str] = {
@@ -51,9 +56,7 @@ def judge(report: Report, lookup: EvidenceLookup) -> Report:
         return _with(report, "candidate", " · ".join(gaps))
     kinds = sorted(_sources(usable))
     cause = top.cause_resource
-    cause_cited = cause is not None and any(
-        e.kind == "resource" and e.subject.endswith(f"/{cause.kind}/{cause.name}") for e in usable
-    )
+    cause_cited = _cites_cause(usable, cause)
     hypothesis = report.linked_hypothesis
     support_ids = (
         {
@@ -69,14 +72,16 @@ def judge(report: Report, lookup: EvidenceLookup) -> Report:
         _usable(support_ids.intersection(report.cause_chain[-1].evidence_ids), lookup)
     )
     support_sources = len(_sources(support))
-    cause_supported = cause is not None and any(
-        e.kind == "resource" and e.subject.endswith(f"/{cause.kind}/{cause.name}") for e in support
+    cause_supported = _cites_cause(support, cause)
+    # 조회 실패 기록을 가리키는 반증은 반증으로 세지 않는다 (조회 실패는 지지도 반증도 아니다)
+    refuted = hypothesis is not None and bool(
+        _usable((link.evidence_id for link in hypothesis.refute), lookup)
     )
     if hypothesis is None:
         hypothesis_basis = "1순위 원인과 연결된 가설 없음"
     elif hypothesis.status != "supported":
         hypothesis_basis = "연결된 가설의 지지 근거 부족"
-    elif hypothesis.refute or hypothesis.unknown:
+    elif refuted or hypothesis.unknown:
         hypothesis_basis = "연결된 가설에 미해결 반증 또는 미확인 항목 있음"
     elif not cause_supported:
         hypothesis_basis = "연결된 가설의 원인 리소스 설정 지지 근거 없음"
@@ -96,7 +101,7 @@ def judge(report: Report, lookup: EvidenceLookup) -> Report:
         and cause_supported
         and terminal_supported
         and support_sources >= CONFIRM_MIN_SOURCES
-        and not hypothesis.refute
+        and not refuted
         and not hypothesis.unknown
     )
     return _with(report, "confirmed" if confirmed else "candidate", basis)
@@ -106,6 +111,19 @@ def _usable(ids: Iterable[str], lookup: EvidenceLookup) -> list[Evidence]:
     """lookup으로 찾은 근거 중 출처로 셀 수 있는 것 (조회 실패 기록·알 수 없는 종류 제외)."""
     found = (e for i in set(ids) if (e := lookup(i)))
     return [e for e in found if not _is_failure(e) and e.kind in SOURCE_OF_KIND]
+
+
+def _cites_cause(evidence: Iterable[Evidence], cause: ResourceRef | None) -> bool:
+    """근거 중 원인 리소스의 설정·상태를 직접 조회한 것이 있는지."""
+    if cause is None:
+        return False
+    suffix = f"/{cause.name}"
+    return any(
+        e.kind == "resource"
+        and e.subject.endswith(suffix)
+        and e.subject.split("/")[-2].lower() == cause.kind.lower()
+        for e in evidence
+    )
 
 
 def _sources(evidence: Iterable[Evidence]) -> set[str]:

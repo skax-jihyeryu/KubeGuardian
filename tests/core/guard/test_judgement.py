@@ -329,3 +329,22 @@ def test_saved_v1_json_without_link_fields_loads_and_is_judged():
     assert (h.id, h.support, h.refute, h.unknown) == (None, [], [], [])
     assert report.judgement == "confirmed"  # 저장된 판정은 다시 매기지 않는다
     assert report.linked_hypothesis is None
+
+
+def test_kind_case_difference_still_links_and_confirms():
+    hypothesis = _hyp("supported", ["ev-1", "ev-2"])
+    hypothesis["resource"] = {"kind": "deployment", "name": "gateway"}
+    assert (
+        judge(_report(["ev-1", "ev-2"], hypotheses=[hypothesis]), LOOKUP).judgement == "confirmed"
+    )
+
+
+def test_refutation_citing_only_failure_record_does_not_block():
+    """조회 실패 기록(ev-5)은 반증이 아니다."""
+    hypothesis = _hyp(
+        "supported",
+        ["ev-1", "ev-2"],
+        refute=[{"evidence_id": "ev-5", "observation": "로그 조회 실패"}],
+    )
+    out = judge(_report(["ev-1", "ev-2"], hypotheses=[hypothesis]), LOOKUP)
+    assert out.judgement == "confirmed"

@@ -78,8 +78,16 @@ def validate_report(
         if not warrants_status and h.status != "inconclusive":
             demoted.append(h.statement)
             h = h.model_copy(update={"status": "inconclusive", "statement": _estimate(h.statement)})
+        unknown = [u for u in h.unknown if u.question.strip()]  # 빈 항목은 미확인으로 세지 않는다
         hypotheses.append(
-            h.model_copy(update={"evidence_ids": ids, "support": support, "refute": refute})
+            h.model_copy(
+                update={
+                    "evidence_ids": ids,
+                    "support": support,
+                    "refute": refute,
+                    "unknown": unknown,
+                }
+            )
         )
 
     issues = []

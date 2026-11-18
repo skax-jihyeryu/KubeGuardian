@@ -35,6 +35,11 @@ class ResourceRef(BaseModel):
     name: str
 
 
+def same_resource(a: ResourceRef, b: ResourceRef) -> bool:
+    """kind는 대소문자를 가리지 않는다 (LLM이 deployment처럼 쓰는 경우)."""
+    return a.kind.lower() == b.kind.lower() and a.name == b.name
+
+
 class ChainHop(BaseModel):
     service: ResourceRef  # 호출 지점의 리소스 식별자 (Pod/Deployment/Service 등)
     observation: str
@@ -134,10 +139,35 @@ class Report(BaseModel):
 
     @property
     def linked_hypothesis(self) -> Hypothesis | None:
+        """1순위 문제가 hypothesis_id로 가리키고 대상 리소스가 cause_resource와 같은 가설 하나."""
+        return None if self.hypothesis_link_gap is not None else self._linked_candidate
+
+    @property
+    def _linked_candidate(self) -> Hypothesis | None:
         top = self.top_issue
-        if top is None or not top.hypothesis_id or top.cause_resource is None:
+        if top is None or not top.hypothesis_id:
             return None
         matches = [h for h in self.hypotheses if h.id == top.hypothesis_id]
-        if len(matches) != 1 or matches[0].resource != top.cause_resource:
+        return matches[0] if len(matches) == 1 else None
+
+    @property
+    def hypothesis_link_gap(self) -> str | None:
+        """1순위 문제가 가설을 가리켰는데 연결이 성립하지 않은 이유. 가리키지 않았으면 None."""
+        top = self.top_issue
+        if top is None or not top.hypothesis_id:
             return None
-        return matches[0]
+        if top.cause_resource is None:
+            return "1순위 원인 리소스가 없어 가설과 연결할 수 없습니다"
+        count = sum(h.id == top.hypothesis_id for h in self.hypotheses)
+        if count != 1:
+            return f"hypothesis_id {top.hypothesis_id}에 해당하는 가설이 {count}개입니다"
+        hypothesis = self._linked_candidate
+        assert hypothesis is not None
+        if hypothesis.resource is None:
+            return f"가설 {top.hypothesis_id}에 대상 리소스(resource)가 없습니다"
+        if not same_resource(hypothesis.resource, top.cause_resource):
+            return (
+                f"가설 {top.hypothesis_id}의 대상 리소스가 1순위 원인 리소스"
+                f" {top.cause_resource.kind}/{top.cause_resource.name}와 다릅니다"
+            )
+        return None

@@ -274,6 +274,25 @@ def test_linked_hypothesis_shows_support_refute_and_unknown(client, engine):
     assert "옛 형식 가설" in section  # 지지·반증 목록이 없는 과거 보고서도 그대로 보인다
 
 
+def test_hypothesis_link_citations_are_not_repeated_in_reason(client, engine):
+    from service.model.report import Hypothesis, HypothesisEvidence
+
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    ev = add_evidence(engine, run)
+    inv = start_investigation(engine, run, inc, [])
+    h = Hypothesis(
+        statement="링크 가설",
+        status="supported",
+        evidence_ids=[ev],
+        support=[HypothesisEvidence(evidence_id=ev, observation="직접 관찰")],
+    )
+    finish_investigation(engine, inv, report(hypotheses=[h]))
+    text = client.get(f"/dev/issues/{inc}").text
+    section = text.split("4. 가설 판정")[1].split("5. 확인한 범위")[0]
+    assert section.count(f"/dev/checks/{run}?ev=1") == 1  # 이유 칸과 지지 줄에 중복 없음
+
+
 def test_coverage_status_display(client, engine):
     from service.model.report import AreaCoverage, Coverage
 
