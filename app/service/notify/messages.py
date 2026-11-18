@@ -217,6 +217,7 @@ def cause_update(
     lines += ["*원인*", clean(report.conclusion), "*영향*", clean(report.impact_scope)]
     if report.actions:
         lines += ["*조치*", f"• {code(report.actions[0])}"]
+    lines += _open_checks(report)
     others = sorted((i for i in report.issues if i is not top), key=lambda i: i.rank)[:2]
     if others:
         lines.append("*그 밖의 중요 문제*")
@@ -227,6 +228,26 @@ def cause_update(
         lines.append("⚠️ 조사 상한에 닿아 확인하지 못한 것이 있습니다 (보고서의 확인 범위 참고).")
     lines += [*mention_line(owners), link]
     return "\n".join(lines)
+
+
+def _open_checks(report: Report) -> list[str]:
+    """확정이 아닐 때 1순위 원인 가설의 반증·미확인 수와 첫 미확인 항목 (#181)."""
+    hypothesis = report.linked_hypothesis
+    if report.judgement == "confirmed" or hypothesis is None:
+        return []
+    counts = [
+        f"{name} {len(items)}건"
+        for name, items in (("반증", hypothesis.refute), ("미확인", hypothesis.unknown))
+        if items
+    ]
+    if not counts:
+        return []
+    lines = ["*추가 확인*", f"• {' · '.join(counts)}"]
+    if hypothesis.unknown:
+        first = hypothesis.unknown[0]
+        why = first.reason.strip() or (f"확인: {first.check.strip()}" if first.check else "")
+        lines.append(f"• {clean(first.question)}" + (f" — {clean(why)}" if why else ""))
+    return lines
 
 
 def _reply(headline: str, detail: str) -> str:

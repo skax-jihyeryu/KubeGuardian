@@ -323,3 +323,64 @@ def test_cause_update_keeps_mention_line_with_and_without_report():
 def test_mention_line_rejects_invalid_ids():
     with pytest.raises(ValueError):
         messages.mention_line(["<@U0123456789> & x"])
+
+
+def _linked_report(judgement="candidate", **hypothesis):
+    from service.model.report import (
+        Hypothesis,
+        HypothesisEvidence,
+        ResourceRef,
+        UnknownObservation,
+    )
+
+    agent = ResourceRef(kind="Deployment", name="agent")
+    values = dict(
+        id="h1",
+        resource=agent,
+        statement="agent가 429를 직접 생성",
+        status="inconclusive",
+        support=[HypothesisEvidence(evidence_id="ev-1", observation="agent가 429를 받음")],
+        refute=[HypothesisEvidence(evidence_id="ev-2", observation="llm-gateway는 200 응답")],
+        unknown=[
+            UnknownObservation(
+                question="같은 요청의 429 생성 지점", check=None, reason="요청 ID가 로그에 없음"
+            ),
+            UnknownObservation(question="두 번째 확인", check="llm-gateway 로그 재조회"),
+        ],
+    )
+    values.update(hypothesis)
+    issue = Issue(
+        rank=1,
+        title="채팅 실패",
+        impact="core_path_broken",
+        confidence="high",
+        cause_resource=agent,
+        hypothesis_id="h1",
+    )
+    return report(judgement=judgement, issues=[issue], hypotheses=[Hypothesis(**values)])
+
+
+def test_candidate_shows_counter_evidence_and_first_unknown():
+    text = messages.cause_update("dev", incident(), "done", _linked_report(), None, 1, URL)
+    lines = text.splitlines()
+    i = lines.index("*추가 확인*")
+    assert lines[i + 1] == "• 반증 1건 · 미확인 2건"
+    assert lines[i + 2] == "• 같은 요청의 429 생성 지점 — 요청 ID가 로그에 없음"
+    assert lines.index("*원인*") < i < lines.index("🔗 보고서: http://kg.local/dev/issues/7")
+
+
+def test_unknown_check_shown_when_reason_missing():
+    from service.model.report import UnknownObservation
+
+    r = _linked_report(refute=[], unknown=[UnknownObservation(question="q", check="로그 재조회")])
+    text = messages.cause_update("dev", incident(), "done", r, None, 1, URL)
+    assert "• 미확인 1건" in text
+    assert "• q — 확인: 로그 재조회" in text
+
+
+def test_confirmed_or_unlinked_report_has_no_extra_check_section():
+    confirmed = _linked_report(judgement="confirmed", refute=[], unknown=[])
+    text = messages.cause_update("dev", incident(), "done", confirmed, None, 1, URL)
+    assert "*추가 확인*" not in text
+    text = messages.cause_update("dev", incident(), "done", report(), None, 1, URL)
+    assert "*추가 확인*" not in text

@@ -245,6 +245,35 @@ def test_no_refuted_means_no_fold_and_only_refuted_means_no_table(client, engine
     assert "배제한 가설 1건" in section
 
 
+def test_linked_hypothesis_shows_support_refute_and_unknown(client, engine):
+    from service.model.report import (
+        Hypothesis,
+        HypothesisEvidence,
+        ResourceRef,
+        UnknownObservation,
+    )
+
+    hyps = [
+        Hypothesis(
+            id="h1",
+            resource=ResourceRef(kind="Deployment", name="agent"),
+            statement="agent가 429를 직접 생성",
+            status="inconclusive",
+            support=[HypothesisEvidence(evidence_id="ev-1", observation="agent가 429를 받음")],
+            refute=[HypothesisEvidence(evidence_id="ev-2", observation="서버는 200 응답")],
+            unknown=[UnknownObservation(question="같은 요청의 생성 지점", reason="요청 ID 없음")],
+        ),
+        Hypothesis(statement="옛 형식 가설", status="supported", reason="r"),
+    ]
+    text = client.get(f"/dev/issues/{_done_issue(engine, hypotheses=hyps)}").text
+    section = text.split("4. 가설 판정")[1].split("5. 확인한 범위")[0]
+    assert "지지: agent가 429를 받음" in section
+    assert "반증: 서버는 200 응답" in section
+    assert "미확인: 같은 요청의 생성 지점 — 요청 ID 없음" in section
+    assert "Deployment/agent" in section
+    assert "옛 형식 가설" in section  # 지지·반증 목록이 없는 과거 보고서도 그대로 보인다
+
+
 def test_coverage_status_display(client, engine):
     from service.model.report import AreaCoverage, Coverage
 
