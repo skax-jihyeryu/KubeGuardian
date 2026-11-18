@@ -1,0 +1,31 @@
+# C4 정답 파일 (기획서 §8.3 확장 후보). 기능보다 먼저 쓴다.
+id: C4
+stage: 7
+expected_first_severity: critical
+expected_ai_impact: core_path_broken
+level: L3                 # 증상(채팅 504)은 gateway·agent 호출 경로에, 원인은 gateway의 시간 제한 설정과 LLM 응답 시간의 관계에 있다
+# gateway Deployment env에 PROXY_TIMEOUT이 있어 K8s 객체로 보이지만, 규칙은 이 값을 판정하지 않는다 (장애 신호 없음, 경로 B).
+# 또 get_resource는 env 값을 보여 주지 않고 키만 보여 준다. 값은 gateway 로그의 시간 초과 줄과 로그인은 성공·채팅만 실패하는 양상으로 추론한다
+k8s_visible: true
+gate_path: B              # 규칙 신호 없음. 기능 점검 chat 실패로 경로 B
+must_signals: []
+allowed_signals: []
+forbidden_signals: ["*"]
+must_check:
+  config: "gateway PROXY_TIMEOUT이 채팅 응답 시간보다 짧아 채팅만 504 (로그인은 성공)"
+expected_cause:
+  - {kind: Deployment, name: gateway}
+key_evidence:
+  - id: gateway-upstream-timeout
+    desc: "gateway 로그에 agent 채팅 호출의 업스트림 시간 초과(UPSTREAM_TIMEOUT)가 남는다"
+    obtainable: true
+    any_of:
+      - {kind: log_excerpt, subject: "*/Pod/gateway-*", contains: ["UPSTREAM_TIMEOUT", "agent/invoke", "http://agent:"]}
+not_a_cause:
+  - text: "llm-gateway는 정상이다 (응답이 gateway의 시간 제한보다 느릴 뿐)"
+    resource: {kind: Deployment, name: llm-gateway}
+  - text: "agent는 정상이다 (LLM 응답을 기다리는 중에 gateway가 먼저 끊는다)"
+    resource: {kind: Deployment, name: agent}
+root_cause: "gateway의 PROXY_TIMEOUT이 LLM 채팅 응답 시간보다 짧게 설정되어 채팅 요청만 gateway에서 504로 끊긴다 (로그인 같은 짧은 요청은 성공)"
+affected_services: [gateway, front-chat]
+expected_top1: "gateway의 PROXY_TIMEOUT이 너무 짧아 채팅 요청이 업스트림 시간 초과(504)로 실패"
