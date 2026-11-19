@@ -288,3 +288,45 @@ def test_failed_tool_citation_does_not_satisfy_chain_evidence():
 def test_initial_signal_citation_is_not_rejected_as_unobserved_tool():
     report = _report([_issue()])
     assert find_gaps(report, [_get("Deployment", "gateway")]) == []
+
+
+def test_recheck_targets_linked_unknown_and_skips_unobservable_question():
+    from service.model.report import UnknownObservation
+
+    h = _hyp("inconclusive")
+    h.id = "h1"
+    report = _unresolved([h, _hyp("supported")])
+    top = report.issues[0]
+    top.hypothesis_id = h.id
+    h.resource = top.cause_resource
+    h.unknown = [
+        UnknownObservation(question="이전 연결 구간", reason="현재 도구에서 미노출"),
+        UnknownObservation(question="같은 요청의 오류", check="요청 ID가 같은 서버 로그를 조회"),
+    ]
+
+    (gap,) = find_gaps(report, _CAUSE_OBS)
+    assert "요청 ID가 같은 서버 로그를 조회" in gap
+    assert "이전 연결 구간" not in gap
+    h.unknown.pop()
+    assert find_gaps(report, _CAUSE_OBS) == []
+
+
+def test_null_hypothesis_id_does_not_force_linking_recheck():
+    """프롬프트는 연결할 가설이 없으면 null을 허용한다. id가 있는 가설만으로 재조사하지 않는다."""
+    h = _hyp("supported")
+    h.id = "h1"
+    report = _unresolved([h])
+    assert report.issues[0].hypothesis_id is None
+    assert find_gaps(report, _CAUSE_OBS) == []
+
+
+def test_broken_link_reports_why():
+    h = _hyp("supported")
+    h.id = "h1"  # resource 없음
+    report = _unresolved([h])
+    report.issues[0].hypothesis_id = "h1"
+    (gap,) = find_gaps(report, _CAUSE_OBS)
+    assert "대상 리소스(resource)가 없습니다" in gap
+    report.issues[0].hypothesis_id = "h9"
+    (gap,) = find_gaps(report, _CAUSE_OBS)
+    assert "h9에 해당하는 가설이 0개" in gap

@@ -168,6 +168,37 @@ def test_unknown_area_evidence_dropped():
     assert out.report.coverage.wiring.evidence_ids == ["ev-1"]
 
 
+def test_linked_refutation_rejects_failed_and_missing_observation():
+    from service.model.report import Hypothesis, HypothesisEvidence, UnknownObservation
+
+    report = Report(
+        conclusion="호출자 429",
+        confidence="low",
+        impact_scope="채팅",
+        hypotheses=[
+            Hypothesis(
+                id="h1",
+                statement="호출자가 오류를 생성",
+                status="refuted",
+                evidence_ids=["ev-1"],
+                refute=[
+                    HypothesisEvidence(evidence_id="ev-1", observation="로그 조회 실패"),
+                    HypothesisEvidence(evidence_id="ev-2", observation="   "),
+                    HypothesisEvidence(evidence_id="ev-99", observation="없는 근거"),
+                ],
+                unknown=[UnknownObservation(question="동일 요청의 오류 생성 지점")],
+            ),
+        ],
+    )
+    out = validate_report(
+        report, {"ev-1", "ev-2"}.__contains__, observed={"ev-2"}.__contains__
+    ).report.hypotheses[0]
+
+    assert out.status == "inconclusive"
+    assert out.refute == []
+    assert out.unknown == report.hypotheses[0].unknown
+
+
 def test_outcome_counts_cited_and_confirmed_evidence():
     report = Report(
         conclusion="c",
@@ -179,3 +210,23 @@ def test_outcome_counts_cited_and_confirmed_evidence():
     )
     out = validate_report(report, {"ev-1", "ev-2"}.__contains__)
     assert (out.cited, out.confirmed) == (4, 2)  # ev-1 ev-9 ev-2 ev-3 (중복은 한 번)
+
+
+def test_blank_unknown_items_are_dropped():
+    from service.model.report import UnknownObservation
+
+    report = Report(
+        conclusion="c",
+        confidence="high",
+        impact_scope="x",
+        hypotheses=[
+            Hypothesis(
+                statement="h",
+                status="supported",
+                evidence_ids=["ev-1"],
+                unknown=[UnknownObservation(question="  "), UnknownObservation(question="q")],
+            )
+        ],
+    )
+    out = validate_report(report, {"ev-1"}.__contains__).report.hypotheses[0]
+    assert [u.question for u in out.unknown] == ["q"]

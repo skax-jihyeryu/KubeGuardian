@@ -637,7 +637,10 @@ def build_graph(agent: "InvestigatorV1"):
         seen = set(state["seen"])
         fact_texts = {f.statement for f in state["report"].preliminary_facts}
         with agent.step("validate") as s:
-            out = validate_report(state["report"], seen.__contains__)
+            failures = {o.evidence_id for o in state["observations"] if not o.ok}
+            out = validate_report(
+                state["report"], seen.__contains__, observed=lambda i: i not in failures
+            )
             s.detail = {
                 "demoted": out.demoted,
                 "conclusion_supported": out.conclusion_supported,
@@ -686,7 +689,8 @@ def build_graph(agent: "InvestigatorV1"):
                 "[재조사] 보고서 전에 다음을 확인하세요:\n"
                 + "\n".join(f"- {_gap_for_prompt(g)}" for g in gaps)
                 + f"\n이번 재조사에 도구를 {ctx.budget.recheck_calls()}회 새로 쓸 수 있습니다. "
-                "이미 쓴 횟수는 다시 세지 않습니다. 빈틈을 해소할 도구를 먼저 호출하세요."
+                "이미 쓴 횟수는 다시 세지 않습니다. 가설을 구별하는 새 관측을 먼저 확보하세요. "
+                "해당 도구가 없으면 같은 조회를 반복하지 말고 확인할 수 없는 이유를 남기세요."
             )
             return {
                 "messages": state["messages"] + [HumanMessage(note)],
