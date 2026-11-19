@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse
 
 from web.rendering import ConfigDep, EngineDep, NowDep, ProjectDep, parse_id, render
 from web.timefmt import date_range, date_window
+from web.viewmodels.checks import build_drawer
 from web.viewmodels.issues import build_issue_detail, list_issues
 from web.viewmodels.shell import build_shell
 
@@ -78,6 +79,7 @@ def issue_detail(
     config: ConfigDep,
     now: NowDep,
     report: str | None = None,
+    ev: str | None = None,
     status: str = "",
     severity: str = "",
     q: str = "",
@@ -89,6 +91,17 @@ def issue_detail(
     detail = build_issue_detail(engine, parse_id(issue), parse_id(report) if report else None, now)
     if detail is None:
         raise HTTPException(404)
+    drawer, run_id = None, None
+    if ev is not None:
+        if detail.rule_report:
+            run_id = detail.rule_report.run_id
+        elif detail.selected and detail.selected.report:
+            run_id = detail.selected.check_run_id
+        else:
+            raise HTTPException(404)
+        drawer = build_drawer(engine, run_id, parse_id(ev), now)
+        if drawer is None:
+            raise HTTPException(404)
     days = PERIOD_DAYS.get(period, days)
     return render(
         request,
@@ -102,4 +115,8 @@ def issue_detail(
         filter_query=filter_query(status, severity, q, days, date_from, date_to),
         **dates(date_from, date_to),
         d=detail,
+        drawer=drawer,
+        run_id=run_id,
+        drawer_close=request.url.remove_query_params(["ev", "live"]),
+        drawer_here=request.url.remove_query_params("live"),
     )

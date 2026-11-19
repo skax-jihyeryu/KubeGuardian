@@ -1,6 +1,7 @@
 """이슈 화면은 저장된 보고서만 읽고 다른 이슈의 보고서를 섞지 않는다."""
 
 from datetime import UTC, datetime
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -37,11 +38,59 @@ def test_issue_list_and_report(client, engine):
     assert "긴급 · 핵심 경로 장애" in response.text
     assert "dry-run 기록" in response.text
     assert "&lt;script&gt;bad&lt;/script&gt;" in response.text
-    assert f"/dev/checks/{run}?ev=1" in response.text
+    assert f"/dev/issues/{inc}?ev=1" in response.text
     assert client.get("/dev/issues?status=resolved").text.count('class="irow') == 0
     assert "채팅 실패" in client.get("/dev/issues?q=할당량").text
     IncidentStore(engine).resolve(inc, make_run(engine, start=at(70)), at(70))
     assert "해결 14:06" in client.get(f"/dev/issues/{inc}").text
+
+
+def test_issue_evidence_drawer_preserves_report_and_filters(client, engine):
+    import re
+    from xml.etree import ElementTree
+
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    ev = add_evidence(engine, run, data={"lines": ["ERROR drawer regression"]})
+    inv = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, inv, report(evidence_ids=(ev,)))
+    later = start_investigation(engine, make_run(engine), inc, [])
+    finish_investigation(engine, later, report(conclusion="새 보고서"))
+    url = f"/dev/issues/{inc}?report={inv}&status=open&q=할당량"
+    page = client.get(url)
+    link = ElementTree.fromstring(re.search(r'<a class="ev"[^>]*', page.text)[0] + "/>")
+    assert link.attrib["hx-target"] == "#drawer-root"
+    assert link.attrib["hx-select"] == "#drawer-root"
+    assert urlsplit(link.attrib["href"]).path == f"/dev/issues/{inc}"
+    opened = client.get(link.attrib["href"])
+    assert opened.status_code == 200
+    assert 'role="dialog" aria-label="근거 1"' in opened.text
+    assert "ERROR drawer regression" in opened.text
+    assert f"/dev/checks/{run}/evidence/1/summary" in opened.text
+    close = ElementTree.fromstring(re.search(r'<a id="drawer-close"[^>]*', opened.text)[0] + "/>")
+    assert close.attrib["hx-target"] == "#drawer-root"
+    assert close.attrib["hx-swap"] == "outerHTML"
+    closed = client.get(close.attrib["href"])
+    assert closed.status_code == 200
+    assert 'role="dialog"' not in closed.text
+    assert urlsplit(close.attrib["href"]).path == f"/dev/issues/{inc}"
+    assert parse_qs(urlsplit(close.attrib["href"]).query) == {
+        "report": [str(inv)],
+        "status": ["open"],
+        "q": ["할당량"],
+    }
+    assert "할당량 소진" in closed.text
+
+
+@pytest.mark.parametrize("evidence", ["2", "999", "nope", "0"])
+def test_issue_drawer_rejects_evidence_outside_selected_report(client, engine, evidence):
+    run = make_run(engine)
+    inc = open_incident(engine, run)
+    ev = add_evidence(engine, run)
+    inv = start_investigation(engine, run, inc, [])
+    finish_investigation(engine, inv, report(evidence_ids=(ev,)))
+    add_evidence(engine, make_run(engine))
+    assert client.get(f"/dev/issues/{inc}?ev={evidence}").status_code == 404
 
 
 def test_issue_pending_running_and_failed(client, engine):
@@ -443,7 +492,7 @@ def test_cause_chain_shows_order_provenance_and_escaped_observation(client, engi
     assert "호출 체인" in text and "Service/agent-svc" in text
     assert "하위 서비스 오류 전달" in text
     assert "&lt;script&gt;429 수신&lt;/script&gt;" in text
-    assert f"/dev/checks/{run}?ev=1" in text
+    assert f"/dev/issues/{inc}?ev=1" in text
 
 
 def test_log_fact_lines_render_in_terminal_box(client, engine):

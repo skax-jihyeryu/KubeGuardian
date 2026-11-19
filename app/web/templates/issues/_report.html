@@ -1,5 +1,6 @@
 {% from "_terminal.html" import terminal %}
-{% macro cites(ids) -%}{% for id in ids %}{% if id in d.evidence %}{% set run, n = d.evidence[id] %}<a class="ev" href="/{{ p }}/checks/{{ run }}?ev={{ n }}">근거 {{ n }}</a>{% endif %}{% endfor %}{%- endmacro %}
+{% from "_icons.html" import evlink %}
+{% macro cites(ids) -%}{% for id in ids %}{% if id in d.evidence %}{% set run, n = d.evidence[id] %}{{ evlink(p, run, n, drawer_close.include_query_params(ev=n)) }}{% endif %}{% endfor %}{%- endmacro %}
 {% set inv = d.selected %}
 {% if d.investigation_state == "rule" %}{% if d.rule_report %}{% with rr = d.rule_report %}{% include "_rule_report.html" %}{% endwith %}{% else %}<p class="muted">규칙 진단 결과를 읽을 수 없습니다. 연결된 점검의 판정을 확인하세요.</p>{% endif %}
 {% elif d.investigation_state == "queued" %}<p class="aux run">{{ ic("spin") }}조사 대기 중입니다. 작업자가 조사를 시작하면 자동으로 갱신됩니다.</p>
