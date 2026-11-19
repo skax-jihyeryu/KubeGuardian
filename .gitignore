@@ -50,3 +50,8 @@ docs/superpowers/
 
 # 로컬 설정 (예시는 kubeguardian.example.yaml)
 kubeguardian.yaml
+
+# 시연 영상 원본·결과물 (용량이 커서 커밋하지 않는다)
+docs/산출물/assets/08-demo/*.mp4
+docs/산출물/assets/08-demo/*.m4a
+~$*
