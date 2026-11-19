@@ -65,7 +65,11 @@ def test_issue_shows_rule_result_instead_of_investigation_status(client, engine)
     assert "S01" in text and "selector에 맞는 Pod 없음" in text
     assert "dev/Service/agent" in text
     assert "Service selector와 대상 Pod의 라벨이 일치하는지 확인하세요." in text
-    assert f"/dev/checks/{run}?ev=1" in text
+    assert f"/dev/issues/{incident}?ev=1" in text
+    opened = client.get(f"/dev/issues/{incident}?ev=1")
+    assert opened.status_code == 200
+    assert 'role="dialog" aria-label="근거 1"' in opened.text
+    assert f"/dev/checks/{run}/evidence/1/summary" in opened.text
     assert "규칙이 확인한 위치와 사실입니다. 근본 원인과 영향 범위는 확인하지 않았습니다." in text
     assert not any(word in text for word in WAITING)
 
