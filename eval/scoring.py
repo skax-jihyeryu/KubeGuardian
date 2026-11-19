@@ -255,5 +255,6 @@ def assess_observability(
         **verdict.model_dump(exclude={"exact_origin_supported"}),
         "accuracy": accurate,
         "exact_origin_supported": exact,
+        "judge_exact_origin": verdict.exact_origin_supported,  # 결합 전 judge 원래 값 (라벨 비교용)
         "calibration": calibration,
     }

@@ -70,6 +70,7 @@ from scoring import (  # noqa: E402
     resolve_expected,
     score,
 )
+from service.agent._common.usage import UsageTracker  # noqa: E402
 from service.agent.base import AgentResult  # noqa: E402
 from service.pipeline.check import run_check  # noqa: E402
 from service.pipeline.investigate import run_investigation  # noqa: E402
@@ -259,7 +260,8 @@ def score_layers(
     *,
     db_path: Path,
     claim_judge: Callable[[list[Claim], dict[str, dict]], list[ClaimVerdict]],
-    observable_judge: Callable[[str, str, list[ClaimVerdict]], ObservableJudgement] | None = None,
+    # (시나리오, 결론, 주장 판정, usage=UsageTracker) → 관측 판정
+    observable_judge: Callable[..., ObservableJudgement] | None = None,
 ) -> dict:
     """2단계 채점: 원복 뒤 가져온 근거 DB로 핵심 근거와 주장별 근거를 채점해 실패를 분류한다.
 
@@ -314,10 +316,18 @@ def score_layers(
     scenario = expected.get("id")
     if observable_judge is not None and scenario in OBSERVABILITY_CONTRACTS:
         try:
-            verdict = observable_judge(scenario, report["conclusion"], verdicts)
-            ai["observability"] = assess_observability(
-                scenario, ai.get("judgement"), summary["conclusion_support"], verdict
-            )
+            started = time.monotonic()
+            usage = UsageTracker()
+            verdict = observable_judge(scenario, report["conclusion"], verdicts, usage=usage)
+            ai["observability"] = {
+                **assess_observability(
+                    scenario, ai.get("judgement"), summary["conclusion_support"], verdict
+                ),
+                # 추가 의미 판정의 시간·토큰. 조사 usage에는 들어가지 않는다
+                "seconds": round(time.monotonic() - started, 1),
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+            }
         except Exception as error:
             ai["observability"] = {"version": 1, "error": type(error).__name__}
     return ai
@@ -758,6 +768,13 @@ def score_ai_runs(
     # 가져오기가 실패했거나 중간에 끊긴 DB는 믿지 않는다: 없는 경로를 넘겨 F0이 되게 한다
     unusable = result.get("db_fetch_failed") or result.get("db_incomplete")
     db_path = out_dir / ("kg.db.unusable" if unusable else "kg.db")
+    models: list = []  # 채점 모델은 처음 쓸 때 한 번만 만든다 (회차마다 새로 만들지 않는다)
+
+    def judge_llm():
+        if not models:
+            models.append(build_chat_model(JUDGE_MODEL))
+        return models[0]
+
     for i, (ai, report, steps) in enumerate(pending):
         try:
             score_layers(
@@ -766,11 +783,9 @@ def score_ai_runs(
                 steps,
                 expected,
                 db_path=db_path,
-                claim_judge=lambda claims, ev: judge_claims(
-                    claims, ev, build_chat_model(JUDGE_MODEL)
-                ),
-                observable_judge=lambda scenario, conclusion, verdicts: judge_observability(
-                    scenario, conclusion, verdicts, build_chat_model(JUDGE_MODEL)
+                claim_judge=lambda claims, ev: judge_claims(claims, ev, judge_llm()),
+                observable_judge=lambda scenario, conclusion, verdicts, usage: judge_observability(
+                    scenario, conclusion, verdicts, judge_llm, usage
                 ),
             )
         except Exception as e:  # 한 회차의 채점 오류가 다른 회차와 결과 저장을 막지 않는다

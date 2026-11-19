@@ -23,6 +23,15 @@ from scoring import classify  # noqa: E402
 
 HISTORY = ROOT / "eval" / "history"
 LABELS = ROOT / "eval" / "labels"
+# 사람 라벨의 observability 필드 → 비교할 관측 기록 필드 (#182).
+# exact_origin_supported는 기존 채점과 결합한 값이 아니라
+# judge 원래 값(judge_exact_origin)과 비교한다
+OBSERVABILITY_LABEL_FIELDS = {
+    "finding": "finding",
+    "exact_origin_supported": "judge_exact_origin",
+    "unresolved_conflict": "unresolved_conflict",
+    "abstained": "abstained",
+}
 SCENARIOS = ROOT / "scenarios"
 AGREEMENT_MIN = 0.9
 REGRESSION_DROP = 2
@@ -49,13 +58,18 @@ def load_labels(labels_dir: Path) -> dict[tuple[str, int], dict]:
 
 
 def apply_label(run: dict, label: dict | None) -> dict:
-    """라벨이 있으면 judge_match와 주장 판정을 덮어쓰고 다시 분류한 사본을 돌려준다."""
+    """라벨이 있으면 judge_match와 주장 판정을 덮어쓰고 다시 분류한 사본을 돌려준다.
+
+    관측 판정(observability)만 검토한 라벨은 top1_match·claims가 없을 수 있다. 그때는 그대로 둔다.
+    """
     out = json.loads(json.dumps(run))
     if label is None or out.get("failure") in (None, "F0", "error"):
         return out
+    if "top1_match" not in label and not label.get("claims"):
+        return out
     out["orig_judge_match"] = out.get("judge_match")
     out["orig_claims"] = out.get("claims") or []
-    judge_match = bool(label["top1_match"])
+    judge_match = bool(label.get("top1_match", out.get("judge_match")))
     given = {c["source"]: c["verdict"] for c in label.get("claims") or []}
     claims = [
         {**c, "verdict": given.get(c["source"], c["verdict"])} for c in out.get("claims") or []
@@ -155,6 +169,8 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
     rule_diag_invalid: dict[str, int] = defaultdict(int)
     ai_on_rules: set[str] = set()
     agree_conc, agree_claims = [], []
+    # 시나리오별 관측 판정 사람 검토: {"runs": n, "fields": {필드: [일치, 라벨 수]}} (#182)
+    obs_agree: dict[str, dict] = {}
     by_stage: dict[tuple[int | str, bool, str], list[int]] = defaultdict(lambda: [0] * 6)
     by_path: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     invisible: list[dict] = []
@@ -218,6 +234,16 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
                 continue
             if run.get("failure") == "error":
                 s["errors"] += 1
+            obs_label = (labels.get((name, i)) or {}).get("observability")
+            record = run.get("observability")
+            if obs_label and record and not record.get("error"):
+                agreement = obs_agree.setdefault(sid, {"runs": 0, "fields": {}})
+                agreement["runs"] += 1
+                for field, recorded in OBSERVABILITY_LABEL_FIELDS.items():
+                    if field in obs_label and recorded in record:
+                        tally_row = agreement["fields"].setdefault(field, [0, 0])
+                        tally_row[0] += obs_label[field] == record[recorded]
+                        tally_row[1] += 1
             run = apply_label(run, labels.get((name, i)))
             if run.get("labeled"):
                 agree_conc.append(run["orig_judge_match"] == run["judge_match"])
@@ -300,6 +326,7 @@ def summarize(results: list[tuple[str, dict]], labels: dict, scenarios_dir: Path
         "drift": drift,
         "scenarios": dict(sorted(scen.items())),
         "observability": _observability(scen),
+        "observability_agreement": dict(sorted(obs_agree.items())),
         "by_level": group("level"),
         "by_stage": dict(by_stage),
         "by_path": dict(sorted(by_path.items())),
@@ -374,6 +401,10 @@ def _observability(scen: dict[str, dict]) -> dict[str, dict]:
     if not any(v["records"] for v in out.values()):
         return {}
     return out
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
 
 
 def _passed(run: dict) -> bool:
@@ -489,6 +520,30 @@ def render(summary: dict, baseline: dict | None) -> str:
                     f"{calibration.get('unwarranted_abstention', 0)} | "
                     f"{len(records) - len(valid)} |"
                 )
+        timed = [
+            r
+            for data in observability.values()
+            for r in data["records"]
+            if _is_number(r.get("seconds"))
+        ]
+        if timed:
+            seconds = sum(r["seconds"] for r in timed)
+            tokens = [
+                f"{key} {sum(r[key] for r in timed if _is_number(r.get(key))):,}"
+                for key in ("input_tokens", "output_tokens")
+            ]
+            out += [
+                "",
+                f"관측 판정 추가 호출 {len(timed)}회 · {seconds:.1f}초 · {' · '.join(tokens)} "
+                "(조사 시간·토큰과 별도)",
+            ]
+        for sid, agreement in (summary.get("observability_agreement") or {}).items():
+            fields = " · ".join(f"{k} {m}/{n}" for k, (m, n) in agreement["fields"].items())
+            out += [
+                "",
+                f"관측 판정 사람 검토 {sid} {agreement['runs']}회차: {fields}. "
+                "라벨 표본에서만 의미가 있고, 판정은 사람 라벨로 덮어쓰지 않는다.",
+            ]
         out += [
             "",
             "관측 가능성 채점은 기존 cause·judge·통과·실패 분류와 별도로 보고한다. "
