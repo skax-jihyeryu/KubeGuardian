@@ -44,4 +44,4 @@ bash scenarios/H0/verify_symptom.sh
 
 ## 확인 상태
 
-2026-11-09 #232: 검증기가 파드 로그(`kubectl logs`)에서 `status=403`·`deployment_not_allowed`를 찾았으나, 실제 파드 로그에는 둘 다 없다. 파드 로그에는 SQLAlchemy 감사 로그 INSERT 줄(`'deployment_name': 'gpt-4.1-next'`, `'response_status': 'error'`)과 `POST /api/v1/chat/completions ... 500`만 있고 `log_data`는 `... (N characters truncated) ...`로 잘린다. 403 근거(`403: Azure OpenAI API 호출 실패 (403): {"error": {"code": "deployment_not_allowed", ...}}`)는 `llm_audit_log.log_data`에만 온전히 남는다. 검증기를 이 테이블 조회로 바꿨다. 에이전트에는 여전히 DB 조회 수단이 없다.
+2026-11-09 #232: 검증기가 파드 로그(`kubectl logs`)에서 `status=403`·`deployment_not_allowed`를 찾았으나 당시에는 찾지 못했고, 검증기를 `llm_audit_log.log_data`(감사 테이블) 조회로 바꿨다. 이 기록은 당시 환경의 결과이고, 현재 환경에서는 llm-gateway Pod 로그에 `provider call failed … 403 … deployment_not_allowed` 줄이 찍힌다(11/18 평가 기록, 11/19 확인). SQLAlchemy 감사 INSERT 줄의 `log_data`는 `... (N characters truncated) ...`로 잘리므로 검증기는 계속 DB 감사 로그를 쓴다. 에이전트에는 여전히 DB 조회 수단이 없다.
